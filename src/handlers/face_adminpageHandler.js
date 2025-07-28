@@ -16,7 +16,7 @@ exports.handleFacePunch = async (req, res) => {
     const faces = await getAllFaces();
     let bestMatch = null;
     let bestDistance = Infinity;
-    const threshold = 0.35;
+    const threshold = 0.28;
     let matchedFace = null; // 👈 hold the matched face record
 
     for (const face of faces) {

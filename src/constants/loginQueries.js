@@ -6,26 +6,28 @@
 
 module.exports = {
   // Query to fetch user details by email
-  GET_USER_BY_EMAIL: `
-    SELECT 
-  e.role, 
-  e.employee_id, 
-  CONCAT(e.first_name, ' ', e.last_name) AS name,
-  e.gender, 
-  e.email, 
-  e.password,
-  e.position,  
-  e.status,   
-  d.name AS department 
-FROM 
-  employees e
-LEFT JOIN 
-  departments d 
-ON 
-  e.department_id = d.id
-WHERE 
-  e.email = ?;
-  `,
+GET_USER_BY_EMAIL: `
+  SELECT 
+    e.role, 
+    e.employee_id, 
+    CONCAT(e.first_name, ' ', e.last_name) AS name,
+    e.gender, 
+    e.email, 
+    e.password,
+    e.position,  
+    e.status,   
+    e.Org_id,
+    d.name AS department 
+  FROM 
+    employees e
+  LEFT JOIN 
+    departments d 
+  ON 
+    e.department_id = d.id
+  WHERE 
+    e.email = ?;
+`
+,
 
   // Query to fetch admin details by employee_id
   GET_ADMIN_DETAILS: `
@@ -167,7 +169,12 @@ GROUP BY
   FROM employees e
   WHERE e.employee_id = ?;
 `,
-  GET_SIDEBAR_MENU: `SELECT label, path, icon FROM sidebar_menu WHERE FIND_IN_SET(?, roles)`,
+
+  GET_SIDEBAR_MENU: `SELECT sm.label, sm.path, sm.icon
+FROM sidebar_menu sm
+JOIN sidebar_menu_access sma ON sm.id = sma.sidebar_item_id
+WHERE sma.role = ? AND sma.org_id = ?
+`,
 
 
  

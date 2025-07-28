@@ -68,7 +68,18 @@ const server = http.createServer(app);
 app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 const assetsRoutesforreturn = require("./routes/assetsRoutes");
 const chatRoutes = require("./routes/chatRoutes");
+//////////////
 
+
+////////////organization routes
+
+const sidebarRoutes = require("./routes/sidebarRoutes");
+const organizationTableRoutes = require("./routes/organizationTableRoutes");
+
+// Add this before your error handlers
+app.use("/api", sidebarRoutes);
+
+const orgRoutes = require("./routes/orgRoutes");
 app.use(
   cors({
     origin: process.env.FRONTEND_URL || "*",
@@ -174,8 +185,11 @@ app.get("/", (req, res) => {
 });
 app.use('/api/templates', letterheadTemplateRoutes);
 //
-
+//organization routes
+app.use("/api", sidebarRoutes);
+app.use("/", orgRoutes);
 app.use("/api", payrollRoutes);
+app.use("/api", organizationTableRoutes);
 const io = new Server(server, {
   cors: { origin: process.env.FRONTEND_URL || "*" },
 });

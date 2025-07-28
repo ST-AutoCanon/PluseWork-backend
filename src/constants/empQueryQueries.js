@@ -140,6 +140,7 @@ ORDER BY
       t.status, 
       t.latest_message
   ORDER BY t.created_at DESC;
+
   `,
 
   MARK_MESSAGES_AS_READ: `

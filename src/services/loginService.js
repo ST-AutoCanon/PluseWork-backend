@@ -81,6 +81,7 @@ class LoginService {
       employeeId: admin.employee_id,
       email: admin.email,
       gender: admin.gender,
+       Org_id: admin.Org_id, 
       total_employees: dashboardStats[0]?.total_employees || 0, // Default to 0 if not available
       attendance: {
         present: dashboardStats[0]?.present || 0, // Default to 0 if null
@@ -165,10 +166,11 @@ class LoginService {
    * @param {string} role - User role.
    * @returns {Promise<Array>} List of sidebar menu items.
    */
-  static async fetchSidebarMenu(role) {
-    const [menuItems] = await db.execute(queries.GET_SIDEBAR_MENU, [role]);
-    return menuItems;
-  }
+  static async fetchSidebarMenu(role, orgId) {
+  const [menuItems] = await db.execute(queries.GET_SIDEBAR_MENU, [role, orgId]);
+  return menuItems;
+}
+
 
   static async getAttendanceStatusCount() {
     try {
