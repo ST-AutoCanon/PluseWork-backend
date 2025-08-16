@@ -6,7 +6,8 @@ require("dotenv").config();
 const path = require("path");
 const session = require("express-session");
 const { Server } = require("socket.io");
-
+const sidebarRoutes = require("./routes/sidebarRoutes");
+const organizationTableRoutes = require("./routes/organizationTableRoutes");
 const EmployeeQueries = require("./services/employeeQueries");
 const chatService = require("./services/chatService");
 const apiKeyMiddleware = require("./middleware/apiKeyMiddleware");
@@ -79,7 +80,7 @@ const server = http.createServer(app);
 app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 const assetsRoutesforreturn = require("./routes/assetsRoutes");
 const chatRoutes = require("./routes/chatRoutes");
-
+const orgRoutes = require("./routes/orgRoutes");
 const allowedOrigins = [
   "https://localhost",
   "capacitor://localhost",
@@ -197,6 +198,14 @@ app.use("/api/employeelogin", employeeloginRoutes);
 app.use("/api", empExcelRoutes);
 app.use("/api/employee", employeeBirthdayRoutes);
 
+
+//////////////
+
+//organization routes
+app.use("/api", sidebarRoutes);
+app.use("/", orgRoutes);
+app.use("/api", payrollRoutes);
+app.use("/api", organizationTableRoutes);
 // vendor Route definitions
 app.use("/", vendorRoutes); // ✅ Prefix all vendor routes with /vendors
 

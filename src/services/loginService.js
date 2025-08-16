@@ -157,16 +157,16 @@ class LoginService {
     }
   }
 
-  /**
+   /**
    * Fetch sidebar menu items based on role.
    *
    * @param {string} role - User role.
    * @returns {Promise<Array>} List of sidebar menu items.
    */
-  static async fetchSidebarMenu(role) {
-    const [menuItems] = await db.execute(queries.GET_SIDEBAR_MENU, [role]);
-    return menuItems;
-  }
+  static async fetchSidebarMenu(role, orgId) {
+  const [menuItems] = await db.execute(queries.GET_SIDEBAR_MENU, [role, orgId]);
+  return menuItems;
+}
 
   static async getAttendanceStatusCount() {
     try {

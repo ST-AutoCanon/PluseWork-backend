@@ -9,6 +9,7 @@ module.exports = {
     SELECT
       pr.role,
       e.employee_id,
+      e.Org_id, -- ✅ Added Org_id
       CONCAT(e.first_name, ' ', e.last_name) AS name,
       p.gender,
       e.email,
@@ -25,6 +26,7 @@ module.exports = {
       ON pr.department_id = d.id
     WHERE e.email = ?;
   `,
+
 
   // Query to fetch admin details by employee_id
   GET_ADMIN_DETAILS: `
@@ -202,11 +204,16 @@ module.exports = {
   `,
 
   // Query to fetch sidebar menu by roles
-  GET_SIDEBAR_MENU: `
-    SELECT label, path, icon
-    FROM sidebar_menu
-    WHERE FIND_IN_SET(?, roles);
-  `,
+  // GET_SIDEBAR_MENU: `
+  //   SELECT label, path, icon
+  //   FROM sidebar_menu
+  //   WHERE FIND_IN_SET(?, roles);
+  // `,
+   GET_SIDEBAR_MENU: `SELECT sm.label, sm.path, sm.icon
+FROM sidebar_menu sm
+JOIN sidebar_menu_access sma ON sm.id = sma.sidebar_item_id
+WHERE sma.role = ? AND sma.org_id = ?
+`,
 
   GET_EMPLOYEE_COUNT_BY_DEPARTMENT: `
     SELECT

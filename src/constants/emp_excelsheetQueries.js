@@ -1,7 +1,10 @@
+
+
 const GET_EMP_ATTENDANCE_BY_DATE_RANGE = `
 SELECT 
     ea.employee_id,
     CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
+    DATE(ea.punchin_time) AS attendance_date,
     MIN(ea.punchin_time) AS first_punchin,
     MAX(ea.punchout_time) AS last_punchout,
     SEC_TO_TIME(SUM(TIMESTAMPDIFF(SECOND, ea.punchin_time, ea.punchout_time))) AS total_work_hours,
@@ -22,13 +25,11 @@ SELECT
         LIMIT 1
     ) AS last_punchout_location
 FROM emp_attendence ea
-JOIN employees e ON ea.employee_id = e.employee_id
-WHERE DATE(ea.punchin_time) BETWEEN ? AND ?
-  AND ea.punchout_time IS NOT NULL
-  AND DATE(ea.punchout_time) = DATE(ea.punchin_time)
+JOIN employees e ON ea.employee_id = e.employee_id AND e.Org_id = ?
+WHERE (DATE(ea.punchin_time) BETWEEN ? AND ?)
+   OR (DATE(ea.punchout_time) BETWEEN ? AND ?)
 GROUP BY ea.employee_id, DATE(ea.punchin_time)
-HAVING COUNT(ea.punchout_time) > 0
-ORDER BY ea.employee_id;
+ORDER BY ea.employee_id, attendance_date;
 `;
 
 module.exports = {

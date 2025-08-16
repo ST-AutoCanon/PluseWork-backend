@@ -50,7 +50,7 @@ class LoginHandler {
       const dashboard = await dashboardFunction(user.employee_id);
 
       // Fetch sidebar menu based on role
-      const sidebarMenu = await LoginService.fetchSidebarMenu(user.role);
+      const sidebarMenu = await LoginService.fetchSidebarMenu(user.role, user.Org_id);
 
       const attendanceCount = await LoginService.getAttendanceStatusCount();
       const loginDataCount = await LoginService.fetchEmployeeLoginDataCount();
@@ -72,6 +72,7 @@ class LoginHandler {
           message: {
             role: user.role,
             name: user.name,
+            org_id: user.Org_id,
             gender: user.gender,
             dashboard,
             sidebarMenu,
