@@ -17,7 +17,7 @@ const holidayRoutes = require("./routes/holidayRoutes");
 const loginRoutes = require("./routes/login");
 const leaveRoutes = require("./routes/leave");
 const leavePolicy = require("./routes/leavePolicyRoutes");
-
+const templateRoutes = require("./routes/templateRoutes");
 const employeeRoutes = require("./routes/employee");
 const employeeQueries = require("./routes/employeeQueries");
 const projects = require("./routes/project");
@@ -127,6 +127,9 @@ app.use((req, res, next) => {
 app.use(express.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
+app.use(express.json({ limit: "50mb" })); // increase as needed
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
+
 app.use("/uploads", express.static(path.join(__dirname, "..", "uploads")));
 app.use("/assets", express.static(path.join(__dirname, "assets")));
 app.use("/api/leave-policies", leavePolicy);
@@ -158,6 +161,7 @@ app.use("/", invoices);
 app.use("/", employeeRoutes);
 app.use("/", meetingRoutes);
 app.use("/api", notificationsRouter);
+app.use("/api/orgs", templateRoutes);
 app.use("/", employeeQueries);
 app.use("/", resetPasswordRoutes);
 app.use("/", forgotPasswordRoutes);
@@ -197,7 +201,6 @@ app.use("/face-punch", face_admin_page);
 app.use("/api/employeelogin", employeeloginRoutes);
 app.use("/api", empExcelRoutes);
 app.use("/api/employee", employeeBirthdayRoutes);
-
 
 //////////////
 

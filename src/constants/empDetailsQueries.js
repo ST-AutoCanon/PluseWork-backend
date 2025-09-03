@@ -192,7 +192,7 @@ SELECT
   -- personal
   p.address, p.father_name, p.mother_name, p.gender,
   p.marital_status, p.spouse_name, DATE_FORMAT(p.spouse_dob, '%Y-%m-%d') AS spouse_dob,
-  p.spouse_gov_doc_url, DATE_FORMAT(p.marriage_date,'%Y-%m-%d') AS marriage_date,
+  p.spouse_gov_doc_url, DATE_FORMAT(p.marriage_date,'%Y-%m-%d') AS marriage_date, p.insurance_doc,
   p.aadhaar_number, p.aadhaar_doc_url,
   p.pan_number, p.pan_doc_url,
   p.passport_number, p.passport_doc_url,

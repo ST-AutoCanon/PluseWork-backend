@@ -1,4 +1,4 @@
-const ErrorHandler = require('../utils/errorHandler');
+const ErrorHandler = require("../utils/errorHandler");
 
 /**
  * Middleware to validate x-api-key in the request header.
@@ -7,12 +7,15 @@ const ErrorHandler = require('../utils/errorHandler');
  * @param {Function} next - Next middleware function.
  */
 const validateApiKey = (req, res, next) => {
-  const apiKey = req.header('x-api-key');
+  const apiKey = req.header("x-api-key");
   const validApiKey = process.env.X_API_KEY;
 
   // Check if API key is provided and is valid
   if (!apiKey || apiKey !== validApiKey) {
-    const errorResponse = ErrorHandler.generateErrorResponse(403, 'Forbidden: Invalid API key');
+    const errorResponse = ErrorHandler.generateErrorResponse(
+      403,
+      "Forbidden: Invalid API key"
+    );
     return res.status(403).json(errorResponse);
   }
 
