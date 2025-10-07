@@ -47,118 +47,95 @@ module.exports = {
     WHERE id = ?
   `,
 
-  /**
-   * 6) Compute leave balance for an employee:
-   *    - Explode JSON array
-   *    - Sum approved days in the policy period
-   *    - Calculate remaining & loss_of_pay
-   */
-  LEAVE_BALANCE: `
+  // LeaveQueries / leave request queries (kept for compatibility)
+  GET_LEAVE_BY_ID: `
     SELECT
-      js.type              AS type,
-      js.enabled           AS enabled,
-      COALESCE(js.value,0)           AS annual_allowance,
-      COALESCE(js.working_days,0)     AS working_days_required,
-      COALESCE(js.earned_leaves,0)    AS earned_leaves_granted,
-      COALESCE(js.carry_forward,0)    AS carry_forward,
-
-      IFNULL(SUM(DATEDIFF(lq.end_date, lq.start_date) + 1), 0) AS used,
-
-      /* remaining = allowance + earned_leaves + carry_forward - used */
-      (
-        COALESCE(js.value,0)
-        + COALESCE(js.earned_leaves,0)
-        + COALESCE(js.carry_forward,0)
-        - IFNULL(SUM(DATEDIFF(lq.end_date, lq.start_date) + 1),0)
-      ) AS remaining,
-
-      /* loss_of_pay = max(used - (allowance+earned+carry),0) */
-      GREATEST(
-        IFNULL(SUM(DATEDIFF(lq.end_date, lq.start_date) + 1),0)
-        - (
-            COALESCE(js.value,0)
-            + COALESCE(js.earned_leaves,0)
-            + COALESCE(js.carry_forward,0)
-          ),
-        0
-      ) AS loss_of_pay
-
-    FROM leave_policy lp
-
-    /* Unpack JSON array into table rows */
-    JOIN JSON_TABLE(
-      lp.leave_settings,
-      '$[*]' COLUMNS (
-        type            VARCHAR(50) PATH '$.type',
-        enabled         BOOLEAN      PATH '$.enabled',
-        value           INT          PATH '$.value'           DEFAULT 0,
-        working_days    INT          PATH '$.working_days'    DEFAULT 0,
-        earned_leaves   INT          PATH '$.earned_leaves'   DEFAULT 0,
-        carry_forward   INT          PATH '$.carry_forward'   DEFAULT 0
-      )
-    ) AS js
-
-    LEFT JOIN leavequeries lq
-      ON lq.leave_type = js.type
-      AND lq.employee_id = ?
-      AND lq.status = 'Approved'
-      AND lq.start_date BETWEEN lp.year_start AND lp.year_end
-
-    WHERE lp.period = 'yearly'  /* or parameterize if you wish */
-
-    GROUP BY
-      js.type, js.value, js.working_days, js.earned_leaves, js.carry_forward;
+      lq.*,
+      CONCAT(e.first_name, ' ', e.last_name) AS name
+    FROM leavequeries lq
+    JOIN employees e
+      ON lq.employee_id = e.employee_id
+    WHERE lq.id = ? AND lq.employee_id = ?;
   `,
 
-  MONTHLY_LOP: `
-    SELECT 
-    COALESCE(SUM(GREATEST(t.used - t.allowance, 0)), 0) AS total_lop
-FROM (
-    SELECT
-        lq.leave_type,
-        SUM(DATEDIFF(lq.end_date, lq.start_date) + 1) AS used,
-        (
-            COALESCE(
-                CAST(JSON_UNQUOTE(JSON_EXTRACT(
-                    ls.leave_settings_json, '$.value'
-                )) AS UNSIGNED),
-                CAST(JSON_UNQUOTE(JSON_EXTRACT(
-                    ls.leave_settings_json, '$.earned_leaves'
-                )) AS UNSIGNED),
-                0
-            )
-            +
-            COALESCE(
-                CAST(JSON_UNQUOTE(JSON_EXTRACT(
-                    ls.leave_settings_json, '$.carry_forward'
-                )) AS UNSIGNED),
-                0
-            )
-        ) AS allowance
-    FROM leavequeries lq
-    JOIN (
-        SELECT 
-            JSON_EXTRACT(lp.leave_settings, CONCAT(
-                '$[', idx.idx, ']'
-            )) AS leave_settings_json,
-            JSON_UNQUOTE(JSON_EXTRACT(lp.leave_settings, CONCAT(
-                '$[', idx.idx, '].type'
-            ))) AS type,
-            lp.year_start,
-            lp.year_end
-        FROM leave_policy lp
-        JOIN (
-            SELECT 0 AS idx UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3
-        ) idx
-    ) ls 
-        ON lq.leave_type = ls.type
-        AND lq.start_date BETWEEN ls.year_start AND ls.year_end
-    WHERE lq.employee_id = ?
-      AND lq.status = 'Approved'
-      AND MONTH(lq.start_date) = ?
-      AND YEAR(lq.start_date) = ?
-    GROUP BY lq.leave_type, ls.leave_settings_json
-) AS t;
+  INSERT_LEAVE_REQUEST: `
+    INSERT INTO leavequeries (
+      employee_id, start_date, end_date,
+      H_F_day, reason, leave_type
+    ) VALUES (?, ?, ?, ?, ?, ?);
+  `,
 
+  // ------------------------------------------------------------------
+  // New queries for attendance + monthly LOP persistence
+  // ------------------------------------------------------------------
+
+  // Count worked days where both punchin_time and punchout_time exist between a date range
+  // Params: [employeeId, startDate, endDate]
+  GET_WORKED_DAYS: `
+    SELECT COUNT(DISTINCT DATE(punchin_time)) AS worked_days
+    FROM emp_attendence
+    WHERE employee_id = ?
+      AND DATE(punchin_time) BETWEEN ? AND ?
+      AND punchin_time IS NOT NULL
+      AND punchout_time IS NOT NULL
+  `,
+
+  GET_USED_LEAVES_IN_PERIOD: `
+SELECT
+  leave_type,
+  SUM(
+    CASE
+      WHEN (COALESCE(deducted_days, 0) > 0 OR COALESCE(loss_of_pay_days, 0) > 0)
+        THEN COALESCE(deducted_days, 0)
+      WHEN H_F_day LIKE '%Half%' AND start_date = end_date
+        THEN 0.5
+      ELSE DATEDIFF(end_date, start_date) + 1
+    END
+  ) AS used
+FROM leavequeries
+WHERE employee_id = ?
+  AND status = 'Approved'
+  AND (
+     (start_date BETWEEN ? AND ?)
+     OR (end_date BETWEEN ? AND ?)
+     OR (start_date <= ? AND end_date >= ?)
+  )
+GROUP BY leave_type;
+
+`,
+
+  // Upsert into employee_monthly_lop
+  // Params: [employeeId, month, year, lop]
+  UPSERT_EMPLOYEE_MONTHLY_LOP: `
+    INSERT INTO employee_monthly_lop (employee_id, month, year, lop)
+    VALUES (?, ?, ?, ?)
+    ON DUPLICATE KEY UPDATE
+      lop = VALUES(lop),
+      computed_at = CURRENT_TIMESTAMP;
+  `,
+
+  // Fetch stored monthly lop if present
+  // Params: [employeeId, month, year]
+  GET_EMPLOYEE_MONTHLY_LOP: `
+    SELECT lop, DATE_FORMAT(computed_at, '%Y-%m-%d %H:%i:%s') AS computed_at
+    FROM employee_monthly_lop
+    WHERE employee_id = ? AND month = ? AND year = ?;
+  `,
+
+  // new query: get per-employee carry forward for a policy year
+  GET_EMPLOYEE_CARRY_FORWARD: `
+    SELECT leave_type, amount
+    FROM employee_leave_carry_forward
+    WHERE employee_id = ? AND year = ?
+  `,
+  // Insert audit record for traceability
+  INSERT_LEAVE_AUDIT: `
+    INSERT INTO leave_audit (
+      leave_id,
+      actor_id,
+      action,
+      details,
+      created_at
+    ) VALUES (?, ?, ?, ?, NOW())
   `,
 };

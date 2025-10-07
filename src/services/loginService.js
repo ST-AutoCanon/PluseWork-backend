@@ -140,6 +140,7 @@ class LoginService {
         employeeId: emp.employee_id,
         position: emp.position,
         gender: emp.gender,
+        department_id: emp.department_id,
         department: emp.department, // department name
         salary: emp.salary,
         photoUrl: emp.photo_url,
@@ -157,16 +158,19 @@ class LoginService {
     }
   }
 
-   /**
+  /**
    * Fetch sidebar menu items based on role.
    *
    * @param {string} role - User role.
    * @returns {Promise<Array>} List of sidebar menu items.
    */
   static async fetchSidebarMenu(role, orgId) {
-  const [menuItems] = await db.execute(queries.GET_SIDEBAR_MENU, [role, orgId]);
-  return menuItems;
-}
+    const [menuItems] = await db.execute(queries.GET_SIDEBAR_MENU, [
+      role,
+      orgId,
+    ]);
+    return menuItems;
+  }
 
   static async getAttendanceStatusCount() {
     try {

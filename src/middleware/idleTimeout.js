@@ -1,5 +1,5 @@
 module.exports = (req, res, next) => {
-  const idleLimit = 5 * 60 * 1000;
+  const idleLimit = 15 * 60 * 1000;
 
   if (req.path === "/login") {
     return next();

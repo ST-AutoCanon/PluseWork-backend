@@ -2,6 +2,7 @@ const db = require("../config");
 const queries = require("../constants/projectQueries");
 
 const addProject = async (projectData) => {
+  // projectData must include org_id as last element (may be null)
   const [result] = await db.execute(queries.INSERT_PROJECT, projectData);
   return result.insertId;
 };
@@ -19,17 +20,35 @@ const addFinancialDetails = async (financialData) => {
   await db.execute(queries.INSERT_FINANCIAL_DETAILS, financialData);
 };
 
-const getAllProjects = async () => {
-  const [rows] = await db.query(queries.GET_ALL_PROJECTS);
-  return rows;
+const getAllProjects = async (orgId = null) => {
+  // If orgId provided, use a filtered query; otherwise use full query
+  if (orgId !== undefined && orgId !== null && String(orgId).trim() !== "") {
+    const sql = queries.GET_ALL_PROJECTS + " WHERE p.org_id = ?;";
+    const [rows] = await db.execute(sql, [orgId]);
+    return rows;
+  } else {
+    const [rows] = await db.query(queries.GET_ALL_PROJECTS);
+    return rows;
+  }
 };
 
-const getEmployeeProjects = async (employeeId) => {
+const getEmployeeProjects = async (employeeId, orgId = null) => {
+  // employeeId must be JSON string like "\"E123\""
   const jsonEmployeeId = `"${employeeId}"`;
-  const [rows] = await db.query(queries.GET_EMPLOYEE_PROJECTS, [
-    jsonEmployeeId,
-  ]);
-  return rows;
+
+  // If orgId provided, use query with org filter
+  if (orgId !== undefined && orgId !== null && String(orgId).trim() !== "") {
+    const [rows] = await db.execute(queries.GET_EMPLOYEE_PROJECTS_BY_ORG, [
+      jsonEmployeeId,
+      orgId,
+    ]);
+    return rows;
+  } else {
+    const [rows] = await db.query(queries.GET_EMPLOYEE_PROJECTS, [
+      jsonEmployeeId,
+    ]);
+    return rows;
+  }
 };
 
 const getProjectById = async (id) => {
@@ -93,17 +112,32 @@ const updateFinancialDetails = async (params) => {
   await db.execute(queries.UPDATE_FINANCIAL_DETAILS, params);
 };
 
-const searchEmployees = async (search) => {
+const searchEmployees = async (search, orgId) => {
   try {
-    let query = queries.GET_ALL_EMPLOYEES;
-    let params = [];
+    // start with base query (we'll append filters)
+    let baseSql = queries.GET_ALL_EMPLOYEES;
+    const params = [];
 
-    if (search) {
-      query = queries.SEARCH_EMPLOYEES;
-      params = [`%${search}%`, `%${search}%`, `%${search}%`];
+    // If a search term exists, use SEARCH_EMPLOYEES (same base structure but we will add WHERE terms)
+    // The SEARCH_EMPLOYEES template is identical to GET_ALL_EMPLOYEES in this setup; we still handle search below.
+    if (search && String(search).trim() !== "") {
+      baseSql = queries.SEARCH_EMPLOYEES;
+      const term = `%${String(search).trim()}%`;
+      // append search filter
+      baseSql += ` AND (CONCAT(e.first_name, ' ', e.last_name) LIKE ? OR e.employee_id LIKE ? OR d.name LIKE ?)`;
+      params.push(term, term, term);
     }
 
-    const [rows] = await db.execute(query, params);
+    // Append org filter if provided
+    if (orgId !== undefined && orgId !== null && String(orgId).trim() !== "") {
+      baseSql += ` AND e.Org_id = ?`;
+      params.push(orgId);
+    }
+
+    // final ordering
+    baseSql += ` ORDER BY e.employee_id DESC`;
+
+    const [rows] = await db.execute(baseSql, params);
     return rows;
   } catch (error) {
     console.error("Error fetching employees from database:", error);

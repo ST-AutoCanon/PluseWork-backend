@@ -1,3 +1,4 @@
+// utils/multerConfig.js
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
@@ -30,15 +31,54 @@ function ensureDirSync(dir) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 
+/**
+ * Extract orgId from possible sources:
+ * - req.body.org_id
+ * - req.body.orgId
+ * - x-org-id header (case-insensitive)
+ */
+function extractOrgId(req) {
+  if (!req) return null;
+  const body = req.body || {};
+  const maybe =
+    body.org_id || body.orgId || body.organization_id || body.organizationId;
+  if (maybe) return String(maybe).trim();
+  // check header (express normalizes headers to lowercase)
+  const headerVal =
+    req.get &&
+    (req.get("x-org-id") || req.get("x-orgid") || req.get("x-orgId"));
+  if (headerVal) return String(headerVal).trim();
+  return null;
+}
+
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const email = req.body.email;
+    // require email and orgId to be present (email already required earlier)
+    const email =
+      (req.body &&
+        (req.body.email || req.body.email_address || req.body.emailAddress)) ||
+      null;
+    const orgId = extractOrgId(req);
+
+    if (!orgId) {
+      return cb(
+        new Error(
+          "Missing orgId: please include org_id/orgId in form-data or x-org-id header"
+        ),
+        false
+      );
+    }
     if (!email) {
-      return cb(new Error("Missing employee email"), false);
+      return cb(
+        new Error("Missing employee email in form-data (field: email)"),
+        false
+      );
     }
 
-    const safeEmail = email;
+    // sanitize email for folder name (basic)
+    const safeEmail = String(email).replace(/[/\\?%*:|"<> ]+/g, "_");
 
+    // handle bracketed fields like experience[0][doc] or additional_certs[1][file]
     const bracketMatch = file.fieldname.match(
       /^(experience|additional_certs)\[(\d+)\]\[(doc|file)\]$/
     );
@@ -53,11 +93,17 @@ const storage = multer.diskStorage({
         subfolder = path.join("edu", "additional", `cert_${idx}`);
       }
     } else {
-      // 2) Fallback to simple fields mapping
+      // fallback to simple mapping
       subfolder = FIELD_FOLDERS[file.fieldname] || "misc";
     }
 
-    const uploadDir = path.join(BASE_UPLOADS, safeEmail, subfolder);
+    // final path: BASE_UPLOADS/<orgId>/<safeEmail>/<subfolder>
+    const uploadDir = path.join(
+      BASE_UPLOADS,
+      String(orgId),
+      safeEmail,
+      subfolder
+    );
     ensureDirSync(uploadDir);
     cb(null, uploadDir);
   },
@@ -74,6 +120,7 @@ const fileFilter = (_req, file, cb) => {
     "image/png",
     "image/gif",
     "application/pdf",
+    // add more if you want (e.g. doc/docx)
   ]);
   cb(null, allowed.has(file.mimetype));
 };

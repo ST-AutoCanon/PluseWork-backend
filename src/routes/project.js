@@ -4,11 +4,21 @@ const projectHandler = require("../handlers/projectHandler");
 const projectService = require("../services/projectService");
 const multer = require("multer");
 const path = require("path");
+const fs = require("fs");
 const archiver = require("archiver");
+
+// Path to projects folder
+const projectsFolder = path.join(__dirname, "../../../projects");
+
+// Ensure the folder exists
+if (!fs.existsSync(projectsFolder)) {
+  fs.mkdirSync(projectsFolder, { recursive: true });
+  console.log(`Created folder: ${projectsFolder}`);
+}
 
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, path.join(__dirname, "../../projects"));
+    cb(null, projectsFolder);
   },
   filename: function (req, file, cb) {
     cb(null, Date.now() + "-" + file.originalname);
@@ -17,6 +27,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
+// Routes
 router.post(
   "/projects",
   upload.array("attachment_url"),
@@ -34,7 +45,7 @@ router.get("/employees", projectHandler.searchEmployees);
 
 router.get("/pjattachments/:filename", (req, res) => {
   const { filename } = req.params;
-  const filePath = path.join(__dirname, "../../projects", filename);
+  const filePath = path.join(projectsFolder, filename);
   res.sendFile(filePath, (err) => {
     if (err) {
       console.error("Error sending file:", err);
@@ -46,12 +57,11 @@ router.get("/pjattachments/:filename", (req, res) => {
 router.get("/projects/:id/attachments/download", async (req, res) => {
   try {
     const projectId = req.params.id;
-    // Use projectService.getProjectById directly
     const project = await projectService.getProjectById(projectId);
     if (!project) {
       return res.status(404).send("Project not found");
     }
-    // Ensure attachments is an array. It might be stored as a JSON string.
+
     let attachments = [];
     if (typeof project.attachment_url === "string") {
       try {
@@ -67,19 +77,16 @@ router.get("/projects/:id/attachments/download", async (req, res) => {
       return res.status(404).send("No attachments found for this project.");
     }
 
-    // Set headers for ZIP download
     res.attachment(`project-${projectId}-attachments.zip`);
 
-    // Create a zip archive and pipe it to the response
     const archive = archiver("zip", { zlib: { level: 9 } });
     archive.on("error", (err) => {
       throw err;
     });
     archive.pipe(res);
 
-    // Add each attachment file to the archive.
     attachments.forEach((fileName) => {
-      const filePath = path.join(__dirname, "../../projects", fileName);
+      const filePath = path.join(projectsFolder, fileName);
       archive.file(filePath, { name: fileName });
     });
 

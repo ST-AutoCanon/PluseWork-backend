@@ -1,9 +1,10 @@
 module.exports = {
   INSERT_PROJECT: `
-        INSERT INTO add_project 
-        (country, state, company_name, project_name, project_poc_name, project_poc_contact, company_gst, company_pan, company_address, 
-        project_category, start_date, end_date, service_mode, service_location, project_status, payment_type, description, attachment_url)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    INSERT INTO add_project 
+      (country, state, company_name, project_name, project_poc_name, project_poc_contact, company_gst, company_pan, company_address, 
+       project_category, start_date, end_date, service_mode, service_location, project_status, payment_type, description, attachment_url, org_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `,
 
   INSERT_STS_OWNER: `
         INSERT INTO sts_owners (project_id, sts_owner_id, sts_owner, sts_contact, employee_list, key_considerations) 
@@ -57,7 +58,7 @@ module.exports = {
      WHERE m.project_id = p.id
     ) AS milestone
   FROM add_project p
-  LEFT JOIN sts_owners s ON p.id = s.project_id;
+  LEFT JOIN sts_owners s ON p.id = s.project_id
 `,
 
   GET_EMPLOYEE_PROJECTS: `
@@ -72,12 +73,33 @@ module.exports = {
       p.project_poc_contact AS clientNumber, 
       s.sts_owner AS stsPOC, 
       (SELECT COUNT(m.id) 
-     FROM milestones m 
-     WHERE m.project_id = p.id
-    ) AS milestone
+       FROM milestones m 
+       WHERE m.project_id = p.id
+      ) AS milestone
     FROM add_project p
     LEFT JOIN sts_owners s ON p.id = s.project_id
     WHERE JSON_CONTAINS(s.employee_list, ?)
+`,
+
+  GET_EMPLOYEE_PROJECTS_BY_ORG: `
+    SELECT 
+      p.id, 
+      p.company_name AS company, 
+      p.project_name AS project, 
+      p.start_date AS startDate, 
+      p.end_date AS endDate, 
+      p.project_status AS status, 
+      p.project_poc_name AS clientPOC,
+      p.project_poc_contact AS clientNumber, 
+      s.sts_owner AS stsPOC, 
+      (SELECT COUNT(m.id) 
+       FROM milestones m 
+       WHERE m.project_id = p.id
+      ) AS milestone
+    FROM add_project p
+    LEFT JOIN sts_owners s ON p.id = s.project_id
+    WHERE JSON_CONTAINS(s.employee_list, ?)
+      AND p.org_id = ?
 `,
 
   GET_PROJECT_BY_ID: `
@@ -197,37 +219,38 @@ WHERE id = ?;
         milestone_id = ?
     WHERE id = ?;
   `,
+  GET_ALL_EMPLOYEES: `
+  SELECT
+    e.employee_id,
+    pr.role,
+    e.phone_number,
+    p.photo_url,
+    CONCAT(e.first_name, ' ', e.last_name) AS name,
+    d.name AS department_name,
+    e.Org_id AS org_id
+  FROM employees e
+  LEFT JOIN employee_professional pr ON e.employee_id = pr.employee_id
+  LEFT JOIN departments d ON pr.department_id = d.id
+  LEFT JOIN employee_personal p ON e.employee_id = p.employee_id
+  WHERE e.status <> 'Inactive'
+`,
 
   SEARCH_EMPLOYEES: `
-    SELECT
-      e.employee_id,
-      CONCAT(e.first_name, ' ', e.last_name) AS name,
-      d.name AS department_name
-    FROM employees e
-    LEFT JOIN employee_professional pr ON e.employee_id = pr.employee_id
-    LEFT JOIN departments d             ON pr.department_id = d.id
-    WHERE e.status <> 'Inactive'
-      AND (
-        CONCAT(e.first_name, ' ', e.last_name) LIKE ? OR
-        e.employee_id LIKE ? OR
-        d.name LIKE ?
-      );
-  `,
-
-  GET_ALL_EMPLOYEES: `
-    SELECT
-      e.employee_id,
-      pr.role,
-      e.phone_number,
-      p.photo_url,
-      CONCAT(e.first_name, ' ', e.last_name) AS name,
-      d.name AS department_name
-    FROM employees e
-    LEFT JOIN employee_professional pr ON e.employee_id = pr.employee_id
-    LEFT JOIN departments d             ON pr.department_id = d.id
-    LEFT JOIN employee_personal p       ON e.employee_id = p.employee_id
-    WHERE e.status <> 'Inactive';
-  `,
+  SELECT
+    e.employee_id,
+    pr.role,
+    e.phone_number,
+    p.photo_url,
+    CONCAT(e.first_name, ' ', e.last_name) AS name,
+    d.name AS department_name,
+    e.Org_id AS org_id
+  FROM employees e
+  LEFT JOIN employee_professional pr ON e.employee_id = pr.employee_id
+  LEFT JOIN departments d ON pr.department_id = d.id
+  LEFT JOIN employee_personal p ON e.employee_id = p.employee_id
+  WHERE e.status <> 'Inactive'
+  -- search filters to be appended in service
+`,
 
   UPDATE_FINANCIAL_DETAILS_FOR_INVOICE: `
  INSERT INTO financial_details

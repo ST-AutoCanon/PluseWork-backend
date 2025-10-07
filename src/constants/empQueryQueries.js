@@ -80,11 +80,45 @@ module.exports = {
     WHERE role = ?;
   `,
 
-  /* Get manager IDs for a specific department */
+  GET_ORG_BY_EMPLOYEE: `
+    SELECT org_id
+    FROM employees
+    WHERE employee_id = ?
+    LIMIT 1
+  `,
+
+  // Admins within an org
+  GET_ADMIN: `
+    SELECT ep.employee_id
+    FROM employee_professional ep
+    JOIN employees e ON ep.employee_id = e.employee_id
+    WHERE ep.role = 'Admin'
+      AND e.org_id = ?
+  `,
+
+  // HR manager within an org (department 'HR' limited to the same org)
+  GET_HR: `
+    SELECT ep.employee_id
+    FROM employee_professional ep
+    JOIN employees e ON ep.employee_id = e.employee_id
+    WHERE ep.role = 'Manager'
+      AND ep.department_id = (
+        SELECT id
+        FROM departments
+        WHERE name = 'HR' AND org_id = ?
+        LIMIT 1
+      )
+      AND e.org_id = ?
+  `,
+
+  // Manager by department within an org
   GET_MANAGER_BY_DEPARTMENT: `
-    SELECT employee_id
-    FROM employee_professional
-    WHERE role = 'Manager' AND department_id = ?;
+    SELECT ep.employee_id
+    FROM employee_professional ep
+    JOIN employees e ON ep.employee_id = e.employee_id
+    WHERE ep.role = 'Manager'
+      AND ep.department_id = ?
+      AND e.org_id = ?
   `,
 
   FETCH_THREADS: `
@@ -156,9 +190,6 @@ module.exports = {
   UNREAD_STATUS: `
   INSERT INTO message_read_status (message_id, recipient_id, is_read) VALUES ?
   `,
-
-  GET_ADMIN: `SELECT employee_id FROM employees WHERE role = 'Admin'`,
-  GET_HR: `SELECT employee_id FROM employees WHERE role = 'HR'`,
 
   UPDATE_LATEST_MESSAGE: `
     UPDATE threads

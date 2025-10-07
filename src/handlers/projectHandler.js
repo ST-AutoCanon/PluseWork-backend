@@ -2,8 +2,12 @@ const projectService = require("../services/projectService");
 
 exports.createProject = async (req, res) => {
   try {
+    // derive org id from header (preferred) or body fallback
+    const orgId = req.headers["x-org-id"] || req.body.org_id || null;
+
     console.log("Request Body:", req.body);
     console.log("Uploaded Files:", req.files);
+    console.log("Org ID:", orgId);
 
     const {
       country,
@@ -42,6 +46,7 @@ exports.createProject = async (req, res) => {
         ? req.files.map((file) => file.filename)
         : [];
 
+    // NOTE: orgId is passed as last param
     const projectId = await projectService.addProject([
       country,
       state,
@@ -61,6 +66,7 @@ exports.createProject = async (req, res) => {
       payment_type,
       description,
       JSON.stringify(attachments),
+      orgId, // <-- NEW
     ]);
 
     await projectService.addSTSOwner([
@@ -195,7 +201,18 @@ exports.createProject = async (req, res) => {
 
 exports.getProjects = async (req, res) => {
   try {
-    const projects = await projectService.getAllProjects();
+    // prefer header then query param
+    const orgId = req.headers["x-org-id"] || req.query.orgId || null;
+
+    // allow optional employeeId filter (existing behavior)
+    const { employeeId } = req.query;
+    let projects;
+    if (employeeId) {
+      projects = await projectService.getEmployeeProjects(employeeId, orgId);
+    } else {
+      projects = await projectService.getAllProjects(orgId);
+    }
+
     res.status(200).json({ projects });
   } catch (error) {
     console.error("Error fetching projects:", error);
@@ -209,7 +226,12 @@ exports.getEmployeeProjects = async (req, res) => {
     if (!employeeId) {
       return res.status(400).json({ error: "Employee ID is required" });
     }
-    const projects = await projectService.getEmployeeProjects(employeeId);
+
+    const orgId = req.headers["x-org-id"] || req.query.orgId || null;
+    const projects = await projectService.getEmployeeProjects(
+      employeeId,
+      orgId
+    );
     res.status(200).json({ projects });
   } catch (error) {
     console.error("Error fetching employee projects:", error);
@@ -219,8 +241,13 @@ exports.getEmployeeProjects = async (req, res) => {
 
 exports.searchEmployees = async (req, res) => {
   try {
-    const { search } = req.query;
-    const employees = await projectService.searchEmployees(search);
+    const search = req.query.search || "";
+    // prefer header; fallback to query param
+    const orgIdHeader = req.headers["x-org-id"];
+    const orgIdQuery = req.query.orgId;
+    const orgId = orgIdHeader || orgIdQuery || null;
+
+    const employees = await projectService.searchEmployees(search, orgId);
     return res.status(200).json({ data: employees });
   } catch (error) {
     console.error("Error fetching employees:", error);

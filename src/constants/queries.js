@@ -23,9 +23,9 @@ module.exports = {
     WHERE email = ?;
   `,
 
-  /* add-department queries*/
-  ADD_DEPARTMENT: "INSERT INTO departments (name, icon) VALUES (?, ?)",
-  GET_DEPARTMENTS: "SELECT * FROM departments",
+  ADD_DEPARTMENT:
+    "INSERT INTO departments (name, icon, org_id) VALUES (?, ?, ?)",
+  GET_DEPARTMENTS: "SELECT * FROM departments WHERE Org_id = ?",
 
   GET_HOLIDAYS:
     "SELECT date, occasion, type FROM holidays WHERE YEAR(date) = YEAR(CURDATE())",

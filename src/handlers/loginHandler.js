@@ -1,7 +1,7 @@
-// LoginHandler.js
 const bcrypt = require("bcrypt");
 const LoginService = require("../services/loginService");
 const ErrorHandler = require("../utils/errorHandler");
+const { redisClient } = require("../lib/sessionStore"); // ✅ use redisClient directly
 const dotenv = require("dotenv");
 dotenv.config();
 
@@ -20,7 +20,6 @@ class LoginHandler {
 
       // Check if the employee is inactive
       if (user.status === "Inactive") {
-        // Assuming status is a string
         return res
           .status(403)
           .json(
@@ -39,33 +38,67 @@ class LoginHandler {
           .json(ErrorHandler.generateErrorResponse(401, "Invalid credentials"));
       }
 
-      // Fetch dashboard data based on role
-      const roleToDashboardFunction = {
-        Admin: LoginService.fetchAdminDashboard,
-        Employee: LoginService.fetchEmployeeDashboard,
-      };
+      // Fetch dashboard & sidebar
       const dashboardFunction =
-        roleToDashboardFunction[user.role] ||
-        LoginService.fetchEmployeeDashboard;
-      const dashboard = await dashboardFunction(user.employee_id);
+        {
+          Admin: LoginService.fetchAdminDashboard,
+          Employee: LoginService.fetchEmployeeDashboard,
+        }[user.role] || LoginService.fetchEmployeeDashboard;
 
-      // Fetch sidebar menu based on role
-      const sidebarMenu = await LoginService.fetchSidebarMenu(user.role, user.Org_id);
+      const dashboard = await dashboardFunction(user.employee_id);
+      const sidebarMenu = await LoginService.fetchSidebarMenu(
+        user.role,
+        user.Org_id
+      );
 
       const attendanceCount = await LoginService.getAttendanceStatusCount();
       const loginDataCount = await LoginService.fetchEmployeeLoginDataCount();
       const employeeCountByDepartment =
         await LoginService.getEmployeeCountByDepartment();
 
-      // Set session variables
       req.session.lastActive = Date.now();
       req.session.userRole = user.role;
 
-      // Save session then return the response
+      // Build the session user object (store what's needed by /me)
+      req.session.user = {
+        id: user.employee_id,
+        role: user.role,
+        orgId: user.Org_id,
+        name: user.name,
+        gender: user.gender,
+        // include the same dashboard / sidebarMenu you send to client
+        dashboard,
+        sidebarMenu,
+        // optional: any other quick fields like email/employeeId
+        email: user.email || null,
+        employeeId: user.employee_id || null,
+      };
+
+      // ✅ Safely store session ID in Redis (if Redis ready)
+      if (redisClient && typeof redisClient.sadd === "function") {
+        redisClient
+          .sadd(`user_sessions:${user.employee_id}`, req.sessionID)
+          .catch((err) => {
+            console.error("Redis error storing session:", err);
+          });
+
+        // publish login event for other instances
+        redisClient
+          .publish(
+            "auth:changes",
+            JSON.stringify({
+              type: "login",
+              userId: user.employee_id,
+              role: user.role,
+            })
+          )
+          .catch((err) => console.error("Redis publish error:", err));
+      }
+
+      // Save session and respond
       req.session.save((err) => {
-        if (err) {
-          console.error("Session save error:", err);
-        }
+        if (err) console.error("Session save error:", err);
+
         return res.status(200).json({
           status: "success",
           code: 200,
@@ -83,10 +116,62 @@ class LoginHandler {
         });
       });
     } catch (err) {
-      console.error(err);
+      console.error("Login error:", err);
       return res
         .status(500)
         .json(ErrorHandler.generateErrorResponse(500, "Internal server error"));
+    }
+  }
+
+  static async logout(req, res) {
+    try {
+      // get user id from session (if present)
+      const uid = req.session?.user?.id;
+
+      // destroy session server-side
+      req.session.destroy(async (err) => {
+        if (err) {
+          console.error("Session destroy error:", err);
+          // respond with 500 but still attempt cleanup
+          return res.status(500).json({
+            status: "error",
+            code: 500,
+            message: "Failed to logout cleanly",
+          });
+        }
+
+        // remove session id from user's session set in redis (cleanup)
+        try {
+          if (uid) {
+            await redisClient.srem(`user_sessions:${uid}`, req.sessionID);
+            // publish logout event for other instances
+            await redisClient.publish(
+              "auth:changes",
+              JSON.stringify({ type: "logout", userId: uid })
+            );
+          }
+        } catch (cleanupErr) {
+          console.error("Redis cleanup error on logout:", cleanupErr);
+        }
+
+        // clear cookie on client
+        res.clearCookie("sid", {
+          httpOnly: true,
+          sameSite: "lax",
+          secure: process.env.NODE_ENV === "production",
+        });
+
+        return res
+          .status(200)
+          .json({ status: "success", code: 200, message: "Logged out" });
+      });
+    } catch (err) {
+      console.error("Logout error:", err);
+      return res.status(500).json({
+        status: "error",
+        code: 500,
+        message: "Internal server error",
+      });
     }
   }
 
@@ -103,53 +188,61 @@ class LoginHandler {
       });
     } catch (err) {
       console.error(err);
-      return res.status(500).json(ErrorHandler.generateErrorResponse(500, "Internal server error"));
+      return res
+        .status(500)
+        .json(ErrorHandler.generateErrorResponse(500, "Internal server error"));
     }
   }
-  
+
   static async getEmployeeLoginDataCount(req, res) {
     try {
-        const loginDataCount = await LoginService.fetchEmployeeLoginDataCount();
+      const loginDataCount = await LoginService.fetchEmployeeLoginDataCount();
 
-        if (!loginDataCount.length) {
-            return res.status(404).json(ErrorHandler.generateErrorResponse(404, "No login data found"));
+      if (!loginDataCount.length) {
+        return res
+          .status(404)
+          .json(ErrorHandler.generateErrorResponse(404, "No login data found"));
+      }
+
+      // ✅ Aggregate data by punchin_label to ensure unique time slots
+      const aggregatedData = {};
+
+      loginDataCount.forEach((item) => {
+        const label = item.punchin_label || "";
+        if (!aggregatedData[label]) {
+          aggregatedData[label] = {
+            daily_count: 0,
+            weekly_count: 0,
+            monthly_count: 0,
+          };
         }
+        aggregatedData[label].daily_count += parseInt(item.daily_count || 0);
+        aggregatedData[label].weekly_count += parseInt(item.weekly_count || 0);
+        aggregatedData[label].monthly_count += parseInt(
+          item.monthly_count || 0
+        );
+      });
 
-        // ✅ Aggregate data by punchin_label to ensure unique time slots
-        const aggregatedData = {};
-        
-        loginDataCount.forEach((item) => {
-            const label = item.punchin_label || "";
-            if (!aggregatedData[label]) {
-                aggregatedData[label] = { 
-                    daily_count: 0, 
-                    weekly_count: 0, 
-                    monthly_count: 0 
-                };
-            }
-            aggregatedData[label].daily_count += parseInt(item.daily_count || 0);
-            aggregatedData[label].weekly_count += parseInt(item.weekly_count || 0);
-            aggregatedData[label].monthly_count += parseInt(item.monthly_count || 0);
-        });
+      // ✅ Convert object back to an array format
+      const labels = Object.keys(aggregatedData);
+      const daily = labels.map((label) => aggregatedData[label].daily_count);
+      const weekly = labels.map((label) => aggregatedData[label].weekly_count);
+      const monthly = labels.map(
+        (label) => aggregatedData[label].monthly_count
+      );
 
-        // ✅ Convert object back to an array format
-        const labels = Object.keys(aggregatedData);
-        const daily = labels.map(label => aggregatedData[label].daily_count);
-        const weekly = labels.map(label => aggregatedData[label].weekly_count);
-        const monthly = labels.map(label => aggregatedData[label].monthly_count);
-
-        return res.status(200).json({
-            status: "success",
-            code: 200,
-            data: { labels, daily, weekly, monthly }
-        });
+      return res.status(200).json({
+        status: "success",
+        code: 200,
+        data: { labels, daily, weekly, monthly },
+      });
     } catch (err) {
-        console.error(err);
-        return res.status(500).json(ErrorHandler.generateErrorResponse(500, "Internal server error"));
+      console.error(err);
+      return res
+        .status(500)
+        .json(ErrorHandler.generateErrorResponse(500, "Internal server error"));
     }
-}
-
-
+  }
 
   /**
    * Handler to get salary ranges.
@@ -160,11 +253,13 @@ class LoginHandler {
       return res.status(200).json({
         status: "success",
         code: 200,
-        message: salaryRanges
+        message: salaryRanges,
       });
     } catch (err) {
       console.error(err);
-      return res.status(500).json(ErrorHandler.generateErrorResponse(500, "Internal server error"));
+      return res
+        .status(500)
+        .json(ErrorHandler.generateErrorResponse(500, "Internal server error"));
     }
   }
 
@@ -173,26 +268,32 @@ class LoginHandler {
    */
   static async getEmployeeCountByDepartment(req, res) {
     try {
-        const categories = await LoginService.getEmployeeCountByDepartment();
+      const categories = await LoginService.getEmployeeCountByDepartment();
 
-        if (!categories || categories.length === 0) {
-            return res.status(404).json(ErrorHandler.generateErrorResponse(404, "No data found"));
-        }
+      if (!categories || categories.length === 0) {
+        return res
+          .status(404)
+          .json(ErrorHandler.generateErrorResponse(404, "No data found"));
+      }
 
-        // Calculate total employees
-        const totalEmployees = categories.reduce((sum, item) => sum + item.count, 0);
+      // Calculate total employees
+      const totalEmployees = categories.reduce(
+        (sum, item) => sum + item.count,
+        0
+      );
 
-        // Structure the response correctly
-        return res.status(200).json({
-            totalEmployees,
-            categories
-        });
-
+      // Structure the response correctly
+      return res.status(200).json({
+        totalEmployees,
+        categories,
+      });
     } catch (err) {
-        console.error(err);
-        return res.status(500).json(ErrorHandler.generateErrorResponse(500, "Internal server error"));
+      console.error(err);
+      return res
+        .status(500)
+        .json(ErrorHandler.generateErrorResponse(500, "Internal server error"));
     }
-}
+  }
 
   /**
    * Handler to get payroll data for an employee.
@@ -200,12 +301,16 @@ class LoginHandler {
   static async getEmployeePayrollData(req, res) {
     try {
       const { employeeId } = req.params;
-      
+
       // Fetch payroll data
       const payrollData = await LoginService.getEmployeePayrollData(employeeId);
-      
+
       if (!payrollData) {
-        return res.status(404).json(ErrorHandler.generateErrorResponse(404, "No payroll data found"));
+        return res
+          .status(404)
+          .json(
+            ErrorHandler.generateErrorResponse(404, "No payroll data found")
+          );
       }
 
       return res.status(200).json({
@@ -215,10 +320,11 @@ class LoginHandler {
       });
     } catch (err) {
       console.error("Error fetching employee payroll data:", err);
-      return res.status(500).json(ErrorHandler.generateErrorResponse(500, "Internal server error"));
+      return res
+        .status(500)
+        .json(ErrorHandler.generateErrorResponse(500, "Internal server error"));
     }
   }
 }
-
 
 module.exports = LoginHandler;

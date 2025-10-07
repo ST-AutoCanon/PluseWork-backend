@@ -1,9 +1,6 @@
-// backend/services/notificationService.js
-
-const db = require("../config"); // your mysql2/promise or similar db client
+const db = require("../config");
 const { INSERT_NOTIFICATION } = require("../constants/notificationQueries");
 
-// Called by reminderService when it’s time to fire
 async function sendMeetingReminder(meeting) {
   const {
     id: meetingId,
@@ -31,7 +28,7 @@ async function sendAssignmentNotification(meeting) {
     contact_name,
   } = meeting;
   const message = `You’ve been assigned follow-up for ${client_company} / ${contact_name}`;
-  const triggeredAt = new Date(); // or meeting.follow_up_date if you prefer
+  const triggeredAt = new Date();
   await db.execute(INSERT_NOTIFICATION, [
     userId,
     meetingId,

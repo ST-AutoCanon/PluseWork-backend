@@ -27,7 +27,6 @@ module.exports = {
     WHERE e.email = ?;
   `,
 
-
   // Query to fetch admin details by employee_id
   GET_ADMIN_DETAILS: `
     SELECT
@@ -159,6 +158,7 @@ module.exports = {
       CONCAT(e.first_name, ' ', e.last_name) AS name,
       e.employee_id,
       p.gender,
+      d.id AS department_id,
       d.name AS department,
       pr.position,
       pr.salary,
@@ -209,7 +209,7 @@ module.exports = {
   //   FROM sidebar_menu
   //   WHERE FIND_IN_SET(?, roles);
   // `,
-   GET_SIDEBAR_MENU: `SELECT sm.label, sm.path, sm.icon
+  GET_SIDEBAR_MENU: `SELECT sm.label, sm.path, sm.icon
 FROM sidebar_menu sm
 JOIN sidebar_menu_access sma ON sm.id = sma.sidebar_item_id
 WHERE sma.role = ? AND sma.org_id = ?

@@ -1,5 +1,17 @@
+// controllers/leaveHandler.js
 const LeaveService = require("../services/leaveService");
 const ErrorHandler = require("../utils/errorHandler");
+
+const parseBoolFlexible = (v) => {
+  if (v === undefined || v === null) return false;
+  if (typeof v === "boolean") return v;
+  if (typeof v === "number") return v === 1;
+  if (typeof v === "string") {
+    const t = v.trim().toLowerCase();
+    return ["1", "true", "yes", "y", "on"].includes(t);
+  }
+  return false;
+};
 
 class LeaveHandler {
   /**
@@ -13,6 +25,24 @@ class LeaveHandler {
         from_date = "",
         to_date = "",
       } = req.query;
+
+      // Read org_id from headers (accept multiple common header names)
+      const org_id =
+        req.headers["org_id"] ||
+        req.headers["org-id"] ||
+        req.headers["x-org-id"] ||
+        req.headers["x-org_id"];
+
+      if (!org_id) {
+        return res
+          .status(400)
+          .json(
+            ErrorHandler.generateErrorResponse(
+              400,
+              "Missing org_id in headers."
+            )
+          );
+      }
 
       if (
         (from_date && isNaN(Date.parse(from_date))) ||
@@ -30,6 +60,7 @@ class LeaveHandler {
         search,
         from_date,
         to_date,
+        org_id,
       });
 
       return res.status(200).json({
@@ -38,7 +69,6 @@ class LeaveHandler {
         data: leaveQueries,
       });
     } catch (err) {
-      console.log("Error in LeaveHandler.getLeaveQueries:", err);
       console.error("Error in LeaveHandler.getLeaveQueries:", err);
       return res
         .status(500)
@@ -49,14 +79,36 @@ class LeaveHandler {
   }
 
   /**
-   * Approve or reject a leave request.
+   * Update (approve/reject) a leave request.
+   * - Accepts is_defaulted in various forms in the request body (or header fallback).
    */
   static async updateLeaveRequest(req, res) {
     try {
       const { leaveId } = req.params;
-      const { status, comments } = req.body;
+      // accept both snake and camel case incoming fields
+      const {
+        status,
+        comments,
+        compensated_days = 0,
+        deducted_days = 0,
+        loss_of_pay_days = 0,
+        preserved_leave_days = null,
+      } = req.body || {};
 
+      console.log("[LeaveHandler.updateLeaveRequest] ENTER handler");
+      console.log("[LeaveHandler.updateLeaveRequest] params.leaveId:", leaveId);
+      console.log("[LeaveHandler.updateLeaveRequest] raw body:", req.body);
+
+      // Basic validation for status
+      console.log(
+        "[LeaveHandler.updateLeaveRequest] validating status:",
+        status
+      );
       if (!["Approved", "Rejected"].includes(status)) {
+        console.warn(
+          "[LeaveHandler.updateLeaveRequest] VALIDATION FAILED - invalid status:",
+          status
+        );
         return res
           .status(400)
           .json(
@@ -66,8 +118,16 @@ class LeaveHandler {
             )
           );
       }
+      console.log("[LeaveHandler.updateLeaveRequest] status validation passed");
 
+      // Rejection requires comments
+      console.log(
+        "[LeaveHandler.updateLeaveRequest] validating rejection comments (if rejected)"
+      );
       if (status === "Rejected" && !comments) {
+        console.warn(
+          "[LeaveHandler.updateLeaveRequest] VALIDATION FAILED - rejection without comments"
+        );
         return res
           .status(400)
           .json(
@@ -77,23 +137,107 @@ class LeaveHandler {
             )
           );
       }
+      if (status === "Rejected") {
+        console.log(
+          "[LeaveHandler.updateLeaveRequest] rejection reason provided:",
+          comments
+        );
+      }
 
-      await LeaveService.updateLeaveRequest({
+      // actor/admin id for audit
+      // Check several common places: body.actorId / body.actor / req.user.* / header x-employee-id
+      const actorIdFromBody =
+        (req.body && (req.body.actorId ?? req.body.actor)) ?? null;
+      const actorIdFromUser =
+        (req.user && (req.user.id ?? req.user.employee_id)) ?? null;
+      const actorIdFromHeader =
+        req.headers &&
+        (req.headers["x-employee-id"] || req.headers["x-actor-id"]);
+      const actorId =
+        actorIdFromBody || actorIdFromUser || actorIdFromHeader || null;
+
+      console.log(
+        "[LeaveHandler.updateLeaveRequest] actorId resolved from request/auth/header:",
+        actorId
+      );
+
+      // parse is_defaulted from body or headers. Accept many forms:
+      // - req.body.is_defaulted, req.body.isDefaulted, req.body.is_default, req.body.defaulted
+      // - header x-is-defaulted (string '1'/'true' also supported)
+      const rawIsDefault =
+        (req.body &&
+          (req.body.is_defaulted ??
+            req.body.isDefaulted ??
+            req.body.is_default ??
+            req.body.isDefault ??
+            req.body.defaulted)) ??
+        (req.headers &&
+          (req.headers["x-is-defaulted"] || req.headers["x-defaulted"]));
+
+      const is_defaulted = parseBoolFlexible(rawIsDefault);
+
+      console.log(
+        "[LeaveHandler.updateLeaveRequest] parsed is_defaulted:",
+        is_defaulted,
+        "raw:",
+        rawIsDefault
+      );
+
+      // build payload to send to service
+      const payload = {
         leaveId,
         status,
         comments: comments || null,
-      });
+        compensated_days: Number(compensated_days) || 0,
+        deducted_days: Number(deducted_days) || 0,
+        loss_of_pay_days: Number(loss_of_pay_days) || 0,
+        preserved_leave_days:
+          preserved_leave_days === null ? null : Number(preserved_leave_days),
+        actorId,
+        // pass through is_defaulted flag so service can act accordingly
+        is_defaulted,
+      };
+
+      console.log(
+        "[LeaveHandler.updateLeaveRequest] calling LeaveService.updateLeaveRequest with payload:",
+        payload
+      );
+
+      await LeaveService.updateLeaveRequest(payload);
+
+      console.log(
+        "[LeaveHandler.updateLeaveRequest] LeaveService.updateLeaveRequest resolved successfully for leaveId:",
+        leaveId
+      );
+
+      const message = `Leave request ${String(
+        status
+      ).toLowerCase()} successfully.`;
+      console.log(
+        "[LeaveHandler.updateLeaveRequest] sending success response:",
+        message
+      );
 
       return res
         .status(200)
-        .json(
-          ErrorHandler.generateSuccessResponse(
-            200,
-            `Leave request ${status.toLowerCase()} successfully.`
-          )
-        );
+        .json(ErrorHandler.generateSuccessResponse(200, message));
     } catch (err) {
-      console.error("Error in LeaveHandler.updateLeaveRequest:", err);
+      console.error("[LeaveHandler.updateLeaveRequest] Caught error:", err);
+
+      // Controlled client errors from service (isBadRequest)
+      if (err && err.isBadRequest) {
+        console.warn(
+          "[LeaveHandler.updateLeaveRequest] Returning 400 due to controlled error:",
+          err.message
+        );
+        return res
+          .status(400)
+          .json(ErrorHandler.generateErrorResponse(400, err.message));
+      }
+
+      console.error(
+        "[LeaveHandler.updateLeaveRequest] Returning 500 - internal server error"
+      );
       return res
         .status(500)
         .json(
@@ -216,7 +360,7 @@ class LeaveHandler {
         );
     } catch (err) {
       console.error("Error in submitLeaveRequestHandler:", {
-        error: err.message,
+        error: err && err.message ? err.message : err,
         body: req.body,
       });
       return res
@@ -456,7 +600,7 @@ class LeaveHandler {
       console.log("Error fetching leave requests for team lead:", err);
       console.error(
         "Error fetching leave requests for team lead:",
-        err.message
+        err && err.message ? err.message : err
       );
       return res
         .status(500)

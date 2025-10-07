@@ -1,3 +1,4 @@
+// services/employeeQueries.js
 const db = require("../config");
 const queries = require("../constants/empQueryQueries");
 
@@ -10,25 +11,39 @@ class EmployeeQueries {
     message,
     recipientRole
   ) {
+    // 1) derive org_id for the sender
+    const [orgRows] = await db.execute(queries.GET_ORG_BY_EMPLOYEE, [
+      sender_id,
+    ]);
+    if (!orgRows || orgRows.length === 0) {
+      throw new Error("Sender organization not found.");
+    }
+    const org_id = orgRows[0].org_id;
+
+    // 2) determine recipient based on role but constrained to same org
     let recipient_id;
     if (recipientRole === "Admin") {
-      const [admins] = await db.execute(queries.GET_ADMIN);
+      const [admins] = await db.execute(queries.GET_ADMIN, [org_id]);
       if (!admins || admins.length === 0) {
-        throw new Error("No admin found.");
+        throw new Error("No admin found for this organization.");
       }
       recipient_id = admins[0].employee_id;
     } else if (recipientRole === "HR") {
-      const [hr] = await db.execute(queries.GET_HR);
+      // GET_HR expects org_id twice (for departments lookup and employee org check)
+      const [hr] = await db.execute(queries.GET_HR, [org_id, org_id]);
       if (!hr || hr.length === 0) {
-        throw new Error("No HR manager found.");
+        throw new Error("No HR manager found for this organization.");
       }
       recipient_id = hr[0].employee_id;
     } else if (recipientRole === "Manager") {
       const [managers] = await db.execute(queries.GET_MANAGER_BY_DEPARTMENT, [
         department_id,
+        org_id,
       ]);
       if (!managers || managers.length === 0) {
-        throw new Error("No department manager found.");
+        throw new Error(
+          "No department manager found for this organization/department."
+        );
       }
       recipient_id = managers[0].employee_id;
     } else {
@@ -62,26 +77,28 @@ class EmployeeQueries {
     return threadId;
   }
 
-  static async getAdminIds() {
-    const [admins] = await db.execute(queries.GET_ADMIN);
-    return admins.map((admin) => admin.employee_id).filter((id) => id !== null);
+  // Helper: get admin ids for same org; derives org from a provided employee id
+  static async getAdminIdsByEmployee(employeeId) {
+    const [orgRows] = await db.execute(queries.GET_ORG_BY_EMPLOYEE, [
+      employeeId,
+    ]);
+    if (!orgRows || orgRows.length === 0) return [];
+
+    const org_id = orgRows[0].org_id;
+    const [admins] = await db.execute(queries.GET_ADMIN, [org_id]);
+    return admins.map((a) => a.employee_id).filter((id) => id != null);
   }
 
+  // existing functions unchanged except where they need org scoping (use the new queries)
   static async updateThreadLatestMessage(thread_id, message, attachment_url) {
     let latestMessageValue = "";
-
     if (message && message.trim().length > 0) {
-      // If there's a text message, use it
       latestMessageValue = message;
     } else if (attachment_url) {
-      // Otherwise, if there's an attachment but no text, set a placeholder
       latestMessageValue = "Attachment";
     } else {
-      // No text, no attachment (edge case) - could leave blank or set a default
       latestMessageValue = "";
     }
-
-    // Update the threads table
     await db.execute(queries.UPDATE_LATEST_MESSAGE, [
       latestMessageValue,
       thread_id,
@@ -96,7 +113,6 @@ class EmployeeQueries {
     recipient_id,
     attachment_url = null
   ) {
-    // Insert the message record
     const [result] = await db.execute(queries.ADD_MESSAGE, [
       thread_id,
       sender_id,
@@ -105,19 +121,14 @@ class EmployeeQueries {
       attachment_url,
     ]);
     const messageId = result.insertId;
-
-    // Update latest_message in threads.
     await EmployeeQueries.updateThreadLatestMessage(
       thread_id,
       message,
       attachment_url
     );
-
-    // Only mark as unread for the intended recipient.
     await EmployeeQueries.markMessageUnreadForRecipients(messageId, [
       recipient_id,
     ]);
-
     return messageId;
   }
 

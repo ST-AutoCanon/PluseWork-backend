@@ -1,14 +1,14 @@
+// services/employeeService.js (updated)
 const db = require("../config");
 const queries = require("../constants/empDetailsQueries");
-const sgMail = require("@sendgrid/mail");
-const { v4: uuidv4 } = require("uuid");
 const crypto = require("crypto");
 const bcrypt = require("bcrypt");
 const path = require("path");
+const fs = require("fs");
+const { sendResetEmail } = require("../utils/brevoMailer");
 
 const BASE_UPLOADS = path.join(__dirname, "../../../EmployeeDetails");
 
-// ---------- helpers (add/ensure these are available in this module) ----------
 function tryParseJSON(val) {
   if (val == null) return val;
   if (typeof val !== "string") return val;
@@ -80,17 +80,13 @@ function ensureArrayField(raw) {
   return normalizeToStringArray(raw);
 }
 
-// convert a web URL (/EmployeeDetails/...) -> full disk path
 function webUrlToFullPath(webUrl) {
   if (!webUrl) return null;
-  // remove query params if any
   const clean = String(webUrl).split("?")[0];
-  // trim leading slashes then remove the EmployeeDetails/ prefix
   const rel = clean.replace(/^\/?EmployeeDetails[\\/]/, "");
   return path.join(BASE_UPLOADS, rel);
 }
 
-// delete files on disk given a mixed value (string/array/JSON-string)
 function deleteFilesByUrlsMixed(val) {
   const arr = normalizeToStringArray(val);
   for (const url of arr) {
@@ -100,8 +96,7 @@ function deleteFilesByUrlsMixed(val) {
         fs.unlinkSync(full);
         console.log("[file-delete] removed:", full);
       } else {
-        // file not present — still okay
-        // console.log("[file-delete] not found:", full);
+        // not found or no-op
       }
     } catch (e) {
       console.warn(
@@ -112,92 +107,80 @@ function deleteFilesByUrlsMixed(val) {
     }
   }
 }
-// ---------- end helpers ----------
 
-sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-
-const sendResetEmail = async (employeeEmail, employeeName) => {
-  const resetToken = uuidv4();
-
-  const resetLink = `${process.env.FRONTEND_URL}/ResetPassword?token=${resetToken}`;
-  const tokenExpiry = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000); // 3 days
-
-  // Save the reset token and its expiry into the database
-  await db.execute(queries.SAVE_RESET_TOKEN, [
-    employeeEmail,
-    resetToken,
-    tokenExpiry,
-  ]);
-
-  const msg = {
-    to: employeeEmail,
-    from: process.env.SENDGRID_SENDER_EMAIL,
-    subject: "Welcome to SUKALPA TECH SOLUTIONS – Set Up Your Account",
-    text: `Dear ${employeeName},
-
-Welcome to SUKALPA TECH SOLUTIONS! We're excited to have you join our team and look forward to achieving great things together.
-
-🔐 Reset Your Password
-To activate your account, please reset your password using the link below:
-${resetLink}
-
-Note: This link will be valid for 3 days. If it expires, you can request a new one from the login page.
-
-"Coming together is a beginning. Keeping together is progress. Working together is success."
-
-Thank you, and once again, welcome to the team!
-
-Warm regards,
-SUKALPA TECH SOLUTIONS
-https://sukalpatechsolutions.com
-info@sukalpatech.com`,
-
-    html: `
-    <p>Dear ${employeeName},</p>
-    <p>Welcome to <strong>SUKALPA TECH SOLUTIONS</strong>! We're excited to have you join our team and look forward to achieving great things together.</p>
-
-    <h3>🔐 Reset Your Password</h3>
-    <p>To activate your account, please reset your password using the link below:</p>
-    <p><a href="${resetLink}" style="color: blue; text-decoration: underline; font-weight: bold;">👉 Reset Your Password</a></p>
-
-    <p><strong>Note:</strong> This link will be valid for 3 days. If it expires, you can request a new one from the login page.</p>
-
-    <blockquote style="font-style: italic; color: gray;">
-      "Coming together is a beginning. Keeping together is progress. Working together is success."
-    </blockquote>
-
-    <p>Thank you, and once again, welcome to the team!</p>
-    <p>Warm regards,</p>
-    <p><strong>SUKALPA TECH SOLUTIONS</strong></p>
-    <p><a href="https://sukalpatechsolutions.com">https://sukalpatechsolutions.com</a> | <a href="mailto:info@sukalpatech.com">info@sukalpatech.com</a></p>
-    `,
-  };
-
-  try {
-    await sgMail.send(msg);
-  } catch (error) {
-    console.error("Email sending failed:", error);
-    throw new Error(
-      `Error sending email: ${
-        error.response?.body?.errors?.[0]?.message || error.message
-      }`
-    );
+/**
+ * Normalize org id from various possible keys that might be supplied:
+ * - org_id (snake_case)
+ * - orgId (camelCase)
+ * - organization_id
+ *
+ * The controller should already attach org_id but this keeps the service robust.
+ */
+function normalizeOrgId(data) {
+  if (!data) return null;
+  const val =
+    data.org_id ||
+    data.orgId ||
+    data.organization_id ||
+    data.organizationId ||
+    null;
+  if (val) {
+    data.org_id = String(val);
+    data.orgId = String(val);
+    data.organization_id = String(val);
   }
-};
+  return data.org_id || null;
+}
 
-// services/employeeService.js
 exports.addFullEmployee = async (data) => {
-  console.log("[addFullEmployee] ⇒ start", { email: data.email });
+  console.log("[addFullEmployee] ⇒ start", { email: data?.email });
+
+  // normalize org id early so rest of function can rely on data.org_id
+  const resolvedOrg = normalizeOrgId(data);
+  if (!resolvedOrg) {
+    // keep behavior same as controller: require org when appropriate, but log clearly
+    console.warn(
+      "[addFullEmployee] WARNING: org_id not provided on data object"
+    );
+  } else {
+    console.log("[addFullEmployee] org_id:", resolvedOrg);
+  }
+
+  const requiredFields = [
+    "first_name",
+    "last_name",
+    "email",
+    "phone_number",
+    "dob",
+    "role",
+    // accept any normalized form for org
+    // we'll check presence of data.org_id after normalization
+  ];
+
+  const missing = requiredFields.filter(
+    (f) => !data[f] || String(data[f]).trim() === ""
+  );
+
+  // ensure org_id presence as well
+  if (!data.org_id || String(data.org_id).trim() === "") {
+    missing.push("org_id");
+  }
+
+  if (missing.length > 0) {
+    throw new Error(`Missing required fields: ${missing.join(", ")}`);
+  }
+
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
     console.log("[addFullEmployee] began transaction");
 
-    // 1) Insert core
+    // create temporary password / hash
     const password = crypto.randomBytes(8).toString("hex");
     const hash = await bcrypt.hash(password, 10);
     console.log("[addFullEmployee] generated temp password & hash");
 
+    // ensure queries.ADD_EMPLOYEE_CORE accepts org_id as last param (it did previously)
     const [coreRes] = await conn.execute(queries.ADD_EMPLOYEE_CORE, [
       data.first_name,
       data.last_name,
@@ -205,17 +188,21 @@ exports.addFullEmployee = async (data) => {
       hash,
       data.phone_number,
       data.dob,
+      data.org_id,
     ]);
     console.log("[addFullEmployee] core insert result:", coreRes);
 
-    // fetch the new employee_id
+    // fetch just-created employee_id (safe guard if auto-increment available)
     const [[{ employee_id: eid }]] = await conn.execute(
-      `SELECT employee_id FROM employees WHERE email = ?`,
+      `SELECT employee_id FROM employees WHERE email = ? LIMIT 1`,
       [data.email]
     );
+    if (!eid) {
+      throw new Error("[addFullEmployee] failed to retrieve new employee_id");
+    }
     console.log("[addFullEmployee] new employee_id:", eid);
 
-    // ensure personal file fields are JSON strings (or null) — use flattening helper
+    // Convert file list fields to JSON or null
     const personalFileKeys = [
       "spouse_gov_doc_url",
       "aadhaar_doc_url",
@@ -234,8 +221,7 @@ exports.addFullEmployee = async (data) => {
       if (k in data) data[k] = arrayToJsonOrNull(data[k]);
     });
 
-    // 2) Personal
-    console.log("[addFullEmployee] inserting personal details");
+    // personal details insert
     await conn.execute(queries.ADD_EMPLOYEE_PERSONAL, [
       eid,
       data.address || null,
@@ -281,8 +267,7 @@ exports.addFullEmployee = async (data) => {
       data.child3_gov_doc_url || null,
     ]);
 
-    // 3) Education
-    console.log("[addFullEmployee] inserting education details");
+    // education
     await conn.execute(queries.ADD_EMPLOYEE_EDU, [
       eid,
       data.tenth_institution || null,
@@ -311,6 +296,7 @@ exports.addFullEmployee = async (data) => {
       arrayToJsonOrNull(data.pg_cert_url || data.pg_cert || data.pg_cert_urls),
     ]);
 
+    // additional certs (if any)
     if (Array.isArray(data.additional_certs)) {
       for (let cert of data.additional_certs) {
         const fileUrls = cert.file_urls || cert.files || cert.file || null;
@@ -324,23 +310,21 @@ exports.addFullEmployee = async (data) => {
       }
     }
 
-    // 4) Professional
-    console.log("[addFullEmployee] inserting professional details");
+    // professional details
     await conn.execute(queries.ADD_EMPLOYEE_PRO, [
       eid,
-      data.domain,
+      data.domain || null,
       data.employee_type || null,
       data.joining_date || null,
       data.role,
       data.department_id || null,
       data.position || null,
       data.supervisor_id || null,
-      data.salary,
+      data.salary || null,
       arrayToJsonOrNull(data.resume_url || data.resume || data.resume_urls),
     ]);
 
-    console.log("[addFullEmployee] inserting other document records");
-    // insert other docs per-row if present
+    // other docs
     const otherDocsRaw = data.other_docs_urls || data.other_docs || null;
     const otherDocs = ensureArrayField(otherDocsRaw);
     if (otherDocs.length) {
@@ -349,19 +333,18 @@ exports.addFullEmployee = async (data) => {
       }
     }
 
-    // 5) Bank
-    console.log("[addFullEmployee] inserting bank details");
+    // bank details
     const fullName = `${data.first_name} ${data.last_name}`.trim();
     await conn.execute(queries.ADD_EMPLOYEE_BANK, [
       eid,
-      fullName, // ← employee_name
-      data.bank_name,
-      data.account_number,
-      data.ifsc_code,
-      data.branch_name, // or branch fallback as before
+      fullName,
+      data.bank_name || null,
+      data.account_number || null,
+      data.ifsc_code || null,
+      data.branch_name || null,
     ]);
 
-    console.log("[addFullEmployee] inserting experience entries");
+    // experience
     if (Array.isArray(data.experience)) {
       for (let exp of data.experience) {
         const docUrls = exp.doc_urls || exp.files || exp.doc || null;
@@ -378,46 +361,83 @@ exports.addFullEmployee = async (data) => {
 
     await conn.commit();
     console.log("[addFullEmployee] committed transaction");
+
+    // attempt sending reset email (non-blocking for commit)
     try {
       console.log("[addFullEmployee] sending reset email to:", data.email);
-      await sendResetEmail(data.email, `${data.first_name} ${data.last_name}`);
-      console.log("[addFullEmployee] reset email sent");
+      const mailRes = await sendResetEmail(
+        data.email,
+        `${data.first_name} ${data.last_name}`
+      );
+      if (mailRes && mailRes.resetToken) {
+        try {
+          await conn.execute(queries.SAVE_RESET_TOKEN, [
+            data.email,
+            mailRes.resetToken,
+            mailRes.tokenExpiry,
+          ]);
+        } catch (saveErr) {
+          console.warn(
+            "[addFullEmployee] warning: failed to save reset token:",
+            saveErr && (saveErr.stack || saveErr)
+          );
+        }
+      }
+      console.log("[addFullEmployee] reset email sent (if configured)");
     } catch (mailErr) {
       console.warn(
-        "[addFullEmployee] warning: reset‐email failed — not rolling back:",
-        mailErr.message
+        "[addFullEmployee] warning: reset-email failed — not rolling back:",
+        mailErr && (mailErr.stack || mailErr)
       );
     }
 
     return { employee_id: eid };
   } catch (err) {
-    console.error("[addFullEmployee] error, rolling back:", err);
-    await conn.rollback();
+    console.error(
+      "[addFullEmployee] error, rolling back:",
+      err && (err.stack || err)
+    );
+    try {
+      await conn.rollback();
+    } catch (rbErr) {
+      console.error(
+        "[addFullEmployee] rollback failed:",
+        rbErr && (rbErr.stack || rbErr)
+      );
+    }
     throw err;
   } finally {
-    conn.release();
+    try {
+      conn.release();
+    } catch (relErr) {
+      console.warn(
+        "[addFullEmployee] connection release failed:",
+        relErr && (relErr.stack || relErr)
+      );
+    }
     console.log("[addFullEmployee] ⇒ end");
   }
 };
 
 exports.editFullEmployee = async (data) => {
   console.log("[editFullEmployee] ⇒ start", { employee_id: data.employee_id });
+
+  // normalize org id if present so subsequent operations may rely on data.org_id
+  normalizeOrgId(data);
+
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
     console.log("[editFullEmployee] began transaction");
 
-    const eid = data.employee_id; // <- use this throughout
+    const eid = data.employee_id;
 
-    // Load existing DB row so we can fallback when client didn't send a value
     const [existingRows] = await conn.execute(queries.GET_FULL_EMPLOYEE, [eid]);
     const existing = existingRows && existingRows[0] ? existingRows[0] : {};
     console.log("[editFullEmployee] loaded existing row for fallback");
 
-    // Helper to check whether client explicitly sent a key
     const hasKey = (k) => Object.prototype.hasOwnProperty.call(data, k);
 
-    // Normalize a few incoming JSON-ish fields if the client provided them
     if (hasKey("resume_url") && typeof data.resume_url === "string") {
       const parsed = tryParseJSON(data.resume_url);
       if (Array.isArray(parsed)) data.resume_url = parsed;
@@ -434,12 +454,8 @@ exports.editFullEmployee = async (data) => {
       if (Array.isArray(parsed)) data.experience = parsed;
     }
 
-    // small pick helper: prefer client's explicit key, else existing DB value
     const pick = (key) => (hasKey(key) ? data[key] : existing[key]);
 
-    // === BEFORE WRITES: delete old files only for fields client supplied ===
-
-    // personal file-array fields (photo, gov docs, etc.)
     const personalFileFields = [
       "spouse_gov_doc_url",
       "aadhaar_doc_url",
@@ -457,23 +473,18 @@ exports.editFullEmployee = async (data) => {
 
     for (const field of personalFileFields) {
       if (hasKey(field)) {
-        // client provided a new value (could be [] to clear): remove old files
         deleteFilesByUrlsMixed(existing[field]);
       }
     }
 
-    // resume: if the client provided any resume field (resume_url / resume / resume_urls) -> delete old resume files
     if (hasKey("resume_url") || hasKey("resume") || hasKey("resume_urls")) {
       deleteFilesByUrlsMixed(existing.resume_url);
     }
 
-    // other_docs: if client provided other_docs or other_docs_urls -> delete old other docs
     if (hasKey("other_docs") || hasKey("other_docs_urls")) {
       deleteFilesByUrlsMixed(existing.other_docs);
     }
 
-    // additional_certs: if client sent additional_certs we will delete the rows,
-    // so delete files referenced by existing.additional_certs before deleting rows
     if (hasKey("additional_certs")) {
       try {
         const oldAdditional = tryParseJSON(existing.additional_certs) || [];
@@ -492,7 +503,6 @@ exports.editFullEmployee = async (data) => {
       }
     }
 
-    // experience: same approach — delete existing experience doc files only if client provided experience
     if (hasKey("experience")) {
       try {
         const oldExp = tryParseJSON(existing.experience) || [];
@@ -509,10 +519,6 @@ exports.editFullEmployee = async (data) => {
       }
     }
 
-    // At this point we've removed old files for fields client is replacing.
-    // Proceed with updates (core/personal/edu/pro/bank/rows) — same as your previous logic.
-
-    // 1) Core update
     await conn.execute(queries.UPDATE_EMPLOYEE_CORE, [
       pick("first_name"),
       pick("last_name"),
@@ -522,7 +528,6 @@ exports.editFullEmployee = async (data) => {
       eid,
     ]);
 
-    // 2) Personal - list/order must match your SQL
     const personalKeys = [
       "address",
       "father_name",
@@ -579,7 +584,6 @@ exports.editFullEmployee = async (data) => {
     personalParams.push(eid);
     await conn.execute(queries.UPDATE_EMPLOYEE_PERSONAL, personalParams);
 
-    // 3) Education
     const resolveCertValue = (dbKey, altKeys = []) => {
       for (const k of [dbKey, ...altKeys]) {
         if (hasKey(k)) return data[k];
@@ -622,7 +626,6 @@ exports.editFullEmployee = async (data) => {
       eid,
     ]);
 
-    // 3b) Additional certs
     if (hasKey("additional_certs")) {
       await conn.execute(queries.DELETE_EMPLOYEE_ADDITIONAL_CERTS, [eid]);
       if (
@@ -644,7 +647,6 @@ exports.editFullEmployee = async (data) => {
       console.log("[editFullEmployee] skipping additional_certs (no key)");
     }
 
-    // 4) Professional (resume)
     const chosenResume = (() => {
       if (hasKey("resume_url")) return data.resume_url;
       if (hasKey("resume")) return data.resume;
@@ -653,19 +655,18 @@ exports.editFullEmployee = async (data) => {
     })();
 
     await conn.execute(queries.UPDATE_EMPLOYEE_PRO, [
-      pick("domain"),
+      pick("domain") || null,
       pick("employee_type") || null,
       pick("joining_date") || null,
       pick("role"),
       pick("department_id") || null,
       pick("position") || null,
       pick("supervisor_id") || null,
-      pick("salary"),
+      pick("salary") || null,
       arrayToJsonOrNull(chosenResume),
       eid,
     ]);
 
-    // 4b) Other docs
     if (hasKey("other_docs") || hasKey("other_docs_urls")) {
       if (queries.DELETE_EMPLOYEE_OTHER_DOCS) {
         await conn.execute(queries.DELETE_EMPLOYEE_OTHER_DOCS, [eid]);
@@ -685,20 +686,18 @@ exports.editFullEmployee = async (data) => {
       console.log("[editFullEmployee] skipping other_docs (no key)");
     }
 
-    // 5) Bank
     const fullName = `${pick("first_name") || existing.first_name || ""} ${
       pick("last_name") || existing.last_name || ""
     }`.trim();
     await conn.execute(queries.UPDATE_EMPLOYEE_BANK, [
       fullName,
-      pick("bank_name"),
-      pick("account_number"),
-      pick("ifsc_code"),
-      pick("branch_name"),
+      pick("bank_name") || null,
+      pick("account_number") || null,
+      pick("ifsc_code") || null,
+      pick("branch_name") || null,
       eid,
     ]);
 
-    // 6) Experience (delete+reinsert only if provided)
     if (hasKey("experience")) {
       if (!queries.DELETE_EMPLOYEE_EXP)
         throw new Error("Missing SQL query: DELETE_EMPLOYEE_EXP");
@@ -733,10 +732,14 @@ exports.editFullEmployee = async (data) => {
     console.log("[editFullEmployee] committed");
   } catch (err) {
     await conn.rollback();
-    console.error("[editFullEmployee] error:", err);
+    console.error("[editFullEmployee] error:", err && (err.stack || err));
     throw err;
   } finally {
-    conn.release();
+    try {
+      conn.release();
+    } catch (e) {
+      console.warn("[editFullEmployee] connection release failed:", e);
+    }
   }
 };
 
@@ -760,14 +763,13 @@ exports.getFullEmployee = async (employeeId) => {
     "driving_license_doc_url",
     "voter_id_doc_url",
     "resume_url",
-    "other_docs", // ensure your SELECT aliases "other_docs" this way
+    "other_docs",
   ];
 
   for (const k of fileFields) {
     if (k in row) row[k] = ensureArrayField(row[k]);
   }
 
-  // for additional certs: ensure cert.files exists and is flattened
   if (Array.isArray(row.additional_certs)) {
     row.additional_certs = row.additional_certs.map((cert) => {
       if (!cert) return cert;
@@ -789,10 +791,7 @@ exports.getFullEmployee = async (employeeId) => {
   return row;
 };
 
-/**
- * Service to search employees based on search criteria.
- */
-exports.searchEmployees = async (search, fromDate, toDate) => {
+exports.searchEmployees = async (search, fromDate, toDate, orgId) => {
   try {
     let query = queries.GET_ALL_EMPLOYEES;
     let params = [];
@@ -806,26 +805,25 @@ exports.searchEmployees = async (search, fromDate, toDate) => {
         `%${search}%`,
         `%${search}%`,
       ];
+    } else {
+      params = [];
     }
 
-    // ✅ Fix Date Handling to Prevent UTC Shift
     function formatToMySQLDate(dateStr, isEndOfDay = false) {
       if (!dateStr) return null;
-
-      // Convert to Local Time (Avoid UTC shift)
-      const date = new Date(dateStr + "T00:00:00"); // Ensures midnight local time
-      if (isEndOfDay) {
-        date.setHours(23, 59, 59, 999);
-      } else {
-        date.setHours(0, 0, 0, 0);
-      }
-
-      // Convert to MySQL DATETIME format
+      const date = new Date(dateStr + "T00:00:00");
+      if (isEndOfDay) date.setHours(23, 59, 59, 999);
+      else date.setHours(0, 0, 0, 0);
       return date.toISOString().slice(0, 19).replace("T", " ");
     }
 
     const formattedFromDate = formatToMySQLDate(fromDate);
     const formattedToDate = formatToMySQLDate(toDate, true);
+
+    if (orgId) {
+      params.push(orgId);
+    } else {
+    }
 
     if (formattedFromDate && formattedToDate) {
       query += " AND e.created_at BETWEEN ? AND ?";
@@ -838,11 +836,10 @@ exports.searchEmployees = async (search, fromDate, toDate) => {
       params.push(formattedToDate);
     }
 
-    // Debug Logs
-    console.log("🔍 Executing Query:", query);
-    console.log("🕒 From Date:", formattedFromDate);
-    console.log("🕒 To Date:", formattedToDate);
-    console.log("📌 Query Parameters:", params);
+    console.log("🔍 Executing employee search query");
+    console.log("SQL snippet (first 300 chars):", query.slice(0, 300));
+    console.log("Total params count:", params.length);
+    console.log("Params preview:", params);
 
     const [rows] = await db.execute(query, params);
     return rows;
@@ -852,9 +849,6 @@ exports.searchEmployees = async (search, fromDate, toDate) => {
   }
 };
 
-/**
- * Deactivate an employee by setting status to 'Inactive'.
- */
 exports.deactivateEmployee = async (employeeId) => {
   try {
     const [result] = await db.execute(queries.UPDATE_EMPLOYEE_STATUS, [
@@ -872,9 +866,6 @@ exports.deactivateEmployee = async (employeeId) => {
   }
 };
 
-/**
- * Fetch employee details.
- */
 exports.getEmployee = async (employeeId) => {
   try {
     const [rows] = await db.execute(queries.GET_EMPLOYEE, [employeeId]);

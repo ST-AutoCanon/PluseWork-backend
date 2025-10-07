@@ -13,7 +13,13 @@ const {
 
 const router = express.Router();
 
+// Define upload directory
 const uploadDir = path.join(__dirname, "../../../departments/");
+
+// ✅ Ensure directory exists (create it if it doesn't)
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -39,9 +45,9 @@ const fileFilter = (req, file, cb) => {
   const mimeType = fileTypes.test(file.mimetype);
 
   if (extName && mimeType) {
-    return cb(null, true);
+    cb(null, true);
   } else {
-    return cb(new Error("Only images are allowed!"), false);
+    cb(new Error("Only images are allowed!"), false);
   }
 };
 
@@ -56,15 +62,11 @@ router.get("/departments/:filename", (req, res) => {
     return res.status(403).json({ message: "API key is required" });
   }
 
-  const filePath = path.join(
-    __dirname,
-    "../../../departments",
-    req.params.filename
-  );
+  const filePath = path.join(uploadDir, req.params.filename);
 
   fs.access(filePath, fs.constants.F_OK, (err) => {
     if (err) {
-      console.log(err);
+      console.error(err);
       return res.status(404).json({ message: "Image not found" });
     }
     res.sendFile(filePath);
