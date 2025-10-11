@@ -1,4 +1,3 @@
-// services/employeeService.js (updated)
 const db = require("../config");
 const queries = require("../constants/empDetailsQueries");
 const crypto = require("crypto");
@@ -96,7 +95,6 @@ function deleteFilesByUrlsMixed(val) {
         fs.unlinkSync(full);
         console.log("[file-delete] removed:", full);
       } else {
-        // not found or no-op
       }
     } catch (e) {
       console.warn(
@@ -108,14 +106,6 @@ function deleteFilesByUrlsMixed(val) {
   }
 }
 
-/**
- * Normalize org id from various possible keys that might be supplied:
- * - org_id (snake_case)
- * - orgId (camelCase)
- * - organization_id
- *
- * The controller should already attach org_id but this keeps the service robust.
- */
 function normalizeOrgId(data) {
   if (!data) return null;
   const val =
@@ -132,13 +122,11 @@ function normalizeOrgId(data) {
   return data.org_id || null;
 }
 
-exports.addFullEmployee = async (data) => {
+exports.addFullEmployee = async (data, options = {}) => {
   console.log("[addFullEmployee] ⇒ start", { email: data?.email });
 
-  // normalize org id early so rest of function can rely on data.org_id
   const resolvedOrg = normalizeOrgId(data);
   if (!resolvedOrg) {
-    // keep behavior same as controller: require org when appropriate, but log clearly
     console.warn(
       "[addFullEmployee] WARNING: org_id not provided on data object"
     );
@@ -153,15 +141,14 @@ exports.addFullEmployee = async (data) => {
     "phone_number",
     "dob",
     "role",
-    // accept any normalized form for org
-    // we'll check presence of data.org_id after normalization
+    "aadhaar_number",
+    "pan_number",
   ];
 
   const missing = requiredFields.filter(
     (f) => !data[f] || String(data[f]).trim() === ""
   );
 
-  // ensure org_id presence as well
   if (!data.org_id || String(data.org_id).trim() === "") {
     missing.push("org_id");
   }
@@ -174,13 +161,36 @@ exports.addFullEmployee = async (data) => {
   try {
     await conn.beginTransaction();
     console.log("[addFullEmployee] began transaction");
+    if (resolvedOrg && !options.bypassOrgLimit) {
+      const [orgRows] = await conn.execute(queries.SELECT_ORG_FOR_UPDATE, [
+        resolvedOrg,
+      ]);
+      const org = orgRows && orgRows[0] ? orgRows[0] : null;
 
-    // create temporary password / hash
+      if (org && org.no_employees !== null && org.no_employees !== undefined) {
+        const allowed = Number(org.no_employees);
+        if (!Number.isNaN(allowed)) {
+          const [countRows] = await conn.execute(
+            queries.COUNT_ACTIVE_EMPLOYEES_BY_ORG,
+            [resolvedOrg]
+          );
+          const current = Number(
+            countRows && countRows[0] ? countRows[0].cnt : 0
+          );
+
+          if (current >= allowed) {
+            throw new Error(
+              `Employee limit reached for organization (allowed: ${allowed}, current: ${current}).`
+            );
+          }
+        }
+      }
+    }
+
     const password = crypto.randomBytes(8).toString("hex");
     const hash = await bcrypt.hash(password, 10);
     console.log("[addFullEmployee] generated temp password & hash");
 
-    // ensure queries.ADD_EMPLOYEE_CORE accepts org_id as last param (it did previously)
     const [coreRes] = await conn.execute(queries.ADD_EMPLOYEE_CORE, [
       data.first_name,
       data.last_name,
@@ -192,7 +202,6 @@ exports.addFullEmployee = async (data) => {
     ]);
     console.log("[addFullEmployee] core insert result:", coreRes);
 
-    // fetch just-created employee_id (safe guard if auto-increment available)
     const [[{ employee_id: eid }]] = await conn.execute(
       `SELECT employee_id FROM employees WHERE email = ? LIMIT 1`,
       [data.email]
@@ -202,7 +211,6 @@ exports.addFullEmployee = async (data) => {
     }
     console.log("[addFullEmployee] new employee_id:", eid);
 
-    // Convert file list fields to JSON or null
     const personalFileKeys = [
       "spouse_gov_doc_url",
       "aadhaar_doc_url",
@@ -221,7 +229,6 @@ exports.addFullEmployee = async (data) => {
       if (k in data) data[k] = arrayToJsonOrNull(data[k]);
     });
 
-    // personal details insert
     await conn.execute(queries.ADD_EMPLOYEE_PERSONAL, [
       eid,
       data.address || null,
@@ -267,7 +274,6 @@ exports.addFullEmployee = async (data) => {
       data.child3_gov_doc_url || null,
     ]);
 
-    // education
     await conn.execute(queries.ADD_EMPLOYEE_EDU, [
       eid,
       data.tenth_institution || null,
@@ -296,7 +302,6 @@ exports.addFullEmployee = async (data) => {
       arrayToJsonOrNull(data.pg_cert_url || data.pg_cert || data.pg_cert_urls),
     ]);
 
-    // additional certs (if any)
     if (Array.isArray(data.additional_certs)) {
       for (let cert of data.additional_certs) {
         const fileUrls = cert.file_urls || cert.files || cert.file || null;
@@ -310,7 +315,6 @@ exports.addFullEmployee = async (data) => {
       }
     }
 
-    // professional details
     await conn.execute(queries.ADD_EMPLOYEE_PRO, [
       eid,
       data.domain || null,
@@ -324,7 +328,6 @@ exports.addFullEmployee = async (data) => {
       arrayToJsonOrNull(data.resume_url || data.resume || data.resume_urls),
     ]);
 
-    // other docs
     const otherDocsRaw = data.other_docs_urls || data.other_docs || null;
     const otherDocs = ensureArrayField(otherDocsRaw);
     if (otherDocs.length) {
@@ -333,7 +336,6 @@ exports.addFullEmployee = async (data) => {
       }
     }
 
-    // bank details
     const fullName = `${data.first_name} ${data.last_name}`.trim();
     await conn.execute(queries.ADD_EMPLOYEE_BANK, [
       eid,
@@ -344,7 +346,6 @@ exports.addFullEmployee = async (data) => {
       data.branch_name || null,
     ]);
 
-    // experience
     if (Array.isArray(data.experience)) {
       for (let exp of data.experience) {
         const docUrls = exp.doc_urls || exp.files || exp.doc || null;
@@ -362,7 +363,6 @@ exports.addFullEmployee = async (data) => {
     await conn.commit();
     console.log("[addFullEmployee] committed transaction");
 
-    // attempt sending reset email (non-blocking for commit)
     try {
       console.log("[addFullEmployee] sending reset email to:", data.email);
       const mailRes = await sendResetEmail(
@@ -421,7 +421,7 @@ exports.addFullEmployee = async (data) => {
 
 exports.editFullEmployee = async (data) => {
   console.log("[editFullEmployee] ⇒ start", { employee_id: data.employee_id });
-
+  console.log("[editFullEmployee] ⇒ start", data);
   // normalize org id if present so subsequent operations may rely on data.org_id
   normalizeOrgId(data);
 

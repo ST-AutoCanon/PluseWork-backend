@@ -699,4 +699,7 @@ LEFT JOIN (
   WHERE sa.employee_id = ?
   ORDER BY sa.start_date DESC
 `,
+  SELECT_ORG_FOR_UPDATE: `SELECT no_employees FROM Organizations WHERE id = ? FOR UPDATE`,
+  SELECT_ORG: `SELECT no_employees FROM Organizations WHERE id = ?`,
+  COUNT_ACTIVE_EMPLOYEES_BY_ORG: `SELECT COUNT(*) AS cnt FROM employees WHERE org_id = ? AND status = 'Active'`,
 };

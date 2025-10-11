@@ -68,9 +68,13 @@ async function runCheckForMissingProfiles({ dedupeDays = 7 } = {}) {
 
   try {
     // Use 'status' column per your table schema (enum 'Active'|'Inactive')
-    const [empRows] = await db.execute(
-      `SELECT employee_id FROM employees WHERE status = 'Active'`
-    );
+    const [empRows] = await db.execute(`
+  SELECT e.employee_id
+  FROM employees e
+  JOIN employee_professional p ON e.employee_id = p.employee_id
+  WHERE e.status = 'Active'
+    AND (p.role NOT IN ('Admin', 'SuperAdmin') OR p.role IS NULL)
+`);
 
     if (!empRows || empRows.length === 0) {
       console.log("[profileMissingNotifier] no active employees found");

@@ -2,7 +2,6 @@ const db = require("../config");
 const queries = require("../constants/reimbursementQueries");
 const path = require("path");
 
-// Turn any JS Date (from MySQL DATETIME) into local YYYY‑MM‑DD
 const toLocalDateString = (dt) => {
   if (!dt) return null;
   const d = new Date(dt);
@@ -46,25 +45,22 @@ exports.processUploadedFiles = async (files, reimbursementId) => {
 exports.getReimbursementsByEmployee = async (
   employeeId,
   fromDate = null,
-  toDate = null
+  toDate = null,
+  orgId = null
 ) => {
   let query = queries.GET_REIMBURSEMENTS_BY_EMPLOYEE;
-  let queryParams = [employeeId];
-  // … your dynamic filtering code …
+  let queryParams = [employeeId, orgId, orgId];
 
   const [rawRows] = await db.query(query, queryParams);
 
   if (!rawRows.length) return [];
-  // ── FORMAT ALL DATES INTO YYYY-MM-DD ─────────────────────────────────
   const reimbursements = rawRows.map((r) => ({
     ...r,
     from_date: toLocalDateString(r.from_date),
     to_date: toLocalDateString(r.to_date),
     date: toLocalDateString(r.date),
   }));
-  // ───────────────────────────────────────────────────────────────────────
 
-  // Then fetch attachments and return
   const reimbursementIds = reimbursements.map((r) => r.id);
   const [attachments] = await db.query(
     queries.GET_ATTACHMENTS_BY_REIMBURSEMENT_IDS,
@@ -77,7 +73,6 @@ exports.getReimbursementsByEmployee = async (
   );
 };
 
-// Utility function for mapping attachments
 const mapAttachmentsToReimbursements = (
   reimbursements,
   attachments,
@@ -103,8 +98,6 @@ const mapAttachmentsToReimbursements = (
   return reimbursements;
 };
 
-// New service function to update payment status and paid_date
-// reimbursementService.js (service)
 exports.updatePaymentStatus = async (id, payment_status, paid_date) => {
   try {
     console.log("Service: Updating payment status...");
@@ -112,7 +105,6 @@ exports.updatePaymentStatus = async (id, payment_status, paid_date) => {
     console.log("New Payment Status:", payment_status);
     console.log("Paid Date:", paid_date);
 
-    // your UPDATE_PAYMENT_STATUS query should allow "rejected" too
     const result = await db.query(queries.UPDATE_PAYMENT_STATUS, [
       payment_status,
       paid_date,
@@ -139,27 +131,30 @@ exports.getAttachmentsByReimbursementIds = async (reimbursementIds) => {
 exports.getAllReimbursements = async (
   submittedFrom = null,
   submittedFromForBetween = null,
-  submittedTo = null
+  submittedTo = null,
+  orgId = null
 ) => {
   try {
     console.log("getAllReimbursements params:", {
       submittedFrom,
       submittedFromForBetween,
       submittedTo,
+      orgId,
     });
 
-    // 1) Fetch all reimbursements filtered by created_at
+    // query updated SQL expects the last two params to be orgId twice (see queries below)
     const [rawRows] = await db.query(queries.GET_ALL_REIMBURSEMENTS, [
       submittedFrom,
       submittedFromForBetween,
       submittedTo,
+      orgId,
+      orgId,
     ]);
 
     if (!rawRows.length) {
       return [];
     }
 
-    // 2) FORMAT DATES INTO LOCAL YYYY-MM-DD
     const reimbursements = rawRows.map((r) => ({
       ...r,
       from_date: toLocalDateString(r.from_date),
@@ -167,28 +162,32 @@ exports.getAllReimbursements = async (
       date: toLocalDateString(r.date),
     }));
 
-    // 3) Fetch attachments for these reimbursements
     const reimbursementIds = reimbursements.map((r) => r.id);
+    const safeIds = reimbursementIds.length ? reimbursementIds : [-1];
     const [attachments] = await db.query(
       queries.GET_ATTACHMENTS_BY_REIMBURSEMENT_IDS,
-      [reimbursementIds]
+      [safeIds]
     );
 
-    // 4) Map attachments onto reimbursements
     const attachmentMap = {};
     attachments.forEach((att) => {
       const key = att.reimbursement_id;
       if (!attachmentMap[key]) attachmentMap[key] = [];
+      // att may or may not have org_id column depending on schema — prefer att.org_id if present
+      const orgSeg = att.org_id
+        ? att.org_id
+        : att.employee_org_id
+        ? att.employee_org_id
+        : "unknown_org";
       attachmentMap[key].push({
         filename: att.file_name,
-        url: `/reimbursement/${att.year}/${att.month}/${att.employee_id}/${att.file_name}`,
+        url: `/reimbursement/${orgSeg}/${att.year}/${att.month}/${att.employee_id}/${att.file_name}`,
       });
     });
     reimbursements.forEach((r) => {
       r.attachments = attachmentMap[r.id] || [];
     });
 
-    // 5) Group by employee_id
     const grouped = reimbursements.reduce((acc, r) => {
       const eid = r.employee_id;
       if (!acc[eid]) acc[eid] = [];
@@ -196,7 +195,6 @@ exports.getAllReimbursements = async (
       return acc;
     }, {});
 
-    // 6) Return array of { employee_id, claims }
     return Object.entries(grouped).map(([employee_id, claims]) => ({
       employee_id,
       claims,
@@ -209,8 +207,6 @@ exports.getAllReimbursements = async (
 
 exports.createReimbursement = async (reimbursementData) => {
   try {
-    // … validation and existingClaim checks …
-
     let department_id = parseInt(reimbursementData.department_id, 10);
     if (isNaN(department_id)) department_id = null;
 
@@ -224,8 +220,8 @@ exports.createReimbursement = async (reimbursementData) => {
       reimbursementData.date || null,
       reimbursementData.travel_from || null,
       reimbursementData.travel_to || null,
-      reimbursementData.meals_objective || null, // correct slot
-      reimbursementData.purpose || null, // correct slot
+      reimbursementData.meals_objective || null,
+      reimbursementData.purpose || null,
       reimbursementData.purchasing_item || null,
       reimbursementData.accommodation_fees || null,
       reimbursementData.no_of_days !== undefined
@@ -247,28 +243,29 @@ exports.createReimbursement = async (reimbursementData) => {
       reimbursementData.project || null,
     ];
 
-    // 1) Fetch any existing claims that overlap
+    const orgId = reimbursementData.orgId || null;
+
+    reimbursementArray.push(orgId);
+
     const [existingClaims] = await db.query(queries.CHECK_EXISTING_CLAIM, [
       reimbursementData.employeeId,
       reimbursementData.claim_type,
       reimbursementData.date || null,
       reimbursementData.from_date || null,
       reimbursementData.to_date || null,
+      orgId,
     ]);
 
-    // 2) Log the statuses we got back (for debugging)
     console.log(
       "🚀 createReimbursement: found existing claims with statuses:",
       existingClaims.map((c) => c.status)
     );
 
-    // 3) Filter out the ones that are truly “blocking” (i.e. not rejected)
     const stillActive = existingClaims.filter(
       (c) => c.status && c.status.toString().toLowerCase().trim() !== "rejected"
     );
 
     if (stillActive.length > 0) {
-      // there is at least one overlapping claim that’s pending or approved, so block
       throw {
         statusCode: 400,
         message:
@@ -276,14 +273,12 @@ exports.createReimbursement = async (reimbursementData) => {
       };
     }
 
-    // 4) Insert the new reimbursement
     const [result] = await db.query(
       queries.CREATE_REIMBURSEMENT,
       reimbursementArray
     );
     const reimbursementId = result.insertId;
 
-    // 5) Save attachments, if any
     if (reimbursementData.attachments?.length) {
       const attachmentValues = reimbursementData.attachments.map((f) => [
         reimbursementId,
@@ -317,7 +312,7 @@ exports.updateReimbursementStatus = async (
   approver_id,
   approver_name,
   approver_designation,
-  project // New parameter
+  project
 ) => {
   if (!["approved", "rejected"].includes(status)) {
     throw new Error("Invalid status. Allowed values: 'approved', 'rejected'");
@@ -331,14 +326,13 @@ exports.updateReimbursementStatus = async (
   console.log("Approver Designation:", approver_designation);
   console.log("Project:", project);
 
-  // Update query now includes the project field. Make sure your query (UPDATE_REIMBURSEMENT_STATUS) is updated accordingly.
   const result = await db.query(queries.UPDATE_REIMBURSEMENT_STATUS, [
     status,
     approver_comments,
     approver_id,
     approver_name,
     approver_designation,
-    project, // Include project here
+    project,
     new Date(),
     id,
   ]);
@@ -352,7 +346,7 @@ exports.updateReimbursementStatus = async (
     approver_id,
     approver_name,
     approver_designation,
-    project, // Return project in the response as well
+    project,
     approved_date: new Date(),
   };
 };
@@ -365,8 +359,6 @@ exports.getAttachments = async (reimbursementId) => {
   const [rows] = await db.query(queries.GET_ATTACHMENTS, [reimbursementId]);
   return rows;
 };
-
-// In your reimbursementService.js
 
 exports.updateReimbursement = async (reimbursementId, updateData) => {
   try {
@@ -397,16 +389,14 @@ exports.updateReimbursement = async (reimbursementId, updateData) => {
       stationary,
       service_provider,
       project,
-      attachments, // new attachments array from updateData
+      attachments,
     } = updateData;
 
-    // Process department_id to ensure it's either an integer or null
     let processedDepartmentId = parseInt(department_id, 10);
     if (isNaN(processedDepartmentId)) {
       processedDepartmentId = null;
     }
 
-    // Update the main reimbursement record
     const [result] = await db.query(queries.UPDATE_REIMBURSEMENT, [
       processedDepartmentId,
       claim_type,
@@ -435,20 +425,14 @@ exports.updateReimbursement = async (reimbursementId, updateData) => {
       throw new Error("No reimbursement found or unauthorized update.");
     }
 
-    // If new attachments are provided, replace old ones with new ones
     if (attachments && attachments.length > 0) {
-      // Optionally, delete old attachments from the database
       await db.query(queries.DELETE_ATTACHMENTS_BY_REIMBURSEMENT_ID, [
         reimbursementId,
       ]);
 
-      // Prepare new attachment values using the file_path from each object
       const attachmentValues = attachments.map(({ file_name, file_path }) => {
-        // if you want to re-derive filename instead:
-        // const file_name = path.basename(file_path);
         return [reimbursementId, file_name, file_path];
       });
-      // Insert new attachments in bulk
       await db.query(queries.SAVE_ATTACHMENTS, [attachmentValues]);
     }
 
@@ -462,17 +446,20 @@ exports.updateReimbursement = async (reimbursementId, updateData) => {
 exports.getTeamReimbursements = async (
   departmentId,
   submittedFrom,
+  submittedFromForBetween,
   submittedTo,
-  teamLeadId
+  teamLeadId,
+  orgId = null
 ) => {
   const params = [
     departmentId,
     submittedFrom || null,
     submittedFrom || null,
     submittedTo || null,
+    orgId,
+    orgId,
   ];
 
-  // Fetch reimbursements
   const [reimbursements] = await db.query(
     queries.GET_TEAM_REIMBURSEMENTS,
     params
@@ -480,12 +467,10 @@ exports.getTeamReimbursements = async (
 
   if (!reimbursements.length) return [];
 
-  // Exclude reimbursements from the team lead (self)
   const filteredReimbursements = reimbursements.filter(
     (r) => r.employee_id !== teamLeadId
   );
 
-  // Fetch attachments for these filtered reimbursements
   const reimbursementIds = filteredReimbursements.map((r) => r.id);
   const safeIds = reimbursementIds.length ? reimbursementIds : [-1];
 
@@ -494,19 +479,18 @@ exports.getTeamReimbursements = async (
     [safeIds]
   );
 
-  // Map attachments to reimbursements
   const attachmentMap = {};
   attachments.forEach((attachment) => {
     if (!attachmentMap[attachment.reimbursement_id]) {
       attachmentMap[attachment.reimbursement_id] = [];
     }
+    const orgSeg = attachment.org_id || "unknown_org";
     attachmentMap[attachment.reimbursement_id].push({
       filename: attachment.file_name,
-      url: `/reimbursement/${attachment.year}/${attachment.month}/${attachment.employee_id}/${attachment.file_name}`,
+      url: `/reimbursement/${orgSeg}/${attachment.year}/${attachment.month}/${attachment.employee_id}/${attachment.file_name}`,
     });
   });
 
-  // Attach the files to each reimbursement
   filteredReimbursements.forEach((reimbursement) => {
     reimbursement.attachments = attachmentMap[reimbursement.id] || [];
   });
@@ -514,13 +498,14 @@ exports.getTeamReimbursements = async (
   return filteredReimbursements;
 };
 
-exports.getAllProjects = async () => {
+exports.getAllProjects = async (orgId) => {
   try {
-    const [projects] = await db.query(queries.GET_ALL_PROJECTS);
+    if (!orgId) throw new Error("orgId is required");
+
+    const [projects] = await db.query(queries.GET_ALL_PROJECTS, [orgId]);
 
     if (!projects.length) return [];
 
-    // Extract only project names
     return projects.map((project) => project.project_name);
   } catch (error) {
     console.error("Error fetching projects:", error);

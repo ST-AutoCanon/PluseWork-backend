@@ -1,57 +1,63 @@
-/**
- * Service layer to handle login and dashboard data retrieval.
- *
- * @module loginService
- */
-
 const db = require("../config");
 const queries = require("../constants/loginQueries");
 const moment = require("moment");
 
 class LoginService {
-  /**
-   * Fetch user details by email.
-   *
-   * @param {string} email - User email.
-   * @returns {Promise<Object>} User details from the database.
-   */
   static async fetchUserByEmail(email) {
     const [rows] = await db.execute(queries.GET_USER_BY_EMAIL, [email]);
     return rows[0];
   }
 
-  /**
-   * Fetch admin dashboard data.
-   *
-   * @param {number} employee_id - ID of the admin.
-   * @returns {Promise<Object>} Dashboard statistics for admin users.
-   */
   static async fetchAdminDashboard(employee_id) {
-    // Fetch admin personal details
     const [adminDetails] = await db.execute(queries.GET_ADMIN_DETAILS, [
       employee_id,
     ]);
 
-    if (!adminDetails.length) {
-      throw new Error("Admin details not found.");
+    // If admin details are missing, return a safe default dashboard object
+    if (!adminDetails || adminDetails.length === 0) {
+      return {
+        name: null,
+        employeeId: null,
+        email: null,
+        gender: null,
+        orgId: null,
+        total_employees: 0,
+        attendance: { present: 0, sick_leave: 0, other_absence: 0 },
+        salary_distribution: {
+          average_salary: 0,
+          min_salary: 0,
+          max_salary: 0,
+        },
+        department_distribution: [],
+        login_timer_graph: [],
+        financial_stats: {
+          previous_month_expenses: 0,
+          previous_month_salary: 0,
+          previous_month_credit: 0,
+        },
+        projects: { current: [], upcoming: [], previous: [] },
+      };
     }
 
     const admin = adminDetails[0];
+    const orgId = admin.Org_id;
 
-    // Fetch admin dashboard stats
-    const [dashboardStats] = await db.execute(queries.GET_ADMIN_DASHBOARD);
+    const [dashboardStats] = await db.execute(queries.GET_ADMIN_DASHBOARD, [
+      orgId,
+      orgId,
+      orgId,
+    ]);
 
-    // Fetch salary distribution
     const [salaryDistribution] = await db.execute(
-      queries.GET_SALARY_DISTRIBUTION
+      queries.GET_SALARY_DISTRIBUTION,
+      [orgId]
     );
 
-    // Fetch department distribution
     const [departmentDistribution] = await db.execute(
-      queries.GET_DEPARTMENT_DISTRIBUTION
+      queries.GET_DEPARTMENT_DISTRIBUTION,
+      [orgId]
     );
 
-    // Fetch login timer graph for daily logins
     const today = moment().startOf("day");
     const periods = {
       daily: { start: today, end: moment(today).endOf("day") },
@@ -61,76 +67,94 @@ class LoginService {
 
     const { start, end } = periods["daily"];
 
-    // Fetch login data directly from the database for the defined time range
     const [loginData] = await db.execute(queries.GET_HOURLY_LOGIN_DATA, [
+      orgId,
       start.toISOString(),
       end.toISOString(),
     ]);
 
-    // Fetch project data
-    const [currentProjects] = await db.execute(queries.GET_CURRENT_PROJECTS);
-    const [upcomingProjects] = await db.execute(queries.GET_UPCOMING_PROJECTS);
-    const [previousProjects] = await db.execute(queries.GET_PREVIOUS_PROJECTS);
+    const [currentProjects] = await db.execute(queries.GET_CURRENT_PROJECTS, [
+      orgId,
+    ]);
+    const [upcomingProjects] = await db.execute(queries.GET_UPCOMING_PROJECTS, [
+      orgId,
+    ]);
+    const [previousProjects] = await db.execute(queries.GET_PREVIOUS_PROJECTS, [
+      orgId,
+    ]);
 
-    // Fetch financial statistics
-    const [financialStats] = await db.execute(queries.GET_FINANCIAL_STATS);
+    const [financialStats] = await db.execute(queries.GET_FINANCIAL_STATS, [
+      orgId,
+    ]);
 
-    // In your fetchAdminDashboard method (LoginService)
     return {
       name: admin.name,
       employeeId: admin.employee_id,
       email: admin.email,
       gender: admin.gender,
-      total_employees: dashboardStats[0]?.total_employees || 0, // Default to 0 if not available
+      orgId: orgId,
+      total_employees: dashboardStats?.[0]?.total_employees || 0,
       attendance: {
-        present: dashboardStats[0]?.present || 0, // Default to 0 if null
-        sick_leave: dashboardStats[0]?.sick_leave || 0, // Default to 0 if null
-        other_absence: dashboardStats[0]?.other_absence || 0, // Default to 0 if null
+        present: dashboardStats?.[0]?.present || 0,
+        sick_leave: dashboardStats?.[0]?.sick_leave || 0,
+        other_absence: dashboardStats?.[0]?.other_absence || 0,
       },
-      salary_distribution: salaryDistribution[0] || {
+      salary_distribution: salaryDistribution?.[0] || {
         average_salary: 0,
         min_salary: 0,
         max_salary: 0,
-      }, // Default salary if null
-      department_distribution: departmentDistribution || [], // Empty array if no department distribution
-      login_timer_graph: loginData || [], // Empty array if no login data
+      },
+      department_distribution: departmentDistribution || [],
+      login_timer_graph: loginData || [],
       financial_stats: {
         previous_month_expenses:
-          financialStats[0]?.previous_month_expenses || 0,
-        previous_month_salary: financialStats[0]?.previous_month_salary || 0,
-        previous_month_credit: financialStats[0]?.previous_month_credit || 0,
+          financialStats?.[0]?.previous_month_expenses || 0,
+        previous_month_salary: financialStats?.[0]?.previous_month_salary || 0,
+        previous_month_credit: financialStats?.[0]?.previous_month_credit || 0,
       },
       projects: {
         current:
-          currentProjects.map((project) => ({
-            project_name: project.project_name,
-            job_type: project.job_type,
-            department: project.department,
-            start_date: project.start_date,
-            end_date: project.end_date,
-            comments: project.comments,
-          })) || [], // Empty array if no projects
+          (currentProjects &&
+            currentProjects.map((project) => ({
+              project_name: project.project_name,
+              job_type: project.job_type,
+              department: project.department,
+              start_date: project.start_date,
+              end_date: project.end_date,
+              comments: project.comments,
+            }))) ||
+          [],
         upcoming: upcomingProjects || [],
         previous: previousProjects || [],
       },
     };
   }
 
-  /**
-   * Fetch employee dashboard data.
-   *
-   * @param {string} employeeId - Employee ID to fetch data for.
-   * @returns {Promise<Object>} Employee dashboard data.
-   */
   static async fetchEmployeeDashboard(employeeId) {
     try {
-      // Only one parameter needed for the dashboard query
       const [rows] = await db.execute(queries.GET_EMPLOYEE_DASHBOARD, [
         employeeId,
       ]);
 
-      if (rows.length === 0) {
-        throw new Error("Employee not found");
+      // If no rows, return a safe default instead of throwing
+      if (!rows || rows.length === 0) {
+        return {
+          name: null,
+          employeeId: employeeId || null,
+          position: null,
+          gender: null,
+          department_id: null,
+          department: null,
+          salary: 0,
+          photoUrl: null,
+          attendance_count: 0,
+          leave_queries_count: 0,
+          attendance_breakdown: {
+            present: 0,
+            sick_leave: 0,
+            other_absence: 0,
+          },
+        };
       }
 
       const emp = rows[0];
@@ -141,7 +165,7 @@ class LoginService {
         position: emp.position,
         gender: emp.gender,
         department_id: emp.department_id,
-        department: emp.department, // department name
+        department: emp.department,
         salary: emp.salary,
         photoUrl: emp.photo_url,
         attendance_count: emp.attendance_count || 0,
@@ -154,36 +178,57 @@ class LoginService {
       };
     } catch (err) {
       console.error("Error in fetchEmployeeDashboard:", err.message);
-      throw new Error("Error fetching employee dashboard data");
+      // return safe default on unexpected DB error
+      return {
+        name: null,
+        employeeId: employeeId || null,
+        position: null,
+        gender: null,
+        department_id: null,
+        department: null,
+        salary: 0,
+        photoUrl: null,
+        attendance_count: 0,
+        leave_queries_count: 0,
+        attendance_breakdown: {
+          present: 0,
+          sick_leave: 0,
+          other_absence: 0,
+        },
+      };
     }
   }
 
-  /**
-   * Fetch sidebar menu items based on role.
-   *
-   * @param {string} role - User role.
-   * @returns {Promise<Array>} List of sidebar menu items.
-   */
   static async fetchSidebarMenu(role, orgId) {
     const [menuItems] = await db.execute(queries.GET_SIDEBAR_MENU, [
       role,
       orgId,
     ]);
-    return menuItems;
+    return menuItems || [];
   }
 
-  static async getAttendanceStatusCount() {
+  static async getAttendanceStatusCount(orgId) {
     try {
-      console.log("Executing SQL Query: ", queries.GET_ATTENDANCE_STATUS_COUNT);
-      const [rows] = await db.execute(queries.GET_ATTENDANCE_STATUS_COUNT);
-
-      console.log("Query Result:", rows);
+      const [rows] = await db.execute(queries.GET_ATTENDANCE_STATUS_COUNT, [
+        orgId,
+        orgId,
+        orgId,
+      ]);
 
       if (!rows || rows.length === 0) {
         return { totalEmployees: 0, categories: [] };
       }
 
-      const { totalEmployees, present, approved_leave, absent } = rows[0];
+      const {
+        totalEmployees = 0,
+        present = 0,
+        approved_leave = 0,
+      } = rows[0] || {};
+
+      const absent = Math.max(
+        0,
+        (totalEmployees || 0) - (present || 0) - (approved_leave || 0)
+      );
 
       return {
         totalEmployees: totalEmployees || 0,
@@ -201,28 +246,33 @@ class LoginService {
     }
   }
 
-  static async fetchEmployeeLoginDataCount() {
+  static async fetchEmployeeLoginDataCount(orgId) {
     try {
-      console.log("Executing Query: ", queries.GET_EMPLOYEE_LOGIN_DATA_COUNT);
-      const [rows] = await db.query(queries.GET_EMPLOYEE_LOGIN_DATA_COUNT); // ✅ Use `query()` instead of `execute()`
-      console.log("Raw Query Result:", rows);
-      return rows;
+      const [rows] = await db.execute(queries.GET_EMPLOYEE_LOGIN_DATA_COUNT, [
+        orgId,
+      ]);
+      return rows || [];
     } catch (error) {
       console.error("Database Query Error:", error);
-      throw new Error("Failed to fetch login data count");
+      throw new Error("Failed to fetch login data count: " + error.message);
     }
   }
 
-  static async fetchSalaryRanges() {
+  static async fetchSalaryRanges(orgId) {
     try {
-      const [rows] = await db.execute(queries.GET_EMPLOYEE_SALARY_RANGE);
+      const [rows] = await db.execute(queries.GET_EMPLOYEE_SALARY_RANGE, [
+        orgId,
+      ]);
+
+      const labels = (rows || []).map((row) => row.salary_range);
+      const data = (rows || []).map((row) => row.count || 0);
 
       return {
-        labels: rows.map((row) => row.salary_range),
+        labels,
         datasets: [
           {
             label: "Salaries",
-            data: rows.map((row) => row.count),
+            data,
             backgroundColor: [
               "#82DAFE",
               "#00A1DA",
@@ -235,32 +285,41 @@ class LoginService {
       };
     } catch (error) {
       console.error("Error fetching salary ranges:", error);
-      throw new Error("Failed to fetch salary ranges");
+      throw new Error("Failed to fetch salary ranges: " + error.message);
     }
   }
 
-  static async getEmployeeCountByDepartment() {
+  static async getEmployeeCountByDepartment(orgId) {
     try {
-      const [rows] = await db.execute(queries.GET_EMPLOYEE_BY_DEPARTMENT);
-      return rows;
+      const [rows] = await db.execute(
+        queries.GET_EMPLOYEE_COUNT_BY_DEPARTMENT,
+        [orgId]
+      );
+      return rows || [];
     } catch (error) {
       console.error("Error fetching employee count by department:", error);
-      throw new Error("Failed to fetch employee count by department");
+      throw new Error(
+        "Failed to fetch employee count by department: " + error.message
+      );
     }
   }
 
-  static async getEmployeePayrollData() {
+  static async getEmployeePayrollData(orgId) {
     try {
-      const [rows] = await db.execute(queries.GET_EMPLOYEE_PAYROLL);
+      const [rows] = await db.execute(queries.GET_EMPLOYEE_PAYROLL, [orgId]);
+
+      // return safe defaults when no rows
       return {
-        total_previous_month_credit: rows[0]?.total_previous_month_credit || 0,
+        total_previous_month_credit:
+          rows?.[0]?.total_previous_month_credit || 0,
         total_previous_month_expenses:
-          rows[0]?.total_previous_month_expenses || 0,
-        total_previous_month_salary: rows[0]?.total_previous_month_salary || 0,
+          rows?.[0]?.total_previous_month_expenses || 0,
+        total_previous_month_salary:
+          rows?.[0]?.total_previous_month_salary || 0,
       };
     } catch (error) {
       console.error("Error fetching employee payroll data:", error);
-      throw new Error("Failed to fetch payroll data");
+      throw new Error("Failed to fetch payroll data: " + error.message);
     }
   }
 }

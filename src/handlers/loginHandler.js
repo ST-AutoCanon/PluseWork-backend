@@ -1,7 +1,7 @@
 const bcrypt = require("bcrypt");
 const LoginService = require("../services/loginService");
 const ErrorHandler = require("../utils/errorHandler");
-const { redisClient } = require("../lib/sessionStore"); // ✅ use redisClient directly
+const { redisClient } = require("../lib/sessionStore");
 const dotenv = require("dotenv");
 dotenv.config();
 
@@ -10,7 +10,6 @@ class LoginHandler {
     try {
       const { email, password } = req.body;
 
-      // Fetch user by email
       const user = await LoginService.fetchUserByEmail(email);
       if (!user) {
         return res
@@ -18,7 +17,6 @@ class LoginHandler {
           .json(ErrorHandler.generateErrorResponse(401, "Invalid credentials"));
       }
 
-      // Check if the employee is inactive
       if (user.status === "Inactive") {
         return res
           .status(403)
@@ -30,7 +28,6 @@ class LoginHandler {
           );
       }
 
-      // Validate password
       const isPasswordValid = await bcrypt.compare(password, user.password);
       if (!isPasswordValid) {
         return res
@@ -38,43 +35,55 @@ class LoginHandler {
           .json(ErrorHandler.generateErrorResponse(401, "Invalid credentials"));
       }
 
-      // Fetch dashboard & sidebar
       const dashboardFunction =
         {
           Admin: LoginService.fetchAdminDashboard,
           Employee: LoginService.fetchEmployeeDashboard,
         }[user.role] || LoginService.fetchEmployeeDashboard;
 
-      const dashboard = await dashboardFunction(user.employee_id);
-      const sidebarMenu = await LoginService.fetchSidebarMenu(
-        user.role,
-        user.Org_id
-      );
+      // dashboard can be empty; call safely and fall back to defaults
+      let dashboard;
+      try {
+        dashboard = await dashboardFunction(user.employee_id);
+      } catch (dashErr) {
+        console.warn(
+          "Dashboard fetch failed, returning safe default:",
+          dashErr?.message || dashErr
+        );
+        dashboard = {};
+      }
 
-      const attendanceCount = await LoginService.getAttendanceStatusCount();
-      const loginDataCount = await LoginService.fetchEmployeeLoginDataCount();
+      const sidebarMenu =
+        (await LoginService.fetchSidebarMenu(user.role, user.Org_id)) || [];
+
+      const orgId = user.Org_id;
+
+      const attendanceCount = await LoginService.getAttendanceStatusCount(
+        orgId
+      );
+      const loginDataCount = await LoginService.fetchEmployeeLoginDataCount(
+        orgId
+      );
       const employeeCountByDepartment =
-        await LoginService.getEmployeeCountByDepartment();
+        (await LoginService.getEmployeeCountByDepartment(orgId)) || [];
+
+      const salaryRanges = await LoginService.fetchSalaryRanges(orgId);
 
       req.session.lastActive = Date.now();
       req.session.userRole = user.role;
 
-      // Build the session user object (store what's needed by /me)
       req.session.user = {
         id: user.employee_id,
         role: user.role,
         orgId: user.Org_id,
         name: user.name,
         gender: user.gender,
-        // include the same dashboard / sidebarMenu you send to client
         dashboard,
         sidebarMenu,
-        // optional: any other quick fields like email/employeeId
         email: user.email || null,
         employeeId: user.employee_id || null,
       };
 
-      // ✅ Safely store session ID in Redis (if Redis ready)
       if (redisClient && typeof redisClient.sadd === "function") {
         redisClient
           .sadd(`user_sessions:${user.employee_id}`, req.sessionID)
@@ -82,7 +91,6 @@ class LoginHandler {
             console.error("Redis error storing session:", err);
           });
 
-        // publish login event for other instances
         redisClient
           .publish(
             "auth:changes",
@@ -95,7 +103,6 @@ class LoginHandler {
           .catch((err) => console.error("Redis publish error:", err));
       }
 
-      // Save session and respond
       req.session.save((err) => {
         if (err) console.error("Session save error:", err);
 
@@ -110,8 +117,9 @@ class LoginHandler {
             dashboard,
             sidebarMenu,
             attendanceCount,
-            loginDataCount,
-            employeeCountByDepartment,
+            loginDataCount: loginDataCount || [],
+            employeeCountByDepartment: employeeCountByDepartment || [],
+            salaryRanges: salaryRanges || { labels: [], datasets: [] },
           },
         });
       });
@@ -125,14 +133,11 @@ class LoginHandler {
 
   static async logout(req, res) {
     try {
-      // get user id from session (if present)
       const uid = req.session?.user?.id;
 
-      // destroy session server-side
       req.session.destroy(async (err) => {
         if (err) {
           console.error("Session destroy error:", err);
-          // respond with 500 but still attempt cleanup
           return res.status(500).json({
             status: "error",
             code: 500,
@@ -140,11 +145,9 @@ class LoginHandler {
           });
         }
 
-        // remove session id from user's session set in redis (cleanup)
         try {
-          if (uid) {
+          if (uid && redisClient && typeof redisClient.srem === "function") {
             await redisClient.srem(`user_sessions:${uid}`, req.sessionID);
-            // publish logout event for other instances
             await redisClient.publish(
               "auth:changes",
               JSON.stringify({ type: "logout", userId: uid })
@@ -154,7 +157,6 @@ class LoginHandler {
           console.error("Redis cleanup error on logout:", cleanupErr);
         }
 
-        // clear cookie on client
         res.clearCookie("sid", {
           httpOnly: true,
           sameSite: "lax",
@@ -175,12 +177,16 @@ class LoginHandler {
     }
   }
 
-  /**
-   * Handler to get the count of attendance status (Present, Sick Leave, Absent).
-   */
   static async getAttendanceStatusCount(req, res) {
     try {
-      const attendanceData = await LoginService.getAttendanceStatusCount();
+      const orgId = req.session?.user?.orgId;
+      if (!orgId) {
+        return res
+          .status(401)
+          .json(ErrorHandler.generateErrorResponse(401, "Unauthorized"));
+      }
+
+      const attendanceData = await LoginService.getAttendanceStatusCount(orgId);
       return res.status(200).json({
         status: "success",
         code: 200,
@@ -196,15 +202,25 @@ class LoginHandler {
 
   static async getEmployeeLoginDataCount(req, res) {
     try {
-      const loginDataCount = await LoginService.fetchEmployeeLoginDataCount();
-
-      if (!loginDataCount.length) {
+      const orgId = req.session?.user?.orgId;
+      if (!orgId)
         return res
-          .status(404)
-          .json(ErrorHandler.generateErrorResponse(404, "No login data found"));
+          .status(401)
+          .json(ErrorHandler.generateErrorResponse(401, "Unauthorized"));
+
+      const loginDataCount = await LoginService.fetchEmployeeLoginDataCount(
+        orgId
+      );
+
+      // If empty, return an empty chart structure rather than 404
+      if (!loginDataCount || loginDataCount.length === 0) {
+        return res.status(200).json({
+          status: "success",
+          code: 200,
+          data: { labels: [], daily: [], weekly: [], monthly: [] },
+        });
       }
 
-      // ✅ Aggregate data by punchin_label to ensure unique time slots
       const aggregatedData = {};
 
       loginDataCount.forEach((item) => {
@@ -223,7 +239,6 @@ class LoginHandler {
         );
       });
 
-      // ✅ Convert object back to an array format
       const labels = Object.keys(aggregatedData);
       const daily = labels.map((label) => aggregatedData[label].daily_count);
       const weekly = labels.map((label) => aggregatedData[label].weekly_count);
@@ -244,12 +259,16 @@ class LoginHandler {
     }
   }
 
-  /**
-   * Handler to get salary ranges.
-   */
   static async getSalaryRanges(req, res) {
     try {
-      const salaryRanges = await LoginService.fetchSalaryRanges();
+      const orgId = req.session?.user?.orgId;
+      if (!orgId)
+        return res
+          .status(401)
+          .json(ErrorHandler.generateErrorResponse(401, "Unauthorized"));
+
+      const salaryRanges = await LoginService.fetchSalaryRanges(orgId);
+
       return res.status(200).json({
         status: "success",
         code: 200,
@@ -263,26 +282,29 @@ class LoginHandler {
     }
   }
 
-  /**
-   * Handler to get employee count by department.
-   */
   static async getEmployeeCountByDepartment(req, res) {
     try {
-      const categories = await LoginService.getEmployeeCountByDepartment();
-
-      if (!categories || categories.length === 0) {
+      const orgId = req.session?.user?.orgId;
+      if (!orgId)
         return res
-          .status(404)
-          .json(ErrorHandler.generateErrorResponse(404, "No data found"));
+          .status(401)
+          .json(ErrorHandler.generateErrorResponse(401, "Unauthorized"));
+
+      const categories = await LoginService.getEmployeeCountByDepartment(orgId);
+
+      // Return safe defaults when empty
+      if (!categories || categories.length === 0) {
+        return res.status(200).json({
+          totalEmployees: 0,
+          categories: [],
+        });
       }
 
-      // Calculate total employees
       const totalEmployees = categories.reduce(
-        (sum, item) => sum + item.count,
+        (sum, item) => sum + (item.count || 0),
         0
       );
 
-      // Structure the response correctly
       return res.status(200).json({
         totalEmployees,
         categories,
@@ -295,22 +317,23 @@ class LoginHandler {
     }
   }
 
-  /**
-   * Handler to get payroll data for an employee.
-   */
   static async getEmployeePayrollData(req, res) {
     try {
       const { employeeId } = req.params;
 
-      // Fetch payroll data
       const payrollData = await LoginService.getEmployeePayrollData(employeeId);
 
+      // Service returns defaults; but guard anyway
       if (!payrollData) {
-        return res
-          .status(404)
-          .json(
-            ErrorHandler.generateErrorResponse(404, "No payroll data found")
-          );
+        return res.status(200).json({
+          status: "success",
+          code: 200,
+          message: {
+            total_previous_month_credit: 0,
+            total_previous_month_expenses: 0,
+            total_previous_month_salary: 0,
+          },
+        });
       }
 
       return res.status(200).json({

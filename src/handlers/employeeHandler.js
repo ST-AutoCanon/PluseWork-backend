@@ -1,4 +1,3 @@
-// controllers/employeeController.js (updated)
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
@@ -15,7 +14,6 @@ const getWebPath = (fullPath) => {
 };
 
 const resolveOrgIdFromReq = (req) => {
-  // Prefer header, then body variants, then query param
   const header =
     req.headers && (req.headers["x-org-id"] || req.headers["x_org_id"]);
   const body = req.body && (req.body.orgId || req.body.org_id);
@@ -35,10 +33,8 @@ exports.bulkAddEmployees = async (req, res) => {
       );
   }
 
-  // resolve orgId for bulk operation (optional)
   const orgId = resolveOrgIdFromReq(req);
   if (!orgId) {
-    // optional: warn but allow - depends on your business rules
     console.warn(
       "[bulkAddEmployees] orgId not provided - employees will be created without org association"
     );
@@ -62,9 +58,7 @@ exports.bulkAddEmployees = async (req, res) => {
       if (typeof row.dob === "number") {
         row.dob = excelSerialToJSDate(row.dob);
       }
-      // attach orgId to each row if provided
       if (orgId) {
-        // match your DB column name conventions; using org_id
         row.org_id = row.org_id || orgId;
         row.orgId = row.orgId || orgId;
       }
@@ -80,7 +74,7 @@ exports.bulkAddEmployees = async (req, res) => {
 
     const promises = employeesData.map((employeeData) => {
       return employeeService
-        .addFullEmployee(employeeData)
+        .addFullEmployee(employeeData, { bypassOrgLimit: true })
         .then(() => {
           results.push({ email: employeeData.email, status: "success" });
         })
@@ -280,9 +274,25 @@ exports.createFullEmployee = async (req, res) => {
     }
 
     console.log("[createFullEmployee] calling service.addFullEmployee");
-    // pass org_id (or orgId) as part of data - service should use it
-    const { employee_id } = await employeeService.addFullEmployee(data);
-    console.log("[createFullEmployee] ⇒ success", employee_id);
+    let employee_id;
+    try {
+      const resObj = await employeeService.addFullEmployee(data);
+      employee_id = resObj && resObj.employee_id;
+      console.log("[createFullEmployee] ⇒ success", employee_id);
+    } catch (svcErr) {
+      const msg = svcErr && svcErr.message ? String(svcErr.message) : "";
+
+      if (msg.toLowerCase().includes("employee limit reached")) {
+        const clientMessage =
+          "Employee limit reached. Please contact your administrator to increase the employee limit.";
+        console.warn("[createFullEmployee] org limit reached:", msg);
+        return res
+          .status(403)
+          .json(ErrorHandler.generateErrorResponse(403, clientMessage));
+      }
+
+      throw svcErr;
+    }
 
     try {
       console.log(

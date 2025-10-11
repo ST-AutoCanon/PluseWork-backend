@@ -8,7 +8,6 @@ const db = require("../config");
 const queries = require("../constants/reimbursementQueries");
 const XLSX = require("xlsx");
 
-// forbidden extensions
 const forbiddenExts = new Set([
   ".xlsx",
   ".xls",
@@ -23,29 +22,38 @@ const forbiddenExts = new Set([
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    // Derive date parts
     const isoDate = req.body.date || new Date().toISOString().slice(0, 10);
     const [year, month] = isoDate.split("-");
+    const orgIdRaw =
+      req.headers["x-org-id"] ||
+      req.query?.orgId ||
+      req.body?.orgId ||
+      req.user?.orgId ||
+      null;
+    console.log("orgIdRaw", orgIdRaw);
+    const orgIdSeg = orgIdRaw ? String(orgIdRaw) : "unknown_org";
+    console.log("orgIdSeg", orgIdSeg);
+    const employeeId =
+      req.user?.employeeId || req.body?.employeeId || "unknown_user";
 
-    // Build the destination path
     const dest = path.join(
       __dirname,
       "..",
       "..",
       "..",
       "reimbursement",
+      orgIdSeg,
       year,
       month,
-      req.user.employeeId
+      employeeId
     );
 
-    // Log for debugging
     console.log("[MULTER] Upload date:", isoDate);
     console.log("[MULTER] Year/month:", year, month);
-    console.log("[MULTER] Employee ID:", req.user.employeeId);
+    console.log("[MULTER] Employee ID:", employeeId);
+    console.log("[MULTER] OrgId:", orgIdSeg);
     console.log("[MULTER] Destination folder:", dest);
 
-    // Ensure folder exists
     fs.mkdirSync(dest, { recursive: true });
     cb(null, dest);
   },
@@ -54,7 +62,6 @@ const storage = multer.diskStorage({
     const datePrefix = new Date().toISOString().slice(0, 10);
     const filename = `${datePrefix}-${Date.now()}-${file.originalname}`;
 
-    // Log for debugging
     console.log("[MULTER] Original filename:", file.originalname);
     console.log("[MULTER] Generated filename:", filename);
 
@@ -62,7 +69,6 @@ const storage = multer.diskStorage({
   },
 });
 
-// multer fileFilter
 function fileFilter(req, file, cb) {
   const ext = path.extname(file.originalname).toLowerCase();
   if (forbiddenExts.has(ext)) {
@@ -77,14 +83,12 @@ function fileFilter(req, file, cb) {
   cb(null, true);
 }
 
-// multer instance
 const upload = multer({
   storage,
   fileFilter,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
+  limits: { fileSize: 10 * 1024 * 1024 },
 });
 
-// fallback validation
 function validateAttachments(files) {
   for (const file of files) {
     const ext = path.extname(file.originalname).toLowerCase();
@@ -95,15 +99,30 @@ function validateAttachments(files) {
   return null;
 }
 
-// ── CONTROLLER METHODS ────────────────────────────────────────────────────────
-
 exports.generateReimbursementPDF = async (req, res) => {
   try {
     const { claimId } = req.params;
-    console.log("Fetching claim details for Claim ID:", claimId);
+    // read orgId from header / query / body / user
+    const orgId =
+      req.headers["x-org-id"] ||
+      req.query?.orgId ||
+      req.body?.orgId ||
+      (req.user && req.user.orgId) ||
+      null;
 
-    // Fetch claim details
-    const claimResult = await db.query(queries.GET_CLAIM_DETAILS, [claimId]);
+    console.log(
+      "Fetching claim details for Claim ID:",
+      claimId,
+      "orgId:",
+      orgId
+    );
+
+    // GET_CLAIM_DETAILS query updated to accept org filter (see queries below)
+    const claimResult = await db.query(queries.GET_CLAIM_DETAILS, [
+      claimId,
+      orgId,
+      orgId,
+    ]);
     if (!claimResult.length) {
       return res.status(404).json({ error: "Claim not found" });
     }
@@ -115,7 +134,7 @@ exports.generateReimbursementPDF = async (req, res) => {
       return res.status(404).json({ error: "Claim not found" });
     }
 
-    // Fetch employee
+    // Ensure employee belongs to org (optional guard): get employee details by employee id
     const employeeResult = await db.query(queries.GET_EMPLOYEE_DETAILS, [
       claim.employee_id,
     ]);
@@ -129,7 +148,6 @@ exports.generateReimbursementPDF = async (req, res) => {
     const rawAttachments = await db.query(queries.GET_ATTACHMENTS, [claimId]);
     const attachments = rawAttachments.flat();
 
-    // Filter out any attachments without a file_path
     const attachmentsWithFiles = attachments.filter((att) => att.file_path);
     if (attachmentsWithFiles.length !== attachments.length) {
       console.warn(
@@ -139,14 +157,12 @@ exports.generateReimbursementPDF = async (req, res) => {
       );
     }
 
-    // Verify that each remaining file actually exists
     attachmentsWithFiles.forEach((att) => {
       if (!fs.existsSync(att.file_path)) {
         console.warn(`File not found on disk: ${att.file_path}`);
       }
     });
 
-    // Generate DOCX using only valid attachments
     const docxPath = await generateDocx(claim, employee, attachmentsWithFiles);
 
     console.log("Attachments about to be merged:");
@@ -154,20 +170,22 @@ exports.generateReimbursementPDF = async (req, res) => {
       console.log(`  [${idx}] ${att.file_path}`)
     );
 
-    // Convert to PDF using only valid attachments
     const pdfPath = await convertDocxToPdf(
       docxPath,
       claim,
       attachmentsWithFiles
     );
 
-    // Create a safe file name
     const fileName = `${employee.name.replace(/\s+/g, "_")}.pdf`;
 
     res.download(pdfPath, fileName, (err) => {
       if (err) console.error("Download error:", err);
-      fs.unlinkSync(docxPath);
-      fs.unlinkSync(pdfPath);
+      try {
+        fs.unlinkSync(docxPath);
+        fs.unlinkSync(pdfPath);
+      } catch (e) {
+        console.warn("cleanup error:", e);
+      }
     });
   } catch (error) {
     console.error("Error generating reimbursement PDF:", error);
@@ -177,13 +195,20 @@ exports.generateReimbursementPDF = async (req, res) => {
 
 exports.getReimbursementsByEmployee = async (req, res) => {
   try {
+    const orgId =
+      req.headers["x-org-id"] ||
+      req.query?.orgId ||
+      req.body?.orgId ||
+      (req.user && req.user.orgId) ||
+      null;
     const employeeId = req.params.employeeId;
     const { fromDate, toDate } = req.query;
     const reimbursements =
       await reimbursementService.getReimbursementsByEmployee(
         employeeId,
         fromDate,
-        toDate
+        toDate,
+        orgId
       );
     res.status(200).json(reimbursements);
   } catch (error) {
@@ -192,14 +217,11 @@ exports.getReimbursementsByEmployee = async (req, res) => {
   }
 };
 
-// reimbursementHandler.js (controller)
 exports.updatePaymentStatus = async (req, res) => {
   try {
     const { id } = req.params;
     let { payment_status, user_role } = req.body;
 
-    // drop the old “payable” → “paid” mapping
-    // allow exactly these three statuses now:
     if (!["pending", "paid", "rejected"].includes(payment_status)) {
       return res.status(400).json({ error: "Invalid payment status." });
     }
@@ -207,7 +229,6 @@ exports.updatePaymentStatus = async (req, res) => {
       return res.status(403).json({ error: "Not authorized." });
     }
 
-    // only approved claims may be paid or rejected
     const [rows] = await db.query(
       "SELECT status FROM reimbursement WHERE id = ?",
       [id]
@@ -219,7 +240,6 @@ exports.updatePaymentStatus = async (req, res) => {
       });
     }
 
-    // set paid_date only when status === "paid"
     const paid_date = payment_status === "paid" ? new Date() : null;
     const updated = await reimbursementService.updatePaymentStatus(
       id,
@@ -241,10 +261,18 @@ exports.getAllReimbursements = async (req, res) => {
       submittedFrom && submittedFrom !== "null" ? submittedFrom : null;
     submittedTo = submittedTo && submittedTo !== "null" ? submittedTo : null;
 
+    const orgId =
+      req.headers["x-org-id"] ||
+      req.query?.orgId ||
+      req.body?.orgId ||
+      (req.user && req.user.orgId) ||
+      null;
+
     const reimbursements = await reimbursementService.getAllReimbursements(
       submittedFrom,
       submittedFrom,
-      submittedTo
+      submittedTo,
+      orgId
     );
     res.status(200).json(reimbursements);
   } catch (error) {
@@ -253,34 +281,33 @@ exports.getAllReimbursements = async (req, res) => {
   }
 };
 
-/**
- * GET /reimbursements/export?submittedFrom=…&submittedTo=…
- */
 exports.exportReimbursements = async (req, res) => {
   try {
     let { submittedFrom, submittedTo } = req.query;
     submittedFrom = submittedFrom !== "null" ? submittedFrom : null;
     submittedTo = submittedTo !== "null" ? submittedTo : null;
 
-    // reuse your service to fetch the _flat_ array of rows:
+    const orgId =
+      req.headers["x-org-id"] ||
+      req.query?.orgId ||
+      req.body?.orgId ||
+      (req.user && req.user.orgId) ||
+      null;
+
     const rows = await reimbursementService.getAllReimbursements(
       submittedFrom,
       submittedFrom,
-      submittedTo
+      submittedTo,
+      orgId
     );
-    // rows is an array of { employee_id, claims: [ … ] }
-    // flatten into one big array of claims:
     const flat = rows.reduce((acc, r) => acc.concat(r.claims), []);
 
-    // convert to sheet
     const ws = XLSX.utils.json_to_sheet(flat);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Reimbursements");
 
-    // write to buffer
     const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
 
-    // set a filename
     const fname = `Reimbursements_${submittedFrom || "all"}-to-${
       submittedTo || "all"
     }.xlsx`;
@@ -303,7 +330,13 @@ exports.createReimbursement = async (req, res) => {
     console.log("Request Body:", req.body);
     console.log("Uploaded Files:", req.files);
 
-    // Fallback validation
+    const orgId =
+      req.headers["x-org-id"] ||
+      req.query?.orgId ||
+      req.body?.orgId ||
+      (req.user && req.user.orgId) ||
+      null;
+
     if (req.files && req.files.length) {
       const errMsg = validateAttachments(req.files);
       if (errMsg) {
@@ -340,6 +373,7 @@ exports.createReimbursement = async (req, res) => {
       stationary: req.body.stationary,
       service_provider: req.body.service_provider,
       project: req.body.project,
+      orgId,
       attachments: req.files
         ? req.files.map((file) => ({
             file_name: file.filename,
@@ -375,13 +409,11 @@ exports.createReimbursement = async (req, res) => {
   }
 };
 
-// Note: in your routes, use upload.array("attachments", 5) before this handler
 exports.updateReimbursement = async (req, res) => {
   try {
     console.log("Update Body:", req.body);
     console.log("Uploaded Files:", req.files);
 
-    // Fallback validation
     if (req.files && req.files.length) {
       const errMsg = validateAttachments(req.files);
       if (errMsg) {
@@ -471,8 +503,14 @@ exports.updateReimbursementStatus = async (req, res) => {
 
 exports.deleteReimbursement = async (req, res) => {
   try {
+    const orgId =
+      req.headers["x-org-id"] ||
+      req.query?.orgId ||
+      req.body?.orgId ||
+      (req.user && req.user.orgId) ||
+      null;
     const { id } = req.params;
-    await reimbursementService.deleteReimbursement(id);
+    await reimbursementService.deleteReimbursement(id, orgId);
     res.json({ message: "Reimbursement deleted" });
   } catch (error) {
     console.error("Error deleting reimbursement:", error);
@@ -497,6 +535,12 @@ exports.uploadReimbursementAttachment = async (req, res) => {
 
 exports.getAttachments = async (req, res) => {
   try {
+    const orgId =
+      req.headers["x-org-id"] ||
+      req.query?.orgId ||
+      req.body?.orgId ||
+      (req.user && req.user.orgId) ||
+      null;
     const { year, month, employeeId, filename } = req.params;
     if (
       [year, month, employeeId, filename].some(
@@ -512,6 +556,7 @@ exports.getAttachments = async (req, res) => {
       "..",
       "..",
       "reimbursement",
+      orgId,
       year,
       month,
       employeeId,
@@ -573,12 +618,20 @@ exports.getTeamReimbursements = async (req, res) => {
       submittedFrom && submittedFrom !== "null" ? submittedFrom : null;
     const end = submittedTo && submittedTo !== "null" ? submittedTo : null;
 
+    const orgId =
+      req.headers["x-org-id"] ||
+      req.query?.orgId ||
+      req.body?.orgId ||
+      (req.user && req.user.orgId) ||
+      null;
+
     const teamReimbursements = await reimbursementService.getTeamReimbursements(
       departmentId,
       start,
       start,
       end,
-      teamLeadId
+      teamLeadId,
+      orgId
     );
     res.status(200).json(teamReimbursements);
   } catch (error) {
@@ -589,7 +642,17 @@ exports.getTeamReimbursements = async (req, res) => {
 
 exports.getAllProjects = async (req, res) => {
   try {
-    const projects = await reimbursementService.getAllProjects();
+    const orgId =
+      req.headers["x-org-id"] ||
+      req.query?.orgId ||
+      req.body?.orgId ||
+      (req.user && req.user.orgId);
+
+    if (!orgId) {
+      return res.status(400).json({ error: "orgId is required" });
+    }
+
+    const projects = await reimbursementService.getAllProjects(orgId);
     res.status(200).json(projects);
   } catch (error) {
     console.error("Error fetching projects:", error);
@@ -597,5 +660,4 @@ exports.getAllProjects = async (req, res) => {
   }
 };
 
-// Export multer upload for use in your routes
 exports.upload = upload;
