@@ -684,8 +684,8 @@ exports.listUserRoles = async (req, res) => {
 
 exports.listPositions = async (req, res) => {
   try {
-    const { role, department_id } = req.query;
-    const positions = await employeeService.getPositions(role, department_id);
+    const { role } = req.query;
+    const positions = await employeeService.getPositions(role);
     return res.status(200).json({ status: "success", data: positions });
   } catch (err) {
     console.error("listPositions error:", err);
@@ -698,9 +698,11 @@ exports.listPositions = async (req, res) => {
 exports.listSupervisorsByPosition = async (req, res) => {
   try {
     const { position, department_id } = req.query;
+    const orgId = req.headers["x-org-id"] || req.query.orgId;
     const supervisors = await employeeService.getSupervisorsByPosition(
       position,
-      department_id
+      department_id,
+      orgId
     );
     return res.status(200).json({ status: "success", data: supervisors });
   } catch (err) {

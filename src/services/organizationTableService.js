@@ -81,6 +81,8 @@ const createOrganization = async (orgData, sidebarAccess) => {
           phone_number: contact_phone_no,
           dob: "1970-01-01",
           role: "Admin",
+          aadhaar_number: "123412341234",
+          pan_number: c_pan_no,
           org_id: orgId,
         };
 

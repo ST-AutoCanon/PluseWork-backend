@@ -627,27 +627,21 @@ LEFT JOIN (
   SELECT
     p.name
   FROM positions p
-  JOIN position_departments pd
-    ON pd.position_id = p.id
   WHERE
     (? = 'CEO'
        AND p.\`rank\` = 1)
     OR
-    (? = 'Manager'
-       AND pd.department_id = ?      
+    (? = 'Manager'      
        AND p.\`rank\` IN (2, 3))
     OR
-    (? = 'Supervisor'
-       AND pd.department_id = ?      
+    (? = 'Supervisor'     
        AND p.\`rank\` IN (4, 5))
     OR
-    (? = 'Employee'
-       AND pd.department_id = ?   
-       AND p.\`rank\` >= 6)
+    (? = 'Employee'  
+       AND p.\`rank\` IN (6, 7, 8))
     OR
     (? = 'General'
-       AND pd.department_id = ?
-       AND p.\`rank\` >= 6)
+       AND p.\`rank\` >= 9)
   GROUP BY
     p.name
   ORDER BY
@@ -669,7 +663,7 @@ LEFT JOIN (
    AND (pos.department_id = ? OR pos.department_id IS NULL)
    LEFT JOIN departments d ON p.department_id = d.id
   WHERE pos.\`rank\` BETWEEN ? AND ?
-    AND e.status = 'Active'
+    AND e.status = 'Active' AND e.Org_id = ?
   ORDER BY pos.\`rank\` DESC
 `,
 
@@ -680,7 +674,6 @@ LEFT JOIN (
      AND end_date IS NULL
 `,
 
-  // 2) insert the new assignment
   ADD_SUPERVISOR_ASSIGNMENT: `
   INSERT INTO supervisor_assignments
     (employee_id, supervisor_id, start_date)
@@ -701,5 +694,5 @@ LEFT JOIN (
 `,
   SELECT_ORG_FOR_UPDATE: `SELECT no_employees FROM Organizations WHERE id = ? FOR UPDATE`,
   SELECT_ORG: `SELECT no_employees FROM Organizations WHERE id = ?`,
-  COUNT_ACTIVE_EMPLOYEES_BY_ORG: `SELECT COUNT(*) AS cnt FROM employees WHERE org_id = ? AND status = 'Active'`,
+  COUNT_ACTIVE_EMPLOYEES_BY_ORG: `SELECT COUNT(*) AS cnt FROM employees WHERE org_id = ?`,
 };

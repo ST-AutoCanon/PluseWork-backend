@@ -886,23 +886,18 @@ exports.getUserRoles = async () => {
   return rows;
 };
 
-exports.getPositions = async (role, department_id) => {
-  const dept = department_id || null;
+exports.getPositions = async (role) => {
   const [rows] = await db.execute(queries.GET_POSITIONS_BY_ROLE_AND_DEPT, [
     role,
     role,
-    dept,
     role,
-    dept,
     role,
-    dept,
     role,
-    dept,
   ]);
   return rows.map((r) => r.name);
 };
 
-exports.getSupervisorsByPosition = async (position, department_id) => {
+exports.getSupervisorsByPosition = async (position, department_id, orgId) => {
   const [rankRows] = await db.execute(queries.GET_POSITION_RANK, [position]);
   const currentRank = rankRows[0]?.rank;
   if (!currentRank) return [];
@@ -915,6 +910,7 @@ exports.getSupervisorsByPosition = async (position, department_id) => {
     department_id || null,
     minRank,
     maxRank,
+    orgId,
   ]);
 
   return rows;
