@@ -19,6 +19,7 @@ const idleTimeout = require("./middleware/idleTimeout");
 // ROUTES (adjust as needed)
 const holidayRoutes = require("./routes/holidayRoutes");
 const loginRoutes = require("./routes/login");
+const meRoute = require("./routes/meRoute");
 const leaveRoutes = require("./routes/leave");
 const leavePolicy = require("./routes/leavePolicyRoutes");
 const employeeRoutes = require("./routes/employee");
@@ -64,7 +65,6 @@ const overtimeRoutes = require("./routes/assignCompensationRoute");
 const overtimeSummaryRoutes = require("./routes/overtimeSummaryRoutes");
 const employeeProjectsRoute = require("./routes/employeeProjectsRoute");
 const lossofPayCalculationRoutes = require("./routes/lossofPayCalculationRoutes");
-const assetsRoutesforreturn = require("./routes/assetsRoutes");
 const chatRoutes = require("./routes/chatRoutes");
 const orgRoutes = require("./routes/orgRoutes");
 const sidebarRoutes = require("./routes/sidebarRoutes");
@@ -277,6 +277,7 @@ app.use((req, res, next) => {
     // ---------- Mount routes (same as earlier) ----------
     app.use("/", holidayRoutes);
     app.use("/", loginRoutes);
+    app.use("/", meRoute);
     app.use("/", leaveRoutes);
     app.use("/", projects);
     app.use("/", invoices);
@@ -306,9 +307,7 @@ app.use((req, res, next) => {
     app.use("/api/face", faceRoutes);
     app.use("/", faceDataRoutes);
     app.use(checkFaceRoute);
-    app.use("/assets", assetsRoutes);
-    app.use("/api/assets", assetsRoutes);
-    app.use("/api", assetsRoutesforreturn);
+    app.use("/api", assetsRoutes);
     app.use("/api/attendance", adminAttendanceRoutes);
     app.use("/admin/attendance", adminAttendanceRoutes);
     app.use("/admin-attendance", adminAttendanceRoutes);

@@ -1,17 +1,48 @@
-
-
 const GET_ALL_ORGANIZATIONS = `
-  SELECT 
-    id, Name, subdomain, created_at, no_employees,
-    company_address, c_pan_no, admin_email,
-    contact_email_id, contact_phone_no, start_date, end_date
+SELECT 
+  o.id,
+  o.Name,
+  o.subdomain,
+  o.created_at,
+  o.no_employees,
+  o.company_address,
+  o.c_pan_no,
+  o.admin_email,
+  e.first_name,
+  e.last_name,
+  e.dob,
+  e.phone_number,
+  ep.aadhaar_number,
+  ep.pan_number,
+  o.contact_email_id,
+  o.contact_phone_no,
+  o.start_date,
+  o.end_date
+FROM Organizations o
+LEFT JOIN employees e
+  ON LOWER(o.admin_email) = LOWER(e.email)
+LEFT JOIN employee_personal ep
+  ON e.employee_id = ep.employee_id;
+`;
+
+const SELECT_ORG_BY_NAME_OR_SUBDOMAIN = `
+  SELECT id, Name, subdomain
   FROM PULSEWORK.Organizations
+  WHERE Name = ? OR subdomain = ?
+  FOR UPDATE
 `;
 
 const INSERT_ORGANIZATION = `
   INSERT INTO PULSEWORK.Organizations 
     (Name, subdomain, created_at, no_employees, company_address, c_pan_no, admin_email, contact_email_id, contact_phone_no, start_date, end_date)
   VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?)
+`;
+
+const SELECT_ORG_BY_NAME_OR_SUBDOMAIN_EXCLUDE_ID = `
+  SELECT id, Name, subdomain
+  FROM PULSEWORK.Organizations
+  WHERE (Name = ? OR subdomain = ?) AND id != ?
+  FOR UPDATE
 `;
 
 const UPDATE_ORGANIZATION = `
@@ -51,6 +82,8 @@ module.exports = {
   GET_ALL_ORGANIZATIONS,
   GET_SIDEBAR_ACCESS_BY_ORG,
   INSERT_ORGANIZATION,
+  SELECT_ORG_BY_NAME_OR_SUBDOMAIN,
+  SELECT_ORG_BY_NAME_OR_SUBDOMAIN_EXCLUDE_ID,
   GET_SIDEBAR_MENU,
   UPDATE_ORGANIZATION,
   DELETE_SIDEBAR_ACCESS_BY_ORG,

@@ -1,4 +1,3 @@
-
 const {
   getAllOrganizations,
   createOrganization,
@@ -22,10 +21,15 @@ const addOrganization = async (req, res) => {
   try {
     const { orgData, sidebarAccess } = req.body;
     const result = await createOrganization(orgData, sidebarAccess);
-    res.status(201).json({ message: "Organization created", ...result });
+    return res.status(201).json({ message: "Organization created", ...result });
   } catch (error) {
     console.error("Error adding organization:", error);
-    res.status(500).json({ message: "Internal server error" });
+
+    if (error && error.status === 409) {
+      return res.status(409).json({ message: error.message || "Conflict" });
+    }
+
+    return res.status(500).json({ message: "Internal server error" });
   }
 };
 
@@ -34,10 +38,15 @@ const editOrganization = async (req, res) => {
     const orgId = req.params.id;
     const { orgData, sidebarAccess } = req.body;
     await updateOrganization(orgId, orgData, sidebarAccess);
-    res.status(200).json({ message: "Organization updated" });
+    return res.status(200).json({ message: "Organization updated" });
   } catch (error) {
     console.error("Error updating organization:", error);
-    res.status(500).json({ message: "Internal server error" });
+
+    if (error && error.status === 409) {
+      return res.status(409).json({ message: error.message || "Conflict" });
+    }
+
+    return res.status(500).json({ message: "Internal server error" });
   }
 };
 
@@ -96,7 +105,9 @@ const deleteOrganization = async (req, res) => {
       throw new Error("Invalid response object");
     }
 
-    res.status(200).json({ message: `Organization ${orgId} deleted successfully` });
+    res
+      .status(200)
+      .json({ message: `Organization ${orgId} deleted successfully` });
   } catch (error) {
     console.error("Error deleting organization:", {
       message: error.message,

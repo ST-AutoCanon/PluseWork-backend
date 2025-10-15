@@ -6,7 +6,7 @@ const INSERT_ASSET = `
 const GET_ALL_ASSETS = `SELECT * FROM assets WHERE org_id = ?;`;
 
 const GET_LAST_ASSET_ID = `
-  SELECT asset_id FROM assets WHERE asset_id LIKE ? AND org_id = ? ORDER BY asset_id DESC LIMIT 1;
+  SELECT asset_id FROM assets WHERE asset_id LIKE ? ORDER BY asset_id DESC LIMIT 1;
 `;
 
 const GET_ASSIGN_DATA = `

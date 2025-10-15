@@ -4,6 +4,8 @@ const {
   GET_SIDEBAR_ACCESS_BY_ORG,
   GET_SIDEBAR_MENU,
   INSERT_ORGANIZATION,
+  SELECT_ORG_BY_NAME_OR_SUBDOMAIN,
+  SELECT_ORG_BY_NAME_OR_SUBDOMAIN_EXCLUDE_ID,
   UPDATE_ORGANIZATION,
   DELETE_SIDEBAR_ACCESS_BY_ORG,
   INSERT_SIDEBAR_ACCESS,
@@ -30,6 +32,7 @@ const createOrganization = async (orgData, sidebarAccess) => {
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
+
     const {
       Name,
       subdomain,
@@ -39,11 +42,41 @@ const createOrganization = async (orgData, sidebarAccess) => {
       admin_email,
       first_name,
       last_name,
+      dob,
+      aadhaar_number,
+      pan_number,
+      phone_number,
       contact_email_id,
       contact_phone_no,
       start_date,
       end_date,
     } = orgData;
+
+    const [existingRows] = await conn.execute(SELECT_ORG_BY_NAME_OR_SUBDOMAIN, [
+      Name,
+      subdomain,
+    ]);
+
+    if (existingRows && existingRows.length > 0) {
+      const conflicts = new Set();
+      for (const row of existingRows) {
+        if (row.Name === Name) conflicts.add("Name");
+        if (row.subdomain === subdomain) conflicts.add("subdomain");
+      }
+
+      const conflictMsgs = [];
+      if (conflicts.has("Name"))
+        conflictMsgs.push("Organization Name already exists.");
+      if (conflicts.has("subdomain"))
+        conflictMsgs.push("Subdomain already exists.");
+      const message = conflictMsgs.join(" ");
+
+      const err = new Error(
+        message || "Organization with same Name/subdomain exists."
+      );
+      err.status = 409;
+      throw err;
+    }
 
     const [result] = await conn.execute(INSERT_ORGANIZATION, [
       Name,
@@ -78,11 +111,11 @@ const createOrganization = async (orgData, sidebarAccess) => {
           first_name: first_name,
           last_name: last_name,
           email: adminEmail,
-          phone_number: contact_phone_no,
-          dob: "1970-01-01",
+          phone_number: phone_number,
+          dob: dob,
           role: "Admin",
-          aadhaar_number: "123412341234",
-          pan_number: c_pan_no,
+          aadhaar_number: aadhaar_number,
+          pan_number: pan_number,
           org_id: orgId,
         };
 
@@ -101,7 +134,23 @@ const createOrganization = async (orgData, sidebarAccess) => {
 
     return { orgId };
   } catch (err) {
-    await conn.rollback();
+    if (err && err.code === "ER_DUP_ENTRY") {
+      const dupErr = new Error("Duplicate entry for Name or subdomain.");
+      dupErr.status = 409;
+      try {
+        await conn.rollback();
+      } catch (rerr) {
+        console.error("Rollback failed after ER_DUP_ENTRY:", rerr);
+      }
+      throw dupErr;
+    }
+
+    try {
+      await conn.rollback();
+    } catch (rollbackErr) {
+      console.error("Rollback failed:", rollbackErr);
+    }
+
     throw err;
   } finally {
     conn.release();
@@ -112,6 +161,7 @@ const updateOrganization = async (id, orgData, sidebarAccess) => {
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
+
     const {
       Name,
       subdomain,
@@ -124,6 +174,29 @@ const updateOrganization = async (id, orgData, sidebarAccess) => {
       start_date,
       end_date,
     } = orgData;
+
+    const [existingRows] = await conn.execute(
+      SELECT_ORG_BY_NAME_OR_SUBDOMAIN_EXCLUDE_ID,
+      [Name, subdomain, id]
+    );
+
+    if (existingRows && existingRows.length > 0) {
+      const conflicts = new Set();
+      for (const row of existingRows) {
+        if (row.Name === Name) conflicts.add("Name");
+        if (row.subdomain === subdomain) conflicts.add("subdomain");
+      }
+
+      const msgs = [];
+      if (conflicts.has("Name")) msgs.push("Organization Name already exists.");
+      if (conflicts.has("subdomain")) msgs.push("Subdomain already exists.");
+      const message =
+        msgs.join(" ") || "Organization Name or subdomain conflict.";
+
+      const err = new Error(message);
+      err.status = 409;
+      throw err;
+    }
 
     await conn.execute(UPDATE_ORGANIZATION, [
       Name,
@@ -153,7 +226,22 @@ const updateOrganization = async (id, orgData, sidebarAccess) => {
     await conn.commit();
     return { success: true };
   } catch (err) {
-    await conn.rollback();
+    if (err && err.code === "ER_DUP_ENTRY") {
+      const dupErr = new Error("Duplicate entry for Name or subdomain.");
+      dupErr.status = 409;
+      try {
+        await conn.rollback();
+      } catch (r) {
+        console.error("Rollback failed:", r);
+      }
+      throw dupErr;
+    }
+
+    try {
+      await conn.rollback();
+    } catch (r) {
+      console.error("Rollback failed:", r);
+    }
     throw err;
   } finally {
     conn.release();

@@ -1,5 +1,4 @@
-// controllers/assetsController.js (or your controller file)
-const assetService = require("../services/assetsService"); // single import
+const assetService = require("../services/assetsService");
 
 const getOrgIdFromHeaders = (req) => {
   return (

@@ -1,4 +1,3 @@
-// services/assetsService.js
 const db = require("../config");
 const {
   GET_ASSIGNED_ASSETS_BY_EMPLOYEE,
@@ -13,13 +12,62 @@ const {
   GET_ASSET_COUNTS,
 } = require("../constants/assetsQueries");
 
-// helper to generate last asset id with org filter
-const getLastAssetId = async (prefix, orgId) => {
+const getOrganizationPrefix = async (orgId) => {
   try {
-    const [rows] = await db.execute(GET_LAST_ASSET_ID, [`${prefix}-%`, orgId]);
-    if (rows.length === 0) return `${prefix}-001`;
+    const [rows] = await db.execute(
+      `SELECT Name, subdomain FROM Organizations WHERE id = ? LIMIT 1`,
+      [orgId]
+    );
+
+    if (!rows || rows.length === 0) {
+      return "STS";
+    }
+
+    const { subdomain, Name } = rows[0];
+
+    if (subdomain && String(subdomain).trim().length > 0) {
+      const cleaned = String(subdomain)
+        .trim()
+        .replace(/[^A-Za-z0-9]/g, "")
+        .toUpperCase();
+      return cleaned.length > 0 ? cleaned : "STS";
+    }
+
+    if (Name && String(Name).trim().length > 0) {
+      const words = String(Name)
+        .trim()
+        .replace(/[^A-Za-z0-9\s]/g, "")
+        .split(/\s+/)
+        .filter(Boolean);
+
+      let acronym = words
+        .slice(0, 3)
+        .map((w) => w[0])
+        .join("")
+        .toUpperCase();
+
+      if (acronym.length < 2) {
+        acronym = String(Name).trim().slice(0, 3).toUpperCase();
+      }
+      return acronym;
+    }
+
+    return "STS";
+  } catch (err) {
+    console.error("❌ Error fetching organization for prefix:", err);
+    return "STS";
+  }
+};
+
+const getLastAssetId = async (combinedPrefix) => {
+  try {
+    // combinedPrefix example: "ACME-SYS-LPT"
+    const likePattern = `${combinedPrefix}-%`;
+    const [rows] = await db.execute(GET_LAST_ASSET_ID, [likePattern]);
+    if (rows.length === 0) return `${combinedPrefix}-001`;
+    // grab numeric part after last '-'
     const lastNumber = parseInt(rows[0].asset_id.split("-").pop(), 10);
-    return `${prefix}-${String(lastNumber + 1).padStart(3, "0")}`;
+    return `${combinedPrefix}-${String(lastNumber + 1).padStart(3, "0")}`;
   } catch (error) {
     console.error("❌ Error fetching last asset ID:", error);
     throw new Error("Failed to generate asset ID");
@@ -27,21 +75,32 @@ const getLastAssetId = async (prefix, orgId) => {
 };
 
 const getLastAssetCode = async (orgId) => {
-  const [rows] = await db.execute(
-    `
-    SELECT asset_code FROM assets 
-    WHERE asset_code LIKE 'STS-AST-%' AND org_id = ?
-    ORDER BY CAST(SUBSTRING(asset_code, 9) AS UNSIGNED) DESC 
-    LIMIT 1
-  `,
-    [orgId]
-  );
+  try {
+    const orgPrefix = await getOrganizationPrefix(orgId);
+    const likePattern = `${orgPrefix}-AST-%`;
 
-  if (rows.length === 0) return "STS-AST-0001";
-  const lastCode = rows[0].asset_code;
-  const lastNum = parseInt(lastCode.split("-")[2], 10);
-  const nextNum = lastNum + 1;
-  return `STS-AST-${String(nextNum).padStart(4, "0")}`;
+    const [rows] = await db.execute(
+      `
+      SELECT asset_code FROM assets
+      WHERE asset_code LIKE ? AND org_id = ?
+      ORDER BY CAST(SUBSTRING_INDEX(asset_code, '-', -1) AS UNSIGNED) DESC
+      LIMIT 1
+      `,
+      [likePattern, orgId]
+    );
+
+    if (!rows || rows.length === 0) {
+      return `${orgPrefix}-AST-0001`;
+    }
+
+    const lastCode = rows[0].asset_code;
+    const lastNum = parseInt(lastCode.split("-").pop(), 10) || 0;
+    const nextNum = lastNum + 1;
+    return `${orgPrefix}-AST-${String(nextNum).padStart(4, "0")}`;
+  } catch (err) {
+    console.error("❌ Error computing last asset code:", err);
+    return `STS-AST-0001`;
+  }
 };
 
 const addAsset = async (orgId, assetData) => {
@@ -56,8 +115,11 @@ const addAsset = async (orgId, assetData) => {
       status,
       document_path,
     } = assetData;
-    const asset_code = await getLastAssetCode(orgId);
 
+    // derive orgPrefix (this function already exists)
+    const orgPrefix = await getOrganizationPrefix(orgId); // e.g. "ACME" or "STS"
+
+    // category -> prefix map (unchanged)
     const categoryPrefixes = {
       Laptop: "SYS-LPT",
       Desktop: "SYS-DEC",
@@ -71,11 +133,19 @@ const addAsset = async (orgId, assetData) => {
       cupboard: "FUR-CUPB",
     };
 
-    const prefix = categoryPrefixes[sub_category] || "OTHR";
-    const asset_id = await getLastAssetId(prefix, orgId);
+    const categoryPrefix = categoryPrefixes[sub_category] || "OTHR";
+
+    // combinedPrefix will make asset_id global, e.g. "ACME-SYS-LPT"
+    const combinedPrefix = `${orgPrefix}-${categoryPrefix}`;
+
+    // generate globally-unique asset_id
+    const asset_id = await getLastAssetId(combinedPrefix);
+
+    // asset_code (human readable org-scoped code) — keep as org-specific
+    const asset_code = await getLastAssetCode(orgId);
 
     const values = [
-      orgId, // new first param
+      orgId,
       asset_id,
       asset_code,
       asset_name || null,

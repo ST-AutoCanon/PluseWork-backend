@@ -1,10 +1,10 @@
-
 const db = require("../config");
 const queries = require("../constants/vendorQueries");
 
-const insertVendor = async (vendorData) => {
+const insertVendor = async (vendorData, orgId) => {
   try {
-    const [result] = await db.query(queries.INSERT_VENDOR, vendorData);
+    const params = [orgId, ...vendorData];
+    const [result] = await db.query(queries.INSERT_VENDOR, params);
     return result;
   } catch (error) {
     console.error("Error inserting vendor:", error);
@@ -12,18 +12,20 @@ const insertVendor = async (vendorData) => {
   }
 };
 
-const getAllVendors = async () => {
+const getVendorsByOrgId = async (orgId) => {
   try {
-    const [rows] = await db.query(queries.GET_ALL_VENDORS);
+    const [rows] = await db.query(queries.GET_VENDORS_BY_ORGID, [orgId]);
     return rows;
   } catch (error) {
-    console.error("Error fetching vendors:", error);
+    console.error("Error fetching vendors by orgId:", error);
     throw new Error("Error fetching vendors");
   }
 };
-const updateVendorById = async (vendorData, vendor_id) => {
+
+const updateVendorById = async (vendorData, vendor_id, orgId) => {
   try {
-    const [result] = await db.query(queries.UPDATE_VENDOR_BY_ID, [...vendorData, vendor_id]);
+    const params = [...vendorData, vendor_id, orgId];
+    const [result] = await db.query(queries.UPDATE_VENDOR_BY_ID, params);
     return result;
   } catch (error) {
     console.error("Error updating vendor:", error);
@@ -33,6 +35,6 @@ const updateVendorById = async (vendorData, vendor_id) => {
 
 module.exports = {
   insertVendor,
-  getAllVendors,
+  getVendorsByOrgId,
   updateVendorById,
 };
