@@ -490,6 +490,7 @@ const submitLeaveRequest = async ({
   h_f_day,
   reason,
   leavetype,
+  orgId,
 }) => {
   try {
     const existingLeaves = await getLeaveRequests(employeeId);
@@ -520,9 +521,11 @@ const submitLeaveRequest = async ({
       h_f_day,
       reason,
       leavetype,
+      orgId,
     ]);
     return {
       id: result.insertId,
+      orgId,
       employeeId,
       startDate,
       endDate,

@@ -2,8 +2,22 @@ const { getLastMonthTotalSalary } = require("../services/adminPayrollService");
 
 const fetchLastMonthSalary = async (req, res) => {
   try {
-    const totalSalary = await getLastMonthTotalSalary();
-    res.status(200).json({ total_salary: totalSalary });
+    const orgId = req.headers["x-org-id"];
+    if (!orgId) {
+      return res.status(400).json({ error: "Missing x-org-id header" });
+    }
+
+    const result = await getLastMonthTotalSalary(orgId);
+
+    // Handle case when no data found
+    if (result === null) {
+      return res.status(200).json({
+        message: "No data found for the previous month",
+        total_salary: 0,
+      });
+    }
+
+    res.status(200).json({ total_salary: result });
   } catch (error) {
     console.error("Error fetching last month's salary:", error);
     res.status(500).json({

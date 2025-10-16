@@ -5,8 +5,20 @@ const fs = require("fs");
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    // compute the absolute path to your ChatUploads folder:
-    const uploadDir = path.join(__dirname, "..", "..", "..", "ChatUploads");
+    const orgId =
+      req.headers["x-org-id"] ||
+      req.query?.orgId ||
+      req.body?.orgId ||
+      (req.user && req.user.orgId) ||
+      null;
+    const uploadDir = path.join(
+      __dirname,
+      "..",
+      "..",
+      "..",
+      "ChatUploads",
+      orgId
+    );
 
     // if it doesn't exist, create it (and any missing parents):
     try {
@@ -89,7 +101,13 @@ module.exports = {
     upload.single("file"),
     (req, res) => {
       try {
-        const url = `/ChatUploads/${req.file.filename}`;
+        const orgId =
+          req.headers["x-org-id"] ||
+          req.query?.orgId ||
+          req.body?.orgId ||
+          (req.user && req.user.orgId) ||
+          null;
+        const url = `/ChatUploads/${orgId}/${req.file.filename}`;
         res.json({ url });
       } catch (err) {
         console.error("uploadFile error:", err);
@@ -99,8 +117,21 @@ module.exports = {
   ],
 
   downloadAttachment: (req, res) => {
+    const orgId =
+      req.headers["x-org-id"] ||
+      req.query?.orgId ||
+      req.body?.orgId ||
+      (req.user && req.user.orgId) ||
+      null;
     const filename = req.params.filename;
-    const uploadDir = path.join(__dirname, "..", "..", "..", "ChatUploads");
+    const uploadDir = path.join(
+      __dirname,
+      "..",
+      "..",
+      "..",
+      "ChatUploads",
+      orgId
+    );
     const filePath = path.join(uploadDir, filename);
 
     fs.stat(filePath, (err, stats) => {

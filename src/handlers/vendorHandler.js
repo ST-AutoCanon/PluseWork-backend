@@ -1,6 +1,11 @@
 const vendorService = require("../services/vendorService");
 
 const addVendorHandler = async (req, res) => {
+  console.log("Headers x-org-id:", req.headers["x-org-id"]);
+  console.log("is multipart?", req.is("multipart/form-data"));
+  console.log("req.body keys:", Object.keys(req.body || {}));
+  console.log("req.files:", JSON.stringify(req.files, null, 2));
+
   try {
     const orgId =
       req.headers["x-org-id"] ||
@@ -145,6 +150,11 @@ const getAllVendorsHandler = async (req, res) => {
 };
 
 const updateVendorHandler = async (req, res) => {
+  console.log("Headers x-org-id:", req.headers["x-org-id"]);
+  console.log("is multipart?", req.is("multipart/form-data"));
+  console.log("req.body keys:", Object.keys(req.body || {}));
+  console.log("req.files:", JSON.stringify(req.files, null, 2));
+
   try {
     const vendorId = req.params.id;
     const orgId =

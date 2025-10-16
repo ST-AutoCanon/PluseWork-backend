@@ -23,7 +23,7 @@ const UPDATE_VENDOR_BY_ID = `
     contact3_name = ?, contact3_designation = ?, contact3_mobile = ?, contact3_email = ?,
     bank_name = ?, branch = ?, branch_address = ?, account_number = ?, ifsc_code = ?,
     nature_of_business = ?, product_category = ?, years_of_experience = ?,
-    gst_certificate = ?, pan_card = ?, cancelled_cheque = ?, msme_certificate = ?, msme_status = ?, incorporation_certificate = ?
+    gst_certificate = ?, pan_card = ?, cancelled_cheque = ?, msme_certificate = ?, msme_status = ?, incorporation_certificate = ?, updated_at = NOW()
   WHERE vendor_id = ? AND org_id = ?;
 `;
 

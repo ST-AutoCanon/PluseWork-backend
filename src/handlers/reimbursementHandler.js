@@ -473,6 +473,12 @@ exports.updateReimbursement = async (req, res) => {
 exports.updateReimbursementStatus = async (req, res) => {
   try {
     const { id } = req.params;
+    const orgId =
+      req.headers["x-org-id"] ||
+      req.query?.orgId ||
+      req.body?.orgId ||
+      (req.user && req.user.orgId) ||
+      null;
     const { status, approver_comments, approver_id, project } = req.body;
     if (!["approved", "rejected"].includes(status)) {
       return res.status(400).json({ error: "Invalid status." });
@@ -491,7 +497,8 @@ exports.updateReimbursementStatus = async (req, res) => {
       approver_id,
       approver_name,
       approver_designation,
-      project
+      project,
+      orgId
     );
 
     res.json({ message: `Reimbursement ${status}`, data: updatedStatus });

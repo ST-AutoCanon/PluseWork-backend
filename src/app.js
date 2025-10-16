@@ -335,33 +335,39 @@ app.use((req, res, next) => {
     app.use("/api/leave-policies", leavePolicy);
     app.get("/", (req, res) => res.send("Employee Face Recognition API"));
 
-    // ---------- Socket.IO (with permissive handshake + handlers from previous file) ----------
     const io = new Server(server, {
       cors: { origin: process.env.FRONTEND_URL || "*", credentials: true },
       path: "/api/socket.io",
     });
     app.set("io", io);
 
-    // permissive handshake that extracts userId from query / auth / headers
     io.use((socket, next) => {
-      try {
-        const queryUser = socket.handshake.query?.userId || null;
-        const authUser = socket.handshake.auth?.userId || null;
-        const headerUser = socket.handshake.headers?.["x-employee-id"] || null;
-        const userId = queryUser || authUser || headerUser || null;
+      const apiKey =
+        socket.handshake.auth?.apiKey ||
+        socket.handshake.query?.apiKey ||
+        socket.handshake.headers?.["x-api-key"];
 
-        if (!userId) {
-          // allow connection but leave socket.userId null — older code logged and allowed this
-          socket.userId = null;
-          return next();
-        }
-
-        socket.userId = String(userId);
-        return next();
-      } catch (err) {
-        console.error("[socket] handshake error:", err);
-        return next(err);
+      if (!apiKey || apiKey !== process.env.X_API_KEY) {
+        return next(new Error("Forbidden: invalid api key"));
       }
+
+      const queryUser = socket.handshake.query?.userId || null;
+      const authUser = socket.handshake.auth?.userId || null;
+      const headerUser = socket.handshake.headers?.["x-employee-id"] || null;
+      const userId = queryUser || authUser || headerUser || null;
+
+      socket.userId = userId ? String(userId) : null;
+
+      if (!userId) {
+        console.warn(
+          "[socket] no userId in handshake; allowing connection but functionality may be limited"
+        );
+        socket.userId = null;
+        return next();
+      }
+
+      socket.userId = String(userId);
+      return next();
     });
 
     io.on("connection", (socket) => {
@@ -373,7 +379,6 @@ app.use((req, res, next) => {
         }
       );
 
-      // If authenticated (we have a userId), join their chat rooms and query threads
       if (socket.userId) {
         chatService
           .getUserRooms(socket.userId)
@@ -397,11 +402,10 @@ app.use((req, res, next) => {
           );
       } else {
         console.log(
-          `[socket:${socket.id}] connected without userId — functionality limited`
+          `[socket:${socket.id}] connected without userId — will require payload senderId for message saves.`
         );
       }
 
-      // join a specific employee query thread
       socket.on("joinThread", (threadId) => {
         try {
           console.log(`[socket:${socket.id}] joinThread ${threadId}`);
@@ -411,7 +415,6 @@ app.use((req, res, next) => {
         }
       });
 
-      // sendQueryMessage — employee queries (with callback ack)
       socket.on("sendQueryMessage", async (payload, callback) => {
         console.log(`[socket:${socket.id}] sendQueryMessage payload:`, payload);
         try {
@@ -464,7 +467,6 @@ app.use((req, res, next) => {
             "newMessage",
             newMsg
           );
-
           if (typeof callback === "function")
             callback({ success: true, message: newMsg });
           socket.emit("messageAck", newMsg);
@@ -479,7 +481,6 @@ app.use((req, res, next) => {
         }
       });
 
-      // send_message — general chat messages
       socket.on("send_message", async (payload = {}, ack) => {
         console.log(
           `[socket:${socket.id}] send_message payload:`,
@@ -488,6 +489,7 @@ app.use((req, res, next) => {
             location: payload?.location ? "present" : null,
           }
         );
+
         try {
           const { roomId, content, type, fileUrl, location } = payload;
           const payloadSenderId = payload.senderId ?? payload.sender_id ?? null;
@@ -502,7 +504,9 @@ app.use((req, res, next) => {
 
           const effectiveSenderId = socket.userId ?? payloadSenderId ?? null;
           if (!effectiveSenderId) {
-            const errMsg = "Missing sender id in send_message";
+            const errMsg =
+              "Missing sender id in send_message (socket not authed and payload has no senderId)";
+            console.warn(`[socket:${socket.id}] ${errMsg}`);
             if (typeof ack === "function")
               ack({ success: false, error: errMsg });
             socket.emit("error", errMsg);
@@ -522,6 +526,10 @@ app.use((req, res, next) => {
             lat,
             lng,
             address
+          );
+
+          console.log(
+            `[socket:${socket.id}] saved chat message id=${saved.id} room=${roomId} sender=${effectiveSenderId}`
           );
 
           const emitted = {
@@ -556,23 +564,40 @@ app.use((req, res, next) => {
         }
       });
 
-      // create_room
-      socket.on("create_room", async ({ name, isGroup, members } = {}) => {
-        try {
-          const roomId = await chatService.createRoom(
-            name,
-            isGroup,
-            socket.userId,
-            members
-          );
-          socket.join(String(roomId));
-          const [room] = await chatService.getUserRooms(socket.userId);
-          socket.emit("room_created", room);
-        } catch (err) {
-          console.error("[socket] create_room error:", err);
-          socket.emit("error", err.message || "create_room failed");
+      socket.on(
+        "create_room",
+        async ({ name, isGroup, members } = {}, callback) => {
+          try {
+            const roomId = await chatService.createRoom(
+              name,
+              isGroup,
+              socket.userId,
+              members
+            );
+
+            socket.join(String(roomId));
+
+            const [room] = await chatService.getUserRooms(socket.userId);
+
+            socket.emit("room_created", room);
+
+            if (typeof callback === "function") {
+              callback({ success: true, room });
+            }
+          } catch (err) {
+            console.error(
+              "[socket] create_room error:",
+              err && err.message ? err.message : err
+            );
+            if (typeof callback === "function") {
+              callback({
+                success: false,
+                error: err.message || "create_room failed",
+              });
+            }
+          }
         }
-      });
+      );
 
       socket.on("disconnect", (reason) => {
         console.log(
@@ -581,7 +606,6 @@ app.use((req, res, next) => {
       });
     });
 
-    // ----- Start server -----
     const PORT = process.env.PORT;
     server.listen(PORT, () => {
       console.log(`Server is running on port ${PORT}`);

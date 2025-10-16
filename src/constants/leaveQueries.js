@@ -31,8 +31,8 @@ module.exports = {
   INSERT_LEAVE_REQUEST: `
     INSERT INTO leavequeries (
       employee_id, start_date, end_date,
-      H_F_day, reason, leave_type
-    ) VALUES (?, ?, ?, ?, ?, ?)
+      H_F_day, reason, leave_type, org_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
   `,
 
   // Select all leave requests for a given employee (include is_defaulted)

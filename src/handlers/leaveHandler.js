@@ -251,6 +251,12 @@ class LeaveHandler {
    */
   static async submitLeaveRequestHandler(req, res) {
     try {
+      const orgId =
+        req.headers["x-org-id"] ||
+        req.query?.orgId ||
+        req.body?.orgId ||
+        (req.user && req.user.orgId) ||
+        null;
       const { employeeId, reason, leavetype, h_f_day, startDate, endDate } =
         req.body;
       console.log("body", req.body);
@@ -348,6 +354,7 @@ class LeaveHandler {
         h_f_day,
         reason,
         leavetype,
+        orgId,
       });
 
       return res

@@ -312,7 +312,8 @@ exports.updateReimbursementStatus = async (
   approver_id,
   approver_name,
   approver_designation,
-  project
+  project,
+  orgId
 ) => {
   if (!["approved", "rejected"].includes(status)) {
     throw new Error("Invalid status. Allowed values: 'approved', 'rejected'");
@@ -335,6 +336,7 @@ exports.updateReimbursementStatus = async (
     project,
     new Date(),
     id,
+    orgId,
   ]);
 
   console.log("Update Query Result:", result);

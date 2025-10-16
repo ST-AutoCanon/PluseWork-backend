@@ -94,7 +94,7 @@ module.exports = {
       SET department_id=?, claim_type=?, transport_type=?, from_date=?, to_date=?, date=?, 
           travel_from=?, travel_to=?, meals_objective=?, purpose=?, purchasing_item=?, accommodation_fees=?, no_of_days=?, transport_amount=?, da=?, total_amount=?, 
           meal_type=?, stationary=?, service_provider=?, project=?
-      WHERE id=? AND org_id = ?
+      WHERE id=? AND org_id = ?;
   `,
 
   GET_APPROVER_DETAILS: `
