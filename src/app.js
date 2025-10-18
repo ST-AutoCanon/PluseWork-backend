@@ -1,4 +1,3 @@
-// server.js (merged, Redis session + previous features)
 require("dotenv").config();
 const path = require("path");
 const express = require("express");
@@ -10,13 +9,12 @@ const { Server } = require("socket.io");
 const webpush = require("web-push");
 const cron = require("node-cron");
 
-const { createSessionStore, _initPromise } = require("./lib/sessionStore"); // your redis session store factory
+const { createSessionStore, _initPromise } = require("./lib/sessionStore");
 const EmployeeQueries = require("./services/employeeQueries");
 const chatService = require("./services/chatService");
 const apiKeyMiddleware = require("./middleware/apiKeyMiddleware");
 const idleTimeout = require("./middleware/idleTimeout");
 
-// ROUTES (adjust as needed)
 const holidayRoutes = require("./routes/holidayRoutes");
 const loginRoutes = require("./routes/login");
 const meRoute = require("./routes/meRoute");
@@ -68,26 +66,16 @@ const lossofPayCalculationRoutes = require("./routes/lossofPayCalculationRoutes"
 const chatRoutes = require("./routes/chatRoutes");
 const orgRoutes = require("./routes/orgRoutes");
 const sidebarRoutes = require("./routes/sidebarRoutes");
-const policyNotificationService = require("./services/policyNotificationService"); // used by cron
-const { scheduleJob } = require("./jobs/profileMissingNotifier"); // optional job
+const policyNotificationService = require("./services/policyNotificationService");
+const { scheduleJob } = require("./jobs/profileMissingNotifier");
 const organizationTableRoutes = require("./routes/organizationTableRoutes");
 const app = express();
 const server = http.createServer(app);
 
-// ---------- Basic middleware ----------
 app.use(express.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 
-// Static assets
-app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
-app.use("/assets", express.static(path.join(__dirname, "assets")));
-app.use(
-  "/letterheadfiles",
-  express.static(path.join(__dirname, "letterheadfiles"))
-);
-
-// ---------- CORS ----------
 const allowedOrigins = [
   process.env.FRONTEND_URL,
   "https://localhost",
@@ -102,7 +90,6 @@ const allowedOrigins = [
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   if (!origin) {
-    // allow non-browser tools like Postman
     res.setHeader("Access-Control-Allow-Origin", "*");
   } else if (allowedOrigins.includes(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
@@ -129,10 +116,9 @@ app.use((req, res, next) => {
   next();
 });
 
-// ---------- Prepare to start: create session store (Redis) then register routes ----------
 (async () => {
   try {
-    const store = await createSessionStore(); // will throw if cannot connect
+    const store = await createSessionStore();
     app.set("trust proxy", 1);
 
     app.use(
@@ -152,16 +138,22 @@ app.use((req, res, next) => {
       })
     );
 
-    // API key and idle timeout middlewares
+    app.use(
+      "/uploads",
+      express.static(path.join(__dirname, "../../AssetUploads"))
+    );
+    app.use("/assets", express.static(path.join(__dirname, "assets")));
+    app.use(
+      "/letterheadfiles",
+      express.static(path.join(__dirname, "letterheadfiles"))
+    );
+
     app.use(apiKeyMiddleware);
     app.use(idleTimeout);
 
-    // other body parsing (safe duplicates)
     app.use(express.json({ limit: "50mb" }));
     app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
-    // ---------- Push notifications & Cron jobs (from previous file) ----------
-    // VAPID config
     webpush.setVapidDetails(
       "mailto:your-email@example.com",
       process.env.VAPID_PUBLIC_KEY,
@@ -195,7 +187,6 @@ app.use((req, res, next) => {
       res.json({ exists });
     });
 
-    // Cron jobs — policy notifications (two schedules)
     cron.schedule(
       "30 17 * * *",
       async () => {
@@ -228,7 +219,6 @@ app.use((req, res, next) => {
       { timezone: "Asia/Kolkata" }
     );
 
-    // daily push notification sample (keeps same behavior as previous code)
     cron.schedule("0 20 * * *", async () => {
       const payload = JSON.stringify({
         title: "Friendly Reminder",
@@ -245,13 +235,12 @@ app.use((req, res, next) => {
       }
     });
 
-    // Profile Missing Notifier scheduling (optional)
     (async function initProfileNotifier() {
       if (process.env.ENABLE_PROFILE_NOTIFIER !== "true") {
         console.log("[startup] profileMissingNotifier disabled");
         return;
       }
-      const db = require("./config"); // ensure path exists
+      const db = require("./config");
       const maxAttempts = 6;
       let attempt = 0;
       while (attempt < maxAttempts) {
@@ -274,7 +263,6 @@ app.use((req, res, next) => {
       );
     })();
 
-    // ---------- Mount routes (same as earlier) ----------
     app.use("/", holidayRoutes);
     app.use("/", loginRoutes);
     app.use("/", meRoute);

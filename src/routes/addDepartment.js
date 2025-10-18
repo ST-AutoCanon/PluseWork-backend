@@ -13,28 +13,43 @@ const {
 
 const router = express.Router();
 
-// Define upload directory
-const uploadDir = path.join(__dirname, "../../../departments/");
+const uploadDir = path.join(__dirname, "../../../departments");
 
-// ✅ Ensure directory exists (create it if it doesn't)
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
+function sanitizeName(input = "department") {
+  return input
+    .toString()
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^\w\-]+/g, "")
+    .replace(/\-+/g, "-");
+}
+
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, uploadDir);
+    const orgRaw =
+      req.headers["x-org-id"] ||
+      req.body?.orgId ||
+      (req.user && req.user.orgId) ||
+      "unknown-org";
+    const orgId = path.basename(String(orgRaw));
+    const orgDir = path.join(uploadDir, orgId);
+
+    try {
+      fs.mkdirSync(orgDir, { recursive: true });
+      cb(null, orgDir);
+    } catch (err) {
+      cb(err);
+    }
   },
   filename: (req, file, cb) => {
-    let name = req.body.name || "department";
-    name = name
-      .toString()
-      .trim()
-      .toLowerCase()
-      .replace(/\s+/g, "-")
-      .replace(/[^\w\-]+/g, "")
-      .replace(/\-+/g, "-");
-    const ext = path.extname(file.originalname).toLowerCase();
+    let name = req.body?.name || "department";
+    name = sanitizeName(name);
+    const ext = path.extname(file.originalname).toLowerCase() || "";
     cb(null, `${name}${ext}`);
   },
 });
@@ -54,15 +69,19 @@ const fileFilter = (req, file, cb) => {
 const upload = multer({ storage, fileFilter });
 
 router.post("/departments/add", upload.single("icon"), addDepartmentHandler);
+
 router.get("/departments", getDepartmentsHandler);
 
-router.get("/departments/:filename", (req, res) => {
+router.get("/departments/:orgId/:filename", (req, res) => {
   const apiKey = req.headers["x-api-key"];
   if (!apiKey) {
     return res.status(403).json({ message: "API key is required" });
   }
 
-  const filePath = path.join(uploadDir, req.params.filename);
+  const { orgId: orgRaw, filename } = req.params;
+  const orgId = path.basename(orgRaw);
+  const safeFilename = path.basename(filename);
+  const filePath = path.join(uploadDir, orgId, safeFilename);
 
   fs.access(filePath, fs.constants.F_OK, (err) => {
     if (err) {

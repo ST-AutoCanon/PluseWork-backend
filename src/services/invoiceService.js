@@ -12,13 +12,54 @@ const getFinancialYear = (invoiceDate) => {
 
   const fy = `${String(startYear).slice(2)}-${String(endYear).slice(2)}`;
 
-  console.log("Financial Year (Raw):", fy);
-
   return fy
     .normalize("NFKD")
     .replace(/[^\d-]/g, "")
     .trim();
 };
+
+async function getOrgName(connection, orgId) {
+  if (!orgId) return null;
+
+  const candidates = [
+    {
+      q: "SELECT Name AS name FROM Organizations WHERE id = ?",
+      params: [orgId],
+    },
+  ];
+
+  for (const c of candidates) {
+    try {
+      const [rows] = await connection.execute(c.q, c.params);
+      if (rows && rows.length > 0 && rows[0].name) {
+        return String(rows[0].name).trim();
+      }
+    } catch (err) {}
+  }
+
+  return null;
+}
+
+function makeOrgAcronym(orgName) {
+  if (!orgName || typeof orgName !== "string") return "STS";
+
+  const cleaned = orgName
+    .replace(/[^A-Za-z0-9\s]/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+
+  if (!cleaned) return "STS";
+
+  const words = cleaned.split(" ").filter(Boolean);
+
+  if (words.length >= 2) {
+    const letters = words.slice(0, 3).map((w) => w[0].toUpperCase());
+    return letters.join("");
+  }
+
+  const single = words[0];
+  return single.slice(0, 3).toUpperCase() || "STS";
+}
 
 const getInvoicesByProject = async (projectId) => {
   try {
@@ -76,26 +117,37 @@ const getInvoiceById = async (id) => {
   }
 };
 
-const generateTemplateInvoiceNo = async (invoiceType) => {
+// at top: ensure invoiceQueries is required as you already have
+// const invoiceQueries = require("../constants/invoiceQueries");
+
+const generateTemplateInvoiceNo = async (invoiceType, orgId = null) => {
   const today = new Date();
   const financialYear = getFinancialYear(today);
 
   const connection = await db.getConnection();
   try {
-    const [existing] = await connection.execute(
-      invoiceQueries.GET_NEXT_SEQUENCE,
-      [invoiceType, financialYear]
-    );
+    const orgName = await getOrgName(connection, orgId);
+    const acronym = makeOrgAcronym(orgName);
 
-    const sequence = existing[0]?.next_sequence || 1;
+    const [rows] = await connection.execute(invoiceQueries.GET_NEXT_SEQUENCE, [
+      invoiceType,
+      financialYear,
+      orgId,
+    ]);
+
+    const sequence =
+      rows && rows.length > 0 && typeof rows[0].sequence !== "undefined"
+        ? Number(rows[0].sequence)
+        : 1;
+
     const paddedSeq = String(sequence).padStart(4, "0");
 
     if (invoiceType === "tax") {
-      return `STS/${financialYear}/${paddedSeq}`;
+      return `${acronym}/${financialYear}/${paddedSeq}`;
     } else if (invoiceType === "proforma") {
-      return `STS/${financialYear}/PI/${paddedSeq}`;
+      return `${acronym}/${financialYear}/PI/${paddedSeq}`;
     } else if (invoiceType === "quotation") {
-      return `STS-Q-${paddedSeq}`;
+      return `${acronym}-Q-${paddedSeq}`;
     } else {
       throw new Error("Unknown invoice type");
     }
@@ -104,39 +156,52 @@ const generateTemplateInvoiceNo = async (invoiceType) => {
   }
 };
 
-const generateInvoiceNo = async (invoiceDate, invoiceType) => {
+const generateInvoiceNo = async (invoiceDate, invoiceType, orgId) => {
   const financialYear = getFinancialYear(invoiceDate);
   const connection = await db.getConnection();
 
   try {
-    const [existing] = await connection.execute(
-      invoiceQueries.GET_NEXT_SEQUENCE,
-      [invoiceType, financialYear]
-    );
+    const orgName = await getOrgName(connection, orgId);
+    const acronym = makeOrgAcronym(orgName);
 
-    let sequence = existing[0]?.next_sequence || 1;
+    // read existing row for this org/type/fy
+    const [rows] = await connection.execute(invoiceQueries.GET_NEXT_SEQUENCE, [
+      invoiceType,
+      financialYear,
+      orgId,
+    ]);
 
-    if (existing.length > 0) {
-      await connection.execute(invoiceQueries.UPDATE_SEQUENCE, [
-        sequence + 1,
-        invoiceType,
-        financialYear,
-      ]);
-    } else {
+    let sequenceForInvoice;
+    if (!rows || rows.length === 0) {
+      // No row exists yet: use 1 for this invoice, and insert a row with sequence = 2 (next will be 2)
+      sequenceForInvoice = 1;
       await connection.execute(invoiceQueries.INSERT_INITIAL_SEQUENCE, [
         invoiceType,
         financialYear,
+        orgId,
+        2, // next available sequence after we return 1
+      ]);
+    } else {
+      // row exists and holds the next sequence to use
+      const currentSeq = Number(rows[0].sequence) || 1;
+      sequenceForInvoice = currentSeq;
+      // update to next sequence
+      await connection.execute(invoiceQueries.UPDATE_SEQUENCE, [
+        currentSeq + 1,
+        invoiceType,
+        financialYear,
+        orgId,
       ]);
     }
 
-    const paddedSeq = String(sequence).padStart(4, "0");
+    const paddedSeq = String(sequenceForInvoice).padStart(4, "0");
 
     if (invoiceType === "tax") {
-      return `STS/${financialYear}/${paddedSeq}`;
+      return `${acronym}/${financialYear}/${paddedSeq}`;
     } else if (invoiceType === "proforma") {
-      return `STS/${financialYear}/PI/${paddedSeq}`;
+      return `${acronym}/${financialYear}/PI/${paddedSeq}`;
     } else if (invoiceType === "quotation") {
-      return `STS-Q-${paddedSeq}`;
+      return `${acronym}-Q-${paddedSeq}`;
     } else {
       throw new Error("Unknown invoice type");
     }
@@ -145,14 +210,15 @@ const generateInvoiceNo = async (invoiceDate, invoiceType) => {
   }
 };
 
-const createInvoice = async (invoiceData) => {
+const createInvoice = async (invoiceData, orgId) => {
   const connection = await db.getConnection();
 
   try {
     console.log("Generating Invoice Number...");
     const invoiceNo = await generateInvoiceNo(
       invoiceData.invoiceDate,
-      invoiceData.invoiceType
+      invoiceData.invoiceType,
+      orgId
     );
     console.log("Generated Invoice No:", invoiceNo);
 
@@ -291,7 +357,7 @@ const updateInvoiceExtra = async (id, invoiceData) => {
   return await getInvoiceById(id);
 };
 
-const updateSequence = async (invoiceType) => {
+const updateSequence = async (invoiceType, orgId) => {
   const connection = await db.getConnection();
   try {
     console.log(
@@ -301,70 +367,38 @@ const updateSequence = async (invoiceType) => {
 
     const today = new Date();
     const financialYear = getFinancialYear(today);
-    console.log("[updateSequence] Financial Year (Raw):", financialYear);
-
     const cleanedFinancialYear = financialYear.trim();
-    console.log(
-      "[updateSequence] Cleaned Financial Year:",
-      cleanedFinancialYear
-    );
-
-    console.log(
-      "[updateSequence] Cleaned Financial Year Length:",
-      cleanedFinancialYear.length
-    );
-
     const cleanInvoiceType = invoiceType.toString().trim().toLowerCase();
-    console.log("[updateSequence] Cleaned Invoice Type:", cleanInvoiceType);
 
     console.log("[updateSequence] Fetching next available sequence...");
-    const [existing] = await connection.execute(
-      invoiceQueries.GET_NEXT_SEQUENCE,
-      [cleanInvoiceType, cleanedFinancialYear]
-    );
+    const [rows] = await connection.execute(invoiceQueries.GET_NEXT_SEQUENCE, [
+      cleanInvoiceType,
+      cleanedFinancialYear,
+      orgId,
+    ]);
 
-    if (existing.length === 0) {
-      console.log(
-        "[updateSequence] No existing sequence found, inserting initial sequence."
-      );
-    } else {
-      console.log(
-        "[updateSequence] Existing sequence found:",
-        existing[0]?.next_sequence || 1
-      );
-    }
-
-    const nextSequence = existing[0]?.next_sequence || 1;
+    const nextSequence = rows && rows.length > 0 ? Number(rows[0].sequence) : 1;
     console.log("[updateSequence] Next Sequence: ", nextSequence);
 
     console.log("[updateSequence] Updating sequence in the database...");
     const [updateResult] = await connection.execute(
       invoiceQueries.UPDATE_SEQUENCE,
-      [nextSequence, cleanInvoiceType, cleanedFinancialYear]
+      [nextSequence, cleanInvoiceType, cleanedFinancialYear, orgId]
     );
 
     console.log("[updateSequence] Sequence update result:", updateResult);
 
     if (updateResult.affectedRows === 0) {
       console.log(
-        "[updateSequence] Affected rows is 0, inserting initial sequence..."
+        "[updateSequence] No row updated, inserting initial sequence..."
       );
       await connection.execute(invoiceQueries.INSERT_INITIAL_SEQUENCE, [
         cleanInvoiceType,
         cleanedFinancialYear,
+        orgId,
         nextSequence,
       ]);
-      console.log("[updateSequence] Initial sequence inserted.");
-
-      console.log(
-        "[updateSequence] Now updating the sequence after initial insertion..."
-      );
-      await connection.execute(invoiceQueries.UPDATE_SEQUENCE, [
-        nextSequence,
-        cleanInvoiceType,
-        cleanedFinancialYear,
-      ]);
-      console.log("[updateSequence] Sequence updated after insertion.");
+      console.log("[updateSequence] Inserted initial sequence.");
     }
 
     return { updatedSequence: nextSequence };
@@ -372,12 +406,23 @@ const updateSequence = async (invoiceType) => {
     console.error("[updateSequence] Error:", err);
     throw new Error("Failed to update sequence: " + err.message);
   } finally {
-    console.log("[updateSequence] Releasing connection.");
     connection.release();
   }
 };
 
-async function recordDownloadDetails(invoiceType, invoiceNumber, details) {
+async function parseSequenceFromInvoiceNumber(invoiceNumber) {
+  if (!invoiceNumber || typeof invoiceNumber !== "string") return null;
+  const m = invoiceNumber.trim().match(/(\d+)\s*$/);
+  if (!m) return null;
+  return parseInt(m[1], 10);
+}
+
+async function recordDownloadDetails(
+  invoiceType,
+  invoiceNumber,
+  details,
+  orgId
+) {
   const {
     to,
     address,
@@ -399,7 +444,10 @@ async function recordDownloadDetails(invoiceType, invoiceNumber, details) {
     terms,
   } = details;
 
+  console.log("details", details);
+
   const params = [
+    orgId,
     invoiceType,
     invoiceNumber,
     to,
@@ -422,15 +470,63 @@ async function recordDownloadDetails(invoiceType, invoiceNumber, details) {
     terms,
   ];
 
-  const [res] = await db.execute(
-    invoiceQueries.INSERT_DOWNLOAD_DETAILS,
-    params
-  );
-  return { id: res.insertId };
+  const connection = await db.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    const [res] = await connection.execute(
+      invoiceQueries.INSERT_DOWNLOAD_DETAILS,
+      params
+    );
+
+    const usedSeq = parseSequenceFromInvoiceNumber(invoiceNumber);
+    const fy = getFinancialYear(invoiceDate || new Date());
+
+    if (usedSeq != null && orgId) {
+      const [rows] = await connection.execute(
+        invoiceQueries.GET_NEXT_SEQUENCE,
+        [invoiceType, fy, orgId]
+      );
+
+      if (!rows || rows.length === 0) {
+        await connection.execute(invoiceQueries.INSERT_INITIAL_SEQUENCE, [
+          invoiceType,
+          fy,
+          orgId,
+        ]);
+      } else {
+        const currentSeq = Number(rows[0].sequence) || 1;
+        if (currentSeq <= usedSeq) {
+          await connection.execute(invoiceQueries.UPDATE_SEQUENCE, [
+            usedSeq + 1,
+            invoiceType,
+            fy,
+            orgId,
+          ]);
+        }
+      }
+    } else {
+      // no orgId or couldn't parse sequence — we won't touch invoice_numbers
+    }
+
+    await connection.commit();
+    return { id: res.insertId };
+  } catch (err) {
+    try {
+      await connection.rollback();
+    } catch (e) {}
+    console.error("recordDownloadDetails error:", err);
+    throw err;
+  } finally {
+    connection.release();
+  }
 }
 
-async function getAllDownloadDetails() {
-  const [rows] = await db.execute(invoiceQueries.GET_ALL_DOWNLOAD_DETAILS);
+async function getAllDownloadDetails(orgId) {
+  const [rows] = await db.execute(invoiceQueries.GET_ALL_DOWNLOAD_DETAILS, [
+    orgId,
+  ]);
   return rows.map((r) => {
     if (r.lineItems && typeof r.lineItems === "string") {
       try {

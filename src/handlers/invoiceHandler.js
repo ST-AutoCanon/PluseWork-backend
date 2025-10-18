@@ -1,6 +1,5 @@
 const invoiceService = require("../services/invoiceService");
 
-// GET /invoices?projectId=...
 const getInvoices = async (req, res) => {
   const { projectId } = req.query;
   if (!projectId) {
@@ -14,8 +13,8 @@ const getInvoices = async (req, res) => {
   }
 };
 
-// POST /invoices
 const createInvoice = async (req, res) => {
+  const orgId = req.headers["x-org-id"] || req.body?.orgId || null;
   console.log("Reached createInvoice handler");
   const invoiceData = req.body;
   console.log("invoice data", invoiceData);
@@ -27,7 +26,7 @@ const createInvoice = async (req, res) => {
   }
 
   try {
-    const invoice = await invoiceService.createInvoice(invoiceData);
+    const invoice = await invoiceService.createInvoice(invoiceData, orgId);
     console.log("Invoice created:", invoice);
     res.status(201).json(invoice);
   } catch (error) {
@@ -66,6 +65,7 @@ const updateInvoiceExtra = async (req, res) => {
 };
 
 const generateTemplateInvoice = async (req, res) => {
+  const orgId = req.headers["x-org-id"] || req.body?.orgId || null;
   const { invoiceType } = req.query;
   console.log(req.query);
   if (!invoiceType) {
@@ -73,7 +73,8 @@ const generateTemplateInvoice = async (req, res) => {
   }
   try {
     const invoiceNo = await invoiceService.generateTemplateInvoiceNo(
-      invoiceType
+      invoiceType,
+      orgId
     );
     res.json({ invoiceNo });
   } catch (error) {
@@ -82,15 +83,14 @@ const generateTemplateInvoice = async (req, res) => {
 };
 
 const updateInvoiceSequence = async (req, res) => {
-  // invoiceType comes from the route parameter. Example: "tax", "proforma", "quotation"
   const { invoiceType } = req.params;
   if (!invoiceType) {
     return res.status(400).json({ error: "invoiceType is required" });
   }
 
   try {
-    // Call the service to update the sequence for today's financial year
-    const result = await invoiceService.updateSequence(invoiceType);
+    const orgId = req.headers["x-org-id"] || req.body?.orgId || null;
+    const result = await invoiceService.updateSequence(invoiceType, orgId);
     res.json({ message: "Sequence updated successfully", ...result });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -99,6 +99,7 @@ const updateInvoiceSequence = async (req, res) => {
 
 const recordDownloadDetails = async (req, res, next) => {
   try {
+    const orgId = req.headers["x-org-id"] || req.body?.orgId || null;
     const { invoiceType, invoiceNumber, downloadDetails } = req.body;
     if (!invoiceType || !invoiceNumber || !downloadDetails) {
       return res.status(400).json({
@@ -109,7 +110,8 @@ const recordDownloadDetails = async (req, res, next) => {
     const record = await invoiceService.recordDownloadDetails(
       invoiceType,
       invoiceNumber,
-      downloadDetails
+      downloadDetails,
+      orgId
     );
 
     res.status(201).json({ success: true, id: record.id });
@@ -120,7 +122,12 @@ const recordDownloadDetails = async (req, res, next) => {
 
 const getDownloadDetails = async (req, res, next) => {
   try {
-    const downloadDetails = await invoiceService.getAllDownloadDetails();
+    const orgId =
+      req.headers["x-org-id"] || req.query?.orgId || req.body?.orgId || null;
+    if (!orgId) {
+      return res.status(400).json({ error: "orgId is required" });
+    }
+    const downloadDetails = await invoiceService.getAllDownloadDetails(orgId);
     res.json({ downloadDetails });
   } catch (err) {
     next(err);

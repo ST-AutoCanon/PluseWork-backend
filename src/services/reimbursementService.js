@@ -98,7 +98,7 @@ const mapAttachmentsToReimbursements = (
   return reimbursements;
 };
 
-exports.updatePaymentStatus = async (id, payment_status, paid_date) => {
+exports.updatePaymentStatus = async (id, payment_status, paid_date, orgId) => {
   try {
     console.log("Service: Updating payment status...");
     console.log("Reimbursement ID:", id);
@@ -109,6 +109,7 @@ exports.updatePaymentStatus = async (id, payment_status, paid_date) => {
       payment_status,
       paid_date,
       id,
+      orgId,
     ]);
 
     console.log("Database update result:", result);

@@ -15,17 +15,36 @@ const {
 
 const router = express.Router();
 
-const uploadDir = path.join(__dirname, "..", "uploads");
+const uploadDir = path.join(__dirname, "..", "..", "..", "AssetUploads");
+
+function sanitizeOrgId(raw) {
+  if (!raw) return "unknown";
+  const s = String(raw).trim();
+  return s.replace(/[^a-zA-Z0-9-_]/g, "_") || "unknown";
+}
 
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
+    const rawOrg =
+      req.headers["x-org-id"] || req.headers["x-orgid"] || req.headers["x-org"];
+    const orgId = sanitizeOrgId(rawOrg);
+
+    const orgDir = path.join(uploadDir, orgId);
+    try {
+      if (!fs.existsSync(orgDir)) {
+        fs.mkdirSync(orgDir, { recursive: true });
+      }
+      cb(null, orgDir);
+    } catch (err) {
+      console.error("Failed to create upload directory:", orgDir, err);
+      cb(err);
     }
-    cb(null, uploadDir);
   },
   filename: function (req, file, cb) {
-    cb(null, Date.now() + path.extname(file.originalname));
+    const safeOrig = path.basename(file.originalname || "file");
+    const unique = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const finalName = `${unique}_${safeOrig}`;
+    cb(null, finalName);
   },
 });
 
@@ -39,12 +58,15 @@ router.put("/assets/return-date", updateReturnDateHandler);
 router.get("/assets/counts", getAssetCountsHandler);
 router.get("/counts", getAssetCountsHandler);
 router.get("/assets/search-employees", searchEmployeesHandler);
-
 router.get("/assigned-assets/:employeeId", getAssignedAssetsByEmployee);
 
 router.get("/assets/download/:filename", (req, res) => {
-  const filename = req.params.filename;
-  const filePath = path.join(uploadDir, filename);
+  const rawOrg =
+    req.headers["x-org-id"] || req.headers["x-orgid"] || req.headers["x-org"];
+  const orgId = sanitizeOrgId(rawOrg);
+
+  const filename = path.basename(req.params.filename || "");
+  const filePath = path.join(uploadDir, orgId, filename);
   console.log("Serving file:", filePath);
 
   if (fs.existsSync(filePath)) {

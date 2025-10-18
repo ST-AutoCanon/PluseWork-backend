@@ -7,34 +7,13 @@ class LeavePolicyHandler {
     try {
       const actorFromHeader = req.headers["x-employee-id"];
       const actorId = actorFromHeader || req.body?.actorId || "system";
+      const orgId = req.headers["x-org-id"];
       const extensionDays = Number(req.body?.extensionDays) || 90;
 
       const created = await LeavePolicyService.autoExtendRecentPolicies(
         extensionDays,
-        actorId
-      );
-
-      return res.json({
-        success: true,
-        created,
-      });
-    } catch (err) {
-      console.error("[autoExtendHandler] error:", err);
-      return res
-        .status(500)
-        .json({ success: false, message: "Failed to auto-extend policies." });
-    }
-  }
-
-  static async autoExtendHandler(req, res) {
-    try {
-      const actorFromHeader = req.headers["x-employee-id"];
-      const actorId = actorFromHeader || req.body?.actorId || "system";
-      const extensionDays = Number(req.body?.extensionDays) || 90;
-
-      const created = await LeavePolicyService.autoExtendRecentPolicies(
-        extensionDays,
-        actorId
+        actorId,
+        orgId
       );
 
       return res.json({
@@ -51,7 +30,8 @@ class LeavePolicyHandler {
 
   static async getAllPolicies(req, res) {
     try {
-      const policies = await LeavePolicyService.getAllPolicies();
+      const orgId = req.headers["x-org-id"];
+      const policies = await LeavePolicyService.getAllPolicies(orgId);
       return res
         .status(200)
         .json(
@@ -73,9 +53,11 @@ class LeavePolicyHandler {
 
   static async createPolicy(req, res) {
     try {
+      const orgId = req.headers["x-org-id"];
       const { period, year_start, year_end, leave_settings } = req.body;
 
       if (
+        !orgId ||
         !period ||
         !year_start ||
         !year_end ||
@@ -86,7 +68,7 @@ class LeavePolicyHandler {
           .json(
             ErrorHandler.generateErrorResponse(
               400,
-              "period, year_start, year_end and leave_settings[] are required."
+              "orgId, period, year_start, year_end and leave_settings[] are required."
             )
           );
       }
@@ -96,6 +78,7 @@ class LeavePolicyHandler {
         year_start,
         year_end,
         leave_settings,
+        orgId,
       });
 
       return res
@@ -119,6 +102,7 @@ class LeavePolicyHandler {
 
   static async updatePolicy(req, res) {
     try {
+      const orgId = req.headers["x-org-id"];
       const { id } = req.params;
       const { period, year_start, year_end, leave_settings } = req.body;
 
@@ -144,6 +128,7 @@ class LeavePolicyHandler {
         year_start,
         year_end,
         leave_settings,
+        orgId,
       });
 
       return res
@@ -161,13 +146,14 @@ class LeavePolicyHandler {
 
   static async deletePolicy(req, res) {
     try {
+      const orgId = req.headers["x-org-id"];
       const { id } = req.params;
       if (!id) {
         return res
           .status(400)
           .json(ErrorHandler.generateErrorResponse(400, "Policy ID required."));
       }
-      await LeavePolicyService.deletePolicy(id);
+      await LeavePolicyService.deletePolicy(id, orgId);
       return res
         .status(200)
         .json(ErrorHandler.generateSuccessResponse(200, "Policy deleted."));
@@ -183,6 +169,7 @@ class LeavePolicyHandler {
 
   static async getLeaveBalanceHandler(req, res) {
     try {
+      const orgId = req.headers["x-org-id"];
       const { employeeId } = req.params;
       if (!employeeId) {
         return res
@@ -191,7 +178,7 @@ class LeavePolicyHandler {
             ErrorHandler.generateErrorResponse(400, "Employee ID is required.")
           );
       }
-      const data = await LeavePolicyService.getLeaveBalance(employeeId);
+      const data = await LeavePolicyService.getLeaveBalance(employeeId, orgId);
       return res
         .status(200)
         .json(
@@ -257,6 +244,7 @@ class LeavePolicyHandler {
 
   static async computeMonthlyLOPHandler(req, res) {
     try {
+      const orgId = req.headers["x-org-id"];
       const { employeeId } = req.params;
       if (!employeeId) {
         return res
@@ -279,7 +267,8 @@ class LeavePolicyHandler {
       const data = await LeavePolicyService.computeAndStoreMonthlyLOP(
         employeeId,
         month,
-        year
+        year,
+        orgId
       );
 
       return res
@@ -302,27 +291,4 @@ class LeavePolicyHandler {
   }
 }
 
-exports.autoExtendHandler = async (req, res) => {
-  try {
-    // actorId: prefer header x-employee-id, fallback to body.actorId or "system"
-    const actorFromHeader = req.headers["x-employee-id"];
-    const actorId = actorFromHeader || req.body?.actorId || "system";
-    const extensionDays = Number(req.body?.extensionDays) || 90;
-
-    const created = await LeavePolicyService.autoExtendRecentPolicies(
-      extensionDays,
-      actorId
-    );
-
-    return res.json({
-      success: true,
-      created,
-    });
-  } catch (err) {
-    console.error("[autoExtendHandler] error:", err);
-    return res
-      .status(500)
-      .json({ success: false, message: "Failed to auto-extend policies." });
-  }
-};
 module.exports = LeavePolicyHandler;

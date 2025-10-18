@@ -133,22 +133,25 @@ WHERE i.id = ?;
   `,
 
   GET_NEXT_SEQUENCE: `
-  SELECT COALESCE(MAX(sequence), 0) + 1 AS next_sequence
+  SELECT sequence
   FROM invoice_numbers
-  WHERE invoice_type = ? AND financial_year = ?
+  WHERE invoice_type = ? AND financial_year = ? AND org_id = ?
 `,
+
   INSERT_INITIAL_SEQUENCE: `
-    INSERT INTO invoice_numbers (invoice_type, financial_year, sequence)
-    VALUES (?, ?, 2)
-  `,
+  INSERT INTO invoice_numbers (invoice_type, financial_year, org_id, sequence)
+  VALUES (?, ?, ?, 2)
+`,
+
   UPDATE_SEQUENCE: `
-    UPDATE invoice_numbers 
-    SET sequence = ? 
-    WHERE invoice_type = ? AND financial_year = ?
-  `,
+  UPDATE invoice_numbers
+  SET sequence = ?
+  WHERE invoice_type = ? AND financial_year = ? AND org_id = ?
+`,
 
   INSERT_DOWNLOAD_DETAILS: `
     INSERT INTO download_details (
+      org_id,
       invoice_type,
       invoice_number,
       to_name,
@@ -169,34 +172,35 @@ WHERE i.id = ?;
       total_excluding_tax,
       total_including_tax,
       terms
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `,
 
   GET_ALL_DOWNLOAD_DETAILS: `
-    SELECT
-      id,
-      invoice_type         AS invoiceType,
-      invoice_number       AS invoiceNumber,
-      to_name              AS toName,
-      address,
-      contact,
-      company_gst          AS companyGst,
-      state,
-      invoice_date         AS invoiceDate,
-      reference_date       AS referenceDate,
-      reference_id         AS referenceId,
-      place_of_supply      AS placeOfSupply,
-      with_seal            AS withSeal,
-      line_items           AS lineItems,
-      sub_total            AS subTotal,
-      gst,
-      gst_amount           AS gstAmount,
-      advance,
-      total_excluding_tax  AS totalExcludingTax,
-      total_including_tax  AS totalIncludingTax,
-      terms,
-      created_at           AS createdAt
-    FROM download_details
-    ORDER BY created_at DESC
-  `,
+  SELECT
+    id,
+    invoice_type         AS invoiceType,
+    invoice_number       AS invoiceNumber,
+    to_name              AS toName,
+    address,
+    contact,
+    company_gst          AS companyGst,
+    state,
+    invoice_date         AS invoiceDate,
+    reference_date       AS referenceDate,
+    reference_id         AS referenceId,
+    place_of_supply      AS placeOfSupply,
+    with_seal            AS withSeal,
+    line_items           AS lineItems,
+    sub_total            AS subTotal,
+    gst,
+    gst_amount           AS gstAmount,
+    advance,
+    total_excluding_tax  AS totalExcludingTax,
+    total_including_tax  AS totalIncludingTax,
+    terms,
+    created_at           AS createdAt
+  FROM download_details
+  WHERE org_id = ?
+  ORDER BY created_at DESC
+`,
 };

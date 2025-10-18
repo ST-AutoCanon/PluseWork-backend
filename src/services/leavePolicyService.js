@@ -73,8 +73,8 @@ async function getEmployeeCarryForwards(employeeId, year) {
   }
 }
 
-const getAllPolicies = async () => {
-  const [rows] = await db.execute(queries.getAll);
+const getAllPolicies = async (orgId) => {
+  const [rows] = await db.execute(queries.getAll, [orgId]);
   return (rows || []).map((r) => ({
     ...r,
     leave_settings: safeParseSettings(r.leave_settings),
@@ -86,8 +86,10 @@ const createPolicy = async ({
   year_start,
   year_end,
   leave_settings,
+  orgId,
 }) => {
   const [result] = await db.execute(queries.create, [
+    orgId,
     period,
     year_start,
     year_end,
@@ -101,6 +103,7 @@ const createPolicy = async ({
 
 const updatePolicy = async (
   id,
+  orgId,
   { period, year_start, year_end, leave_settings }
 ) => {
   await db.execute(queries.update, [
@@ -109,11 +112,12 @@ const updatePolicy = async (
     year_end,
     JSON.stringify(leave_settings),
     id,
+    orgId,
   ]);
 };
 
-const deletePolicy = async (id) => {
-  await db.execute(queries.remove, [id]);
+const deletePolicy = async (id, orgId) => {
+  await db.execute(queries.remove, [id, orgId]);
 };
 
 /* ------------------ LOP / monthly helpers (kept same as your working code) ------------------ */
@@ -170,7 +174,7 @@ function computeEarnedLeavesFromWorked(
   return Number((ratio * Number(earnedLeavesGrant)).toFixed(1));
 }
 
-async function computeAndStoreMonthlyLOP(employeeId, month, year) {
+async function computeAndStoreMonthlyLOP(employeeId, month, year, orgId) {
   console.log(`[computeAndStoreMonthlyLOP] ${employeeId} ${month}-${year}`);
   if (!employeeId) throw new Error("employeeId required");
   const m = Number(month);
@@ -200,7 +204,7 @@ async function computeAndStoreMonthlyLOP(employeeId, month, year) {
   }
 
   // fallback compute
-  const policies = await getAllPolicies().catch((e) => {
+  const policies = await getAllPolicies(orgId).catch((e) => {
     console.warn("getAllPolicies failed:", e);
     return [];
   });
@@ -312,9 +316,9 @@ const getMonthlyLOP = async (employeeId, month, year) => {
   return await computeAndStoreMonthlyLOP(employeeId, m, y);
 };
 
-const getLeaveBalance = async (employeeId) => {
+const getLeaveBalance = async (employeeId, orgId) => {
   if (!employeeId) throw new Error("employeeId required");
-  const policies = await getAllPolicies();
+  const policies = await getAllPolicies(orgId);
   if (!policies || policies.length === 0) return [];
   const active = policies
     .slice()
@@ -390,9 +394,10 @@ const getLeaveBalance = async (employeeId) => {
  */
 async function autoExtendRecentPolicies(
   extensionDays = 90,
-  actorId = "system"
+  actorId = "system",
+  orgId
 ) {
-  const policies = await getAllPolicies();
+  const policies = await getAllPolicies(orgId);
   if (!Array.isArray(policies) || policies.length === 0) {
     console.log("[autoExtendRecentPolicies] no policies found");
     return [];

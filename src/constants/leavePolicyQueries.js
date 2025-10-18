@@ -8,6 +8,7 @@ module.exports = {
       DATE_FORMAT(year_end,   '%Y-%m-%d') AS year_end,
       leave_settings
     FROM leave_policy
+    WHERE org_id =?
     ORDER BY year_start DESC, period
   `,
 
@@ -26,8 +27,8 @@ module.exports = {
   // 3) Insert a new policy (JSON string)
   create: `
     INSERT INTO leave_policy
-      (period, year_start, year_end, leave_settings)
-    VALUES (?, ?, ?, ?)
+      (org_id, period, year_start, year_end, leave_settings)
+    VALUES (?, ?, ?, ?, ?)
   `,
 
   // 4) Update an existing policy
@@ -38,13 +39,13 @@ module.exports = {
       year_start     = ?,
       year_end       = ?,
       leave_settings = ?
-    WHERE id = ?
+    WHERE id = ? AND org_id = ?
   `,
 
   // 5) Delete a policy
   remove: `
     DELETE FROM leave_policy
-    WHERE id = ?
+    WHERE id = ? AND org_id = ?
   `,
 
   // LeaveQueries / leave request queries (kept for compatibility)

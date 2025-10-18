@@ -241,11 +241,17 @@ exports.getEmployeeProjects = async (req, res) => {
 
 exports.searchEmployees = async (req, res) => {
   try {
-    const search = req.query.search || "";
+    const search = String(req.query.search || "").trim();
+
     // prefer header; fallback to query param
-    const orgIdHeader = req.headers["x-org-id"];
-    const orgIdQuery = req.query.orgId;
-    const orgId = orgIdHeader || orgIdQuery || null;
+    const orgId = req.headers["x-org-id"] || req.query.orgId || null;
+
+    if (!orgId) {
+      return res.status(400).json({
+        error:
+          "Missing required parameter: orgId (x-org-id header or orgId query)",
+      });
+    }
 
     const employees = await projectService.searchEmployees(search, orgId);
     return res.status(200).json({ data: employees });

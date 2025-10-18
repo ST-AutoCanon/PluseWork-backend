@@ -1,17 +1,14 @@
 module.exports = {
-  /* Create a new conversation thread */
   CREATE_THREAD: `
-    INSERT INTO threads (sender_id, recipient_id, subject, department_id)
-    VALUES (?, ?, ?, ?);
+    INSERT INTO threads (org_id, sender_id, recipient_id, subject, department_id)
+    VALUES (?, ?, ?, ?, ?);
   `,
 
-  /* Add a message to a thread */
   ADD_MESSAGE: `
     INSERT INTO employee_queries (thread_id, sender_id, sender_role, message, attachment_url)
     VALUES (?, ?, ?, ?, ?);
   `,
 
-  /* Retrieve all messages in a thread */
   GET_THREAD_MESSAGES: `
     SELECT 
     eq.id, 
@@ -32,48 +29,61 @@ module.exports = {
   
   `,
 
-  /* Close a thread with optional feedback and note */
   CLOSE_THREAD: `
     UPDATE threads
     SET status = 'closed', feedback = ?, note = ?, updated_at = NOW()
     WHERE id = ?;
   `,
 
-  /* List all threads (admin view), including unread counts */
   GET_ALL_THREADS: `
-    SELECT
-      t.id,
-      t.sender_id,
-      CONCAT(e.first_name, ' ', e.last_name) AS sender_name,
-      p.photo_url,
-      pr.role,
-      p.gender,
-      COUNT(CASE WHEN mrs.is_read = 0 THEN 1 END) AS unread_message_count,
-      t.recipient_id,
-      t.department_id,
-      t.status,
-      t.subject,
-      t.latest_message,
-      t.feedback,
-      t.note,
-      DATE_FORMAT(t.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
-      DATE_FORMAT(t.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
-    FROM threads t
-    JOIN employees e
-      ON e.employee_id = t.sender_id
-    LEFT JOIN employee_personal p
-      ON p.employee_id = e.employee_id
-    LEFT JOIN employee_professional pr
-      ON pr.employee_id = e.employee_id
-    LEFT JOIN employee_queries q
-      ON t.id = q.thread_id
-    LEFT JOIN message_read_status mrs
-      ON q.id = mrs.message_id
-    GROUP BY t.id
-    ORDER BY t.updated_at DESC;
-  `,
+SELECT
+  t.id,
+  t.sender_id,
+  CONCAT(e.first_name, ' ', e.last_name) AS sender_name,
+  p.photo_url,
+  pr.role,
+  p.gender,
+  SUM(CASE WHEN mrs.is_read = 0 THEN 1 ELSE 0 END) AS unread_message_count,
+  t.recipient_id,
+  t.department_id,
+  t.status,
+  t.subject,
+  t.latest_message,
+  t.feedback,
+  t.note,
+  DATE_FORMAT(t.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+  DATE_FORMAT(t.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+FROM threads t
+JOIN employees e
+  ON e.employee_id = t.sender_id
+LEFT JOIN employee_personal p
+  ON p.employee_id = e.employee_id
+LEFT JOIN employee_professional pr
+  ON pr.employee_id = e.employee_id
+LEFT JOIN employee_queries q
+  ON t.id = q.thread_id
+LEFT JOIN message_read_status mrs
+  ON q.id = mrs.message_id
+WHERE t.org_id = ?
+GROUP BY
+  t.id,
+  t.sender_id,
+  sender_name,
+  p.photo_url,
+  pr.role,
+  p.gender,
+  t.recipient_id,
+  t.department_id,
+  t.status,
+  t.subject,
+  t.latest_message,
+  t.feedback,
+  t.note,
+  created_at,
+  updated_at
+ORDER BY t.updated_at DESC;
+`,
 
-  /* Get employee IDs by role */
   GET_EMPLOYEE_BY_ROLE: `
     SELECT employee_id
     FROM employee_professional
@@ -87,7 +97,6 @@ module.exports = {
     LIMIT 1
   `,
 
-  // Admins within an org
   GET_ADMIN: `
     SELECT ep.employee_id
     FROM employee_professional ep
@@ -96,7 +105,6 @@ module.exports = {
       AND e.org_id = ?
   `,
 
-  // HR manager within an org (department 'HR' limited to the same org)
   GET_HR: `
     SELECT ep.employee_id
     FROM employee_professional ep
@@ -111,7 +119,6 @@ module.exports = {
       AND e.org_id = ?
   `,
 
-  // Manager by department within an org
   GET_MANAGER_BY_DEPARTMENT: `
     SELECT ep.employee_id
     FROM employee_professional ep

@@ -5,16 +5,19 @@ const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 
-// Middleware for logging requests
 router.use((req, res, next) => {
   next();
 });
 
-// Route to fetch an attachment as a blob
 router.get("/attachments/:filename", (req, res) => {
   const { filename } = req.params;
+  const orgId =
+    req.headers["x-org-id"] ||
+    req.query?.orgId ||
+    req.body?.orgId ||
+    (req.user && req.user.orgId) ||
+    null;
 
-  // Prevent directory traversal attacks
   if (filename.includes("..") || filename.includes("/")) {
     console.error(`Invalid filename attempt: ${filename}`);
     return res.status(400).json({ message: "Invalid filename" });
@@ -26,6 +29,7 @@ router.get("/attachments/:filename", (req, res) => {
     "..",
     "..",
     "EmpQueryUploads",
+    orgId,
     filename
   );
 
@@ -49,7 +53,6 @@ router.get("/attachments/:filename", (req, res) => {
   }
 });
 
-// Route to start a new thread
 router.post(
   "/threads",
   (req, res, next) => {
@@ -58,7 +61,6 @@ router.post(
   employeeQueriesHandler.startThread
 );
 
-// Route to add a message with file upload
 router.post(
   "/threads/:thread_id/messages",
   (req, res, next) => {
@@ -73,7 +75,6 @@ router.post(
   employeeQueriesHandler.addMessage
 );
 
-// Other routes with logging
 router.get(
   "/threads/:thread_id/messages",
   (req, res, next) => {

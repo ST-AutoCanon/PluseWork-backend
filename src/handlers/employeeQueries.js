@@ -6,12 +6,19 @@ const fs = require("fs");
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
+    const orgId =
+      req.headers["x-org-id"] ||
+      req.query?.orgId ||
+      req.body?.orgId ||
+      (req.user && req.user.orgId) ||
+      null;
     const uploadPath = path.join(
       __dirname,
       "..",
       "..",
       "..",
-      "EmpQueryUploads"
+      "EmpQueryUploads",
+      orgId
     );
     if (!fs.existsSync(uploadPath)) {
       fs.mkdirSync(uploadPath, { recursive: true });
@@ -27,6 +34,7 @@ const upload = multer({ storage });
 exports.upload = upload;
 
 exports.startThread = async (req, res) => {
+  const orgId = req.headers["x-org-id"] || req.body?.orgId || null;
   const { sender_id, sender_role, department_id, subject, message, role } =
     req.body;
   try {
@@ -36,7 +44,8 @@ exports.startThread = async (req, res) => {
       department_id,
       subject,
       message,
-      role
+      role,
+      orgId
     );
     const response = ErrorHandler.generateSuccessResponse(
       201,
@@ -161,7 +170,8 @@ exports.closeThread = async (req, res) => {
 
 exports.getAllThreads = async (req, res) => {
   try {
-    const threads = await EmployeeQueries.getAllThreads();
+    const orgId = req.headers["x-org-id"] || req.body?.orgId || null;
+    const threads = await EmployeeQueries.getAllThreads(orgId);
     const response = ErrorHandler.generateSuccessResponse(
       200,
       "Threads retrieved successfully.",

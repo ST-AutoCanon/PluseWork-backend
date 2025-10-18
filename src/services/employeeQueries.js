@@ -9,28 +9,18 @@ class EmployeeQueries {
     department_id,
     subject,
     message,
-    recipientRole
+    recipientRole,
+    orgId
   ) {
-    // 1) derive org_id for the sender
-    const [orgRows] = await db.execute(queries.GET_ORG_BY_EMPLOYEE, [
-      sender_id,
-    ]);
-    if (!orgRows || orgRows.length === 0) {
-      throw new Error("Sender organization not found.");
-    }
-    const org_id = orgRows[0].org_id;
-
-    // 2) determine recipient based on role but constrained to same org
     let recipient_id;
     if (recipientRole === "Admin") {
-      const [admins] = await db.execute(queries.GET_ADMIN, [org_id]);
+      const [admins] = await db.execute(queries.GET_ADMIN, [orgId]);
       if (!admins || admins.length === 0) {
         throw new Error("No admin found for this organization.");
       }
       recipient_id = admins[0].employee_id;
     } else if (recipientRole === "HR") {
-      // GET_HR expects org_id twice (for departments lookup and employee org check)
-      const [hr] = await db.execute(queries.GET_HR, [org_id, org_id]);
+      const [hr] = await db.execute(queries.GET_HR, [orgId, orgId]);
       if (!hr || hr.length === 0) {
         throw new Error("No HR manager found for this organization.");
       }
@@ -38,7 +28,7 @@ class EmployeeQueries {
     } else if (recipientRole === "Manager") {
       const [managers] = await db.execute(queries.GET_MANAGER_BY_DEPARTMENT, [
         department_id,
-        org_id,
+        orgId,
       ]);
       if (!managers || managers.length === 0) {
         throw new Error(
@@ -52,6 +42,7 @@ class EmployeeQueries {
 
     // Create the thread
     const [result] = await db.execute(queries.CREATE_THREAD, [
+      orgId,
       sender_id,
       recipient_id,
       subject,
@@ -159,9 +150,9 @@ class EmployeeQueries {
     await db.execute(queries.CLOSE_THREAD, [feedback, note, thread_id]);
   }
 
-  static async getAllThreads() {
+  static async getAllThreads(orgId) {
     try {
-      const [rows] = await db.execute(queries.GET_ALL_THREADS);
+      const [rows] = await db.execute(queries.GET_ALL_THREADS, [orgId]);
       return rows;
     } catch (error) {
       console.error("Error fetching threads:", error.sqlMessage || error);

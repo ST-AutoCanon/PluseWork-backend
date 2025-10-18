@@ -13,7 +13,7 @@ const addDepartmentHandler = async (req, res) => {
       return res.status(400).json({ message: "orgId is required" });
     }
 
-    const icon = req.file ? `/departments/${req.file.filename}` : null;
+    const icon = req.file ? `/departments/${orgId}/${req.file.filename}` : null;
     await addDepartmentService(name, icon, orgId);
 
     return res.status(201).json({ message: "Department added successfully" });

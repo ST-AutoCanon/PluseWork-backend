@@ -219,6 +219,12 @@ exports.getReimbursementsByEmployee = async (req, res) => {
 
 exports.updatePaymentStatus = async (req, res) => {
   try {
+    const orgId =
+      req.headers["x-org-id"] ||
+      req.query?.orgId ||
+      req.body?.orgId ||
+      (req.user && req.user.orgId) ||
+      null;
     const { id } = req.params;
     let { payment_status, user_role } = req.body;
 
@@ -244,7 +250,8 @@ exports.updatePaymentStatus = async (req, res) => {
     const updated = await reimbursementService.updatePaymentStatus(
       id,
       payment_status,
-      paid_date
+      paid_date,
+      orgId
     );
 
     res.json({ message: "Payment status updated", data: updated });
