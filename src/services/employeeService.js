@@ -826,13 +826,13 @@ exports.searchEmployees = async (search, fromDate, toDate, orgId) => {
     }
 
     if (formattedFromDate && formattedToDate) {
-      query += " AND e.joining_date BETWEEN ? AND ?";
+      query += " AND pr.joining_date BETWEEN ? AND ?";
       params.push(formattedFromDate, formattedToDate);
     } else if (formattedFromDate) {
-      query += " AND e.joining_date >= ?";
+      query += " AND pr.joining_date >= ?";
       params.push(formattedFromDate);
     } else if (formattedToDate) {
-      query += " AND e.joining_date <= ?";
+      query += " AND pr.joining_date <= ?";
       params.push(formattedToDate);
     }
 

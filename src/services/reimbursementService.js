@@ -460,7 +460,6 @@ exports.getTeamReimbursements = async (
     submittedFrom || null,
     submittedTo || null,
     orgId,
-    orgId,
   ];
 
   const [reimbursements] = await db.query(

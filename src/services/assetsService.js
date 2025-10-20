@@ -159,7 +159,19 @@ const addAsset = async (orgId, assetData) => {
     ];
 
     const [result] = await db.execute(INSERT_ASSET, values);
-    return { asset_id, insertId: result.insertId, asset_code };
+    return {
+      asset_id,
+      insertId: result.insertId,
+      asset_code,
+      asset_name,
+      configuration,
+      valuation_date,
+      assigned_to,
+      category,
+      sub_category,
+      status,
+      document_path,
+    };
   } catch (error) {
     console.error("❌ Error inserting asset:", error);
     throw new Error("Failed to add asset");

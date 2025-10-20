@@ -59,6 +59,14 @@ const addAssetHandler = async (req, res) => {
       message: "Asset added successfully",
       asset_id: result.asset_id,
       asset_code: result.asset_code,
+      asset_name: result.asset_name,
+      configuration: result.configuration,
+      valuation_date: result.valuation_date,
+      assigned_to: result.assigned_to,
+      category: result.category,
+      sub_category: result.sub_category,
+      status: result.status,
+      document_path: result.document_path,
     });
   } catch (error) {
     console.error("❌ Database Error:", error);

@@ -1,9 +1,7 @@
-
 const express = require("express");
 const router = express.Router();
-const { uploadSalaryData, upload } = require("../handlers/salaryUploadHandler"); // Ensure correct path
+const { uploadSalaryData, upload } = require("../handlers/salaryUploadHandler");
 
-router.post("/upload", upload.single("file"), uploadSalaryData); // The correct route is "/salary/upload"
-
+router.post("/upload", upload.single("file"), uploadSalaryData);
 
 module.exports = router;

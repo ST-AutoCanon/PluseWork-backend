@@ -1,6 +1,3 @@
-
-
-
 const multer = require("multer");
 const XLSX = require("xlsx");
 const moment = require("moment");
@@ -12,17 +9,14 @@ const {
   insertSalaryData,
 } = require("../constants/salaryQueries");
 
-// Multer setup for file uploads
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
-// Function to check if a table exists
 const tableExists = async (tableName) => {
   const result = await pool.query(checkIfTableExists(tableName));
   return result[0].count > 0;
 };
 
-// Function to create table dynamically
 const createTableIfNotExists = async (tableName, columns) => {
   const query = createTableQuery(tableName, columns);
   try {
@@ -34,79 +28,128 @@ const createTableIfNotExists = async (tableName, columns) => {
   }
 };
 
-// Function to generate Employee ID if missing
 const generateEmployeeId = () => {
   return `EMP${Math.floor(10000 + Math.random() * 90000)}`;
 };
 
-// Function to format column names to MySQL-friendly format
 const formatColumnName = (name) => {
   return name
     .toLowerCase()
     .trim()
     .replace(/\s+/g, "_")
-    .replace(/[^a-zA-Z0-9_]/g, ""); // Remove special characters
+    .replace(/[^a-zA-Z0-9_]/g, "");
 };
 
-const generateTableName = (fileName) => {
-  const dateMatch = fileName.match(/(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[_-](\d{4})/i);
-  
+/**
+ * Generate table name using orgId (from headers) and filename (month_year inside filename)
+ * Final format: <orgId>_<month>_<year>
+ *
+ * @param {string} orgId - organization id from headers (required)
+ * @param {string} fileName - filename (without extension), expected to contain month_year like "mar_2025"
+ */
+const generateTableName = (orgId, fileName) => {
+  if (!orgId) {
+    throw new Error(
+      "❌ Missing orgId header. Provide orgId in request headers."
+    );
+  }
+
+  // normalize orgId: lowercase, replace spaces with underscore, remove invalid chars
+  const normalizedOrgId = String(orgId)
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, "_")
+    .replace(/[^a-z0-9_]/g, "");
+
+  if (!normalizedOrgId) {
+    throw new Error(
+      "❌ Invalid orgId header. orgId must contain letters/numbers."
+    );
+  }
+
+  const dateMatch = fileName.match(
+    /(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[_-](\d{4})/i
+  );
+
   if (!dateMatch) {
-    throw new Error("❌ Filename must contain month and year (e.g., salary_mar_2025.xlsx)");
+    throw new Error(
+      "❌ Filename must contain month and year (e.g., salary_mar_2025.xlsx or mar-2025)."
+    );
   }
 
   const month = dateMatch[1].toLowerCase();
   const year = dateMatch[2];
 
-  return `salary_sts_${month}_${year}`;
+  return `${normalizedOrgId}_${month}_${year}`;
 };
-// Upload and Save Salary Data (Replace Existing Data)
+
 const uploadSalaryData = async (req, res) => {
   try {
+    // orgId is required and must come from headers (node lowercases header keys)
+    const orgId =
+      req.headers.orgid ||
+      req.headers["x-org-id"] ||
+      req.headers["orgId"] ||
+      req.headers["org-id"]; // fallback checks
+
+    if (!orgId) {
+      return res
+        .status(400)
+        .json({ error: "❌ Missing required header: orgId" });
+    }
+
     if (!req.file) {
       return res.status(400).json({ error: "❌ No file uploaded" });
     }
 
-    // Extract filename without extension and format it
-    const fileName = req.file.originalname.split(".")[0].replace(/\s+/g, "_").toLowerCase();
-    const tableName = generateTableName(fileName);
+    const fileName = req.file.originalname
+      .split(".")[0]
+      .replace(/\s+/g, "_")
+      .toLowerCase();
+
+    let tableName;
+    try {
+      tableName = generateTableName(orgId, fileName);
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
+    }
 
     const workbook = XLSX.read(req.file.buffer, { type: "buffer" });
     const sheetName = workbook.SheetNames[0];
-    const jsonData = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: "" });
+    const jsonData = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], {
+      defval: "",
+    });
 
     if (jsonData.length === 0) {
       return res.status(400).json({ error: "❌ Empty Excel file" });
     }
 
-    // Normalize column names
     const rawColumns = Object.keys(jsonData[0]);
-    console.log("📌 Extracted Columns:", rawColumns); // Debugging log
+    console.log("📌 Extracted Columns:", rawColumns);
 
     const formattedColumns = rawColumns.map(formatColumnName);
-    console.log("✅ Formatted Columns:", formattedColumns); // Debugging log
+    console.log("✅ Formatted Columns:", formattedColumns);
 
-    // Rename keys in data rows
     const processedData = jsonData.map((row) => {
       let newRow = {};
       rawColumns.forEach((col, index) => {
         newRow[formattedColumns[index]] = row[col] || null;
       });
 
-      // Ensure "employee_id" column exists
       if (!newRow.employee_id) {
         newRow.employee_id = newRow.id || generateEmployeeId();
         delete newRow.id;
       }
 
-      // Convert date columns to YYYY-MM-DD
       Object.keys(newRow).forEach((key) => {
         if (key.includes("date")) {
           let cellValue = newRow[key];
 
-          if (!isNaN(cellValue) && cellValue > 30000) { // Excel Serial Date
+          if (!isNaN(cellValue) && cellValue > 30000) {
             let excelDate = XLSX.SSF.parse_date_code(cellValue);
-            newRow[key] = moment(new Date(excelDate.y, excelDate.m - 1, excelDate.d)).format("YYYY-MM-DD");
+            newRow[key] = moment(
+              new Date(excelDate.y, excelDate.m - 1, excelDate.d)
+            ).format("YYYY-MM-DD");
           } else {
             newRow[key] = moment(new Date(cellValue)).isValid()
               ? moment(new Date(cellValue)).format("YYYY-MM-DD")
@@ -118,26 +161,24 @@ const uploadSalaryData = async (req, res) => {
       return newRow;
     });
 
-    // 🚀 Log processed data for debugging
     console.log("🔄 Processed Data Example:", processedData[0]);
 
-    // Create table if it doesn't exist
     if (!(await tableExists(tableName))) {
       await createTableIfNotExists(tableName, formattedColumns);
     }
 
-    // 🚀 Delete old data before inserting new data
     await pool.query(deleteExistingData(tableName));
     console.log(`🗑️ Old data deleted from table: ${tableName}`);
 
-    // Insert new data
     for (const row of processedData) {
       const { query, values } = insertSalaryData(tableName, row);
-      console.log("📝 Inserting Row:", values); // Log inserted values
+      console.log("📝 Inserting Row:", values);
       await pool.query(query, values);
     }
 
-    res.status(200).json({ message: `✅ File uploaded. Data replaced in table: ${tableName}` });
+    res.status(200).json({
+      message: `✅ File uploaded. Data replaced in table: ${tableName}`,
+    });
   } catch (error) {
     console.error("❌ Upload error:", error);
     res.status(500).json({ error: "❌ Error processing file" });
@@ -145,6 +186,3 @@ const uploadSalaryData = async (req, res) => {
 };
 
 module.exports = { uploadSalaryData, upload };
-
-
-

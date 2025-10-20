@@ -16,21 +16,20 @@ module.exports = {
 `,
 
   GET_TEAM_REIMBURSEMENTS: `
-  SELECT r.*,
-         CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
-         CONCAT(r.from_date, ' - ', r.to_date) AS tdate,
-         IF(r.from_date IS NOT NULL AND r.to_date IS NOT NULL, 
-            CONCAT(r.from_date, ' - ', r.to_date), 
-            r.date) AS date_range,
-         r.paid_date
-  FROM reimbursement r
-  JOIN employees e ON r.employee_id = e.employee_id
-  WHERE r.employee_id IN (
-      SELECT employee_id FROM employees WHERE department_id = ?
-  )
+SELECT r.*,
+       CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
+       CONCAT(r.from_date, ' - ', r.to_date) AS tdate,
+       IF(r.from_date IS NOT NULL AND r.to_date IS NOT NULL,
+          CONCAT(r.from_date, ' - ', r.to_date),
+          r.date) AS date_range,
+       r.paid_date
+FROM reimbursement r
+JOIN employees e ON r.employee_id = e.employee_id
+JOIN employee_professional ep ON e.employee_id = ep.employee_id
+WHERE ep.department_id = ?
   AND (? IS NULL OR (r.created_at >= ? AND r.created_at < DATE_ADD(?, INTERVAL 1 DAY)))
   AND r.org_id = ?
-  ORDER BY r.created_at DESC
+ORDER BY r.created_at DESC
 `,
 
   GET_EMPLOYEE_DETAILS: `
