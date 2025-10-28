@@ -122,18 +122,230 @@ function normalizeOrgId(data) {
   return data.org_id || null;
 }
 
-exports.addFullEmployee = async (data, options = {}) => {
-  console.log("[addFullEmployee] ⇒ start", { email: data?.email });
+const PAD_DIGITS = 6;
 
-  const resolvedOrg = normalizeOrgId(data);
-  if (!resolvedOrg) {
-    console.warn(
-      "[addFullEmployee] WARNING: org_id not provided on data object"
+async function addFullEmployeeUsingConnection(conn, data, options = {}) {
+  const resolvedOrg = data.org_id || data.orgId || data.organization_id || null;
+  if (!resolvedOrg) throw new Error("org_id required for employee creation");
+
+  const [orgRows] = await conn.execute(queries.SELECT_ORG_FOR_UPDATE, [
+    resolvedOrg,
+  ]);
+  const org = orgRows && orgRows[0] ? orgRows[0] : null;
+  if (!org) throw new Error("Organization not found");
+
+  if (org.no_employees != null && !options.bypassOrgLimit) {
+    const [countRows] = await conn.execute(
+      queries.COUNT_ACTIVE_EMPLOYEES_BY_ORG,
+      [resolvedOrg]
     );
-  } else {
-    console.log("[addFullEmployee] org_id:", resolvedOrg);
+    const current = Number(countRows && countRows[0] ? countRows[0].cnt : 0);
+    const allowed = Number(org.no_employees);
+    if (!Number.isNaN(allowed) && current >= allowed) {
+      throw new Error(
+        `Employee limit reached for organization (allowed: ${allowed}, current: ${current}).`
+      );
+    }
   }
 
+  const newCounter = Number(org.employee_counter || 0) + 1;
+  await conn.execute(queries.UPDATE_ORG_COUNTER, [newCounter, resolvedOrg]);
+
+  const suffix = newCounter;
+  const suffixStr = String(suffix).padStart(PAD_DIGITS, "0");
+  const prefix = (org.employee_prefix || "").toUpperCase();
+  if (!prefix) {
+    throw new Error(
+      "Organization employee_prefix missing; cannot generate employee_id"
+    );
+  }
+  const employeeId = `${prefix}-${suffixStr}`;
+
+  const password = crypto.randomBytes(8).toString("hex");
+  const hash = await bcrypt.hash(password, 10);
+
+  const coreParams = [
+    employeeId,
+    suffix,
+    data.first_name,
+    data.last_name,
+    data.email,
+    hash,
+    data.phone_number || null,
+    data.dob || null,
+    resolvedOrg,
+  ];
+
+  await conn.execute(queries.ADD_EMPLOYEE_CORE, coreParams);
+
+  const eid = employeeId;
+
+  const personalFileKeys = [
+    "spouse_gov_doc_url",
+    "aadhaar_doc_url",
+    "pan_doc_url",
+    "passport_doc_url",
+    "driving_license_doc_url",
+    "voter_id_doc_url",
+    "father_gov_doc_url",
+    "mother_gov_doc_url",
+    "child1_gov_doc_url",
+    "child2_gov_doc_url",
+    "child3_gov_doc_url",
+    "photo_url",
+  ];
+
+  function normalizeToStringArray(input) {
+    if (input == null) return [];
+    if (Array.isArray(input)) return input;
+    try {
+      const parsed = JSON.parse(input);
+      if (Array.isArray(parsed)) return parsed;
+    } catch {}
+    return [String(input)];
+  }
+  function arrayToJsonOrNull(val) {
+    const arr = normalizeToStringArray(val);
+    if (!arr || !arr.length) return null;
+    return JSON.stringify(arr);
+  }
+
+  const personalParams = [
+    eid,
+    data.address || null,
+    data.father_name || null,
+    data.mother_name || null,
+    data.gender || null,
+    data.marital_status || null,
+    data.spouse_name || null,
+    data.spouse_dob || null,
+    arrayToJsonOrNull(data.spouse_gov_doc_url || null),
+    data.marriage_date || null,
+    data.aadhaar_number || null,
+    arrayToJsonOrNull(data.aadhaar_doc_url || null),
+    data.pan_number || null,
+    arrayToJsonOrNull(data.pan_doc_url || null),
+    data.passport_number || null,
+    arrayToJsonOrNull(data.passport_doc_url || null),
+    data.driving_license_number || null,
+    arrayToJsonOrNull(data.driving_license_doc_url || null),
+    data.voter_id || null,
+    arrayToJsonOrNull(data.voter_id_doc_url || null),
+    data.uan_number || null,
+    data.pf_number || null,
+    data.esi_number || null,
+    arrayToJsonOrNull(data.photo_url || null),
+    data.alternate_email || null,
+    data.alternate_number || null,
+    data.blood_group || null,
+    data.emergency_name || null,
+    data.emergency_number || null,
+    data.father_dob || null,
+    arrayToJsonOrNull(data.father_gov_doc_url || null),
+    data.mother_dob || null,
+    arrayToJsonOrNull(data.mother_gov_doc_url || null),
+    data.child1_name || null,
+    data.child1_dob || null,
+    arrayToJsonOrNull(data.child1_gov_doc_url || null),
+    data.child2_name || null,
+    data.child2_dob || null,
+    arrayToJsonOrNull(data.child2_gov_doc_url || null),
+    data.child3_name || null,
+    data.child3_dob || null,
+    arrayToJsonOrNull(data.child3_gov_doc_url || null),
+  ];
+  await conn.execute(queries.ADD_EMPLOYEE_PERSONAL, personalParams);
+
+  await conn.execute(queries.ADD_EMPLOYEE_EDU, [
+    eid,
+    data.tenth_institution || null,
+    data.tenth_year || null,
+    data.tenth_board || null,
+    data.tenth_score || null,
+    arrayToJsonOrNull(
+      data.tenth_cert_url || data.tenth_cert || data.tenth_cert_urls
+    ),
+    data.twelfth_institution || null,
+    data.twelfth_year || null,
+    data.twelfth_board || null,
+    data.twelfth_score || null,
+    arrayToJsonOrNull(
+      data.twelfth_cert_url || data.twelfth_cert || data.twelfth_cert_urls
+    ),
+    data.ug_institution || null,
+    data.ug_year || null,
+    data.ug_board || null,
+    data.ug_score || null,
+    arrayToJsonOrNull(data.ug_cert_url || data.ug_cert || data.ug_cert_urls),
+    data.pg_institution || null,
+    data.pg_year || null,
+    data.pg_board || null,
+    data.pg_score || null,
+    arrayToJsonOrNull(data.pg_cert_url || data.pg_cert || data.pg_cert_urls),
+  ]);
+
+  if (Array.isArray(data.additional_certs)) {
+    for (let cert of data.additional_certs) {
+      const fileUrls = cert.file_urls || cert.files || cert.file || null;
+      await conn.execute(queries.ADD_EMPLOYEE_ADDITIONAL_CERT, [
+        eid,
+        cert.name || null,
+        cert.institution || null,
+        cert.year || null,
+        arrayToJsonOrNull(fileUrls),
+      ]);
+    }
+  }
+
+  await conn.execute(queries.ADD_EMPLOYEE_PRO, [
+    eid,
+    data.domain || null,
+    data.employee_type || null,
+    data.joining_date || null,
+    data.role || null,
+    data.department_id || null,
+    data.position || null,
+    data.supervisor_id || null,
+    data.salary || null,
+    arrayToJsonOrNull(data.resume_url || data.resume || data.resume_urls),
+  ]);
+
+  const otherDocsRaw = data.other_docs_urls || data.other_docs || null;
+  const otherDocs = normalizeToStringArray(otherDocsRaw);
+  if (otherDocs.length) {
+    for (const url of otherDocs) {
+      await conn.execute(queries.ADD_EMPLOYEE_OTHER_DOC, [eid, url]);
+    }
+  }
+
+  const fullName = `${data.first_name} ${data.last_name}`.trim();
+  await conn.execute(queries.ADD_EMPLOYEE_BANK, [
+    eid,
+    fullName,
+    data.bank_name || null,
+    data.account_number || null,
+    data.ifsc_code || null,
+    data.branch_name || null,
+  ]);
+
+  if (Array.isArray(data.experience)) {
+    for (let exp of data.experience) {
+      const docUrls = exp.doc_urls || exp.files || exp.doc || null;
+      await conn.execute(queries.ADD_EMPLOYEE_EXP, [
+        eid,
+        exp.company || null,
+        exp.role || null,
+        exp.start_date || null,
+        exp.end_date || null,
+        arrayToJsonOrNull(docUrls),
+      ]);
+    }
+  }
+
+  return { employee_id: eid, tempPassword: password };
+}
+
+exports.addFullEmployee = async (data, options = {}) => {
   const requiredFields = [
     "first_name",
     "last_name",
@@ -156,273 +368,49 @@ exports.addFullEmployee = async (data, options = {}) => {
   if (missing.length > 0) {
     throw new Error(`Missing required fields: ${missing.join(", ")}`);
   }
-
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
-    console.log("[addFullEmployee] began transaction");
-    if (resolvedOrg && !options.bypassOrgLimit) {
-      const [orgRows] = await conn.execute(queries.SELECT_ORG_FOR_UPDATE, [
-        resolvedOrg,
-      ]);
-      const org = orgRows && orgRows[0] ? orgRows[0] : null;
-
-      if (org && org.no_employees !== null && org.no_employees !== undefined) {
-        const allowed = Number(org.no_employees);
-        if (!Number.isNaN(allowed)) {
-          const [countRows] = await conn.execute(
-            queries.COUNT_ACTIVE_EMPLOYEES_BY_ORG,
-            [resolvedOrg]
-          );
-          const current = Number(
-            countRows && countRows[0] ? countRows[0].cnt : 0
-          );
-
-          if (current >= allowed) {
-            throw new Error(
-              `Employee limit reached for organization (allowed: ${allowed}, current: ${current}).`
-            );
-          }
-        }
-      }
-    }
-
-    const password = crypto.randomBytes(8).toString("hex");
-    const hash = await bcrypt.hash(password, 10);
-    console.log("[addFullEmployee] generated temp password & hash");
-
-    const [coreRes] = await conn.execute(queries.ADD_EMPLOYEE_CORE, [
-      data.first_name,
-      data.last_name,
-      data.email,
-      hash,
-      data.phone_number,
-      data.dob,
-      data.org_id,
-    ]);
-    console.log("[addFullEmployee] core insert result:", coreRes);
-
-    const [[{ employee_id: eid }]] = await conn.execute(
-      `SELECT employee_id FROM employees WHERE email = ? LIMIT 1`,
-      [data.email]
-    );
-    if (!eid) {
-      throw new Error("[addFullEmployee] failed to retrieve new employee_id");
-    }
-    console.log("[addFullEmployee] new employee_id:", eid);
-
-    const personalFileKeys = [
-      "spouse_gov_doc_url",
-      "aadhaar_doc_url",
-      "pan_doc_url",
-      "passport_doc_url",
-      "driving_license_doc_url",
-      "voter_id_doc_url",
-      "father_gov_doc_url",
-      "mother_gov_doc_url",
-      "child1_gov_doc_url",
-      "child2_gov_doc_url",
-      "child3_gov_doc_url",
-      "photo_url",
-    ];
-    personalFileKeys.forEach((k) => {
-      if (k in data) data[k] = arrayToJsonOrNull(data[k]);
-    });
-
-    await conn.execute(queries.ADD_EMPLOYEE_PERSONAL, [
-      eid,
-      data.address || null,
-      data.father_name || null,
-      data.mother_name || null,
-      data.gender || null,
-      data.marital_status || null,
-      data.spouse_name || null,
-      data.spouse_dob || null,
-      data.spouse_gov_doc_url || null,
-      data.marriage_date || null,
-      data.aadhaar_number || null,
-      data.aadhaar_doc_url || null,
-      data.pan_number || null,
-      data.pan_doc_url || null,
-      data.passport_number || null,
-      data.passport_doc_url || null,
-      data.driving_license_number || null,
-      data.driving_license_doc_url || null,
-      data.voter_id || null,
-      data.voter_id_doc_url || null,
-      data.uan_number || null,
-      data.pf_number || null,
-      data.esi_number || null,
-      data.photo_url || null,
-      data.alternate_email || null,
-      data.alternate_number || null,
-      data.blood_group || null,
-      data.emergency_name || null,
-      data.emergency_number || null,
-      data.father_dob || null,
-      data.father_gov_doc_url || null,
-      data.mother_dob || null,
-      data.mother_gov_doc_url || null,
-      data.child1_name || null,
-      data.child1_dob || null,
-      data.child1_gov_doc_url || null,
-      data.child2_name || null,
-      data.child2_dob || null,
-      data.child2_gov_doc_url || null,
-      data.child3_name || null,
-      data.child3_dob || null,
-      data.child3_gov_doc_url || null,
-    ]);
-
-    await conn.execute(queries.ADD_EMPLOYEE_EDU, [
-      eid,
-      data.tenth_institution || null,
-      data.tenth_year || null,
-      data.tenth_board || null,
-      data.tenth_score || null,
-      arrayToJsonOrNull(
-        data.tenth_cert_url || data.tenth_cert || data.tenth_cert_urls
-      ),
-      data.twelfth_institution || null,
-      data.twelfth_year || null,
-      data.twelfth_board || null,
-      data.twelfth_score || null,
-      arrayToJsonOrNull(
-        data.twelfth_cert_url || data.twelfth_cert || data.twelfth_cert_urls
-      ),
-      data.ug_institution || null,
-      data.ug_year || null,
-      data.ug_board || null,
-      data.ug_score || null,
-      arrayToJsonOrNull(data.ug_cert_url || data.ug_cert || data.ug_cert_urls),
-      data.pg_institution || null,
-      data.pg_year || null,
-      data.pg_board || null,
-      data.pg_score || null,
-      arrayToJsonOrNull(data.pg_cert_url || data.pg_cert || data.pg_cert_urls),
-    ]);
-
-    if (Array.isArray(data.additional_certs)) {
-      for (let cert of data.additional_certs) {
-        const fileUrls = cert.file_urls || cert.files || cert.file || null;
-        await conn.execute(queries.ADD_EMPLOYEE_ADDITIONAL_CERT, [
-          eid,
-          cert.name || null,
-          cert.institution || null,
-          cert.year || null,
-          arrayToJsonOrNull(fileUrls),
-        ]);
-      }
-    }
-
-    await conn.execute(queries.ADD_EMPLOYEE_PRO, [
-      eid,
-      data.domain || null,
-      data.employee_type || null,
-      data.joining_date || null,
-      data.role,
-      data.department_id || null,
-      data.position || null,
-      data.supervisor_id || null,
-      data.salary || null,
-      arrayToJsonOrNull(data.resume_url || data.resume || data.resume_urls),
-    ]);
-
-    const otherDocsRaw = data.other_docs_urls || data.other_docs || null;
-    const otherDocs = ensureArrayField(otherDocsRaw);
-    if (otherDocs.length) {
-      for (const url of otherDocs) {
-        await conn.execute(queries.ADD_EMPLOYEE_OTHER_DOC, [eid, url]);
-      }
-    }
-
-    const fullName = `${data.first_name} ${data.last_name}`.trim();
-    await conn.execute(queries.ADD_EMPLOYEE_BANK, [
-      eid,
-      fullName,
-      data.bank_name || null,
-      data.account_number || null,
-      data.ifsc_code || null,
-      data.branch_name || null,
-    ]);
-
-    if (Array.isArray(data.experience)) {
-      for (let exp of data.experience) {
-        const docUrls = exp.doc_urls || exp.files || exp.doc || null;
-        await conn.execute(queries.ADD_EMPLOYEE_EXP, [
-          eid,
-          exp.company || null,
-          exp.role || null,
-          exp.start_date || null,
-          exp.end_date || null,
-          arrayToJsonOrNull(docUrls),
-        ]);
-      }
-    }
-
+    const res = await addFullEmployeeUsingConnection(conn, data, options);
     await conn.commit();
-    console.log("[addFullEmployee] committed transaction");
 
     try {
-      console.log("[addFullEmployee] sending reset email to:", data.email);
       const mailRes = await sendResetEmail(
         data.email,
         `${data.first_name} ${data.last_name}`
       );
       if (mailRes && mailRes.resetToken) {
-        try {
-          await conn.execute(queries.SAVE_RESET_TOKEN, [
-            data.email,
-            mailRes.resetToken,
-            mailRes.tokenExpiry,
-          ]);
-        } catch (saveErr) {
-          console.warn(
-            "[addFullEmployee] warning: failed to save reset token:",
-            saveErr && (saveErr.stack || saveErr)
-          );
-        }
+        await conn.execute(queries.SAVE_RESET_TOKEN, [
+          data.email,
+          mailRes.resetToken,
+          mailRes.tokenExpiry,
+        ]);
       }
-      console.log("[addFullEmployee] reset email sent (if configured)");
     } catch (mailErr) {
       console.warn(
-        "[addFullEmployee] warning: reset-email failed — not rolling back:",
-        mailErr && (mailErr.stack || mailErr)
+        "[addFullEmployee] reset-email failed (not rolled back):",
+        mailErr
       );
     }
 
-    return { employee_id: eid };
+    return { employee_id: res.employee_id };
   } catch (err) {
-    console.error(
-      "[addFullEmployee] error, rolling back:",
-      err && (err.stack || err)
-    );
     try {
       await conn.rollback();
-    } catch (rbErr) {
-      console.error(
-        "[addFullEmployee] rollback failed:",
-        rbErr && (rbErr.stack || rbErr)
-      );
+    } catch (rb) {
+      console.error("rollback failed", rb);
     }
     throw err;
   } finally {
     try {
       conn.release();
-    } catch (relErr) {
-      console.warn(
-        "[addFullEmployee] connection release failed:",
-        relErr && (relErr.stack || relErr)
-      );
-    }
-    console.log("[addFullEmployee] ⇒ end");
+    } catch (e) {}
   }
 };
 
 exports.editFullEmployee = async (data) => {
   console.log("[editFullEmployee] ⇒ start", { employee_id: data.employee_id });
   console.log("[editFullEmployee] ⇒ start", data);
-  // normalize org id if present so subsequent operations may rely on data.org_id
   normalizeOrgId(data);
 
   const conn = await db.getConnection();
@@ -805,8 +793,6 @@ exports.searchEmployees = async (search, fromDate, toDate, orgId) => {
         `%${search}%`,
         `%${search}%`,
       ];
-    } else {
-      params = [];
     }
 
     function formatToMySQLDate(dateStr, isEndOfDay = false) {
@@ -825,21 +811,36 @@ exports.searchEmployees = async (search, fromDate, toDate, orgId) => {
     } else {
     }
 
+    const dateClauses = [];
     if (formattedFromDate && formattedToDate) {
-      query += " AND pr.joining_date BETWEEN ? AND ?";
+      dateClauses.push("pr.joining_date BETWEEN ? AND ?");
+    } else if (formattedFromDate) {
+      dateClauses.push("pr.joining_date >= ?");
+    } else if (formattedToDate) {
+      dateClauses.push("pr.joining_date <= ?");
+    }
+
+    if (formattedFromDate && formattedToDate) {
       params.push(formattedFromDate, formattedToDate);
     } else if (formattedFromDate) {
-      query += " AND pr.joining_date >= ?";
       params.push(formattedFromDate);
     } else if (formattedToDate) {
-      query += " AND pr.joining_date <= ?";
       params.push(formattedToDate);
     }
 
-    console.log("🔍 Executing employee search query");
-    console.log("SQL snippet (first 300 chars):", query.slice(0, 300));
-    console.log("Total params count:", params.length);
-    console.log("Params preview:", params);
+    if (dateClauses.length > 0) {
+      const dateSql = " AND " + dateClauses.join(" AND ");
+      const orderByIndex = query.toUpperCase().lastIndexOf("ORDER BY");
+      if (orderByIndex !== -1) {
+        query =
+          query.slice(0, orderByIndex) +
+          dateSql +
+          " " +
+          query.slice(orderByIndex);
+      } else {
+        query = query + dateSql;
+      }
+    }
 
     const [rows] = await db.execute(query, params);
     return rows;
@@ -920,12 +921,10 @@ exports.assignSupervisor = async (employeeId, supervisorId, startDate) => {
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
-    // 1) close existing
     await conn.execute(queries.UPDATE_SUPERVISOR_ASSIGNMENT_END, [
       startDate,
       employeeId,
     ]);
-    // 2) add new
     const [addRes] = await conn.execute(queries.ADD_SUPERVISOR_ASSIGNMENT, [
       employeeId,
       supervisorId,
@@ -945,3 +944,40 @@ exports.getSupervisorHistory = async (employeeId) => {
   const [rows] = await db.execute(queries.GET_SUPERVISOR_HISTORY, [employeeId]);
   return rows;
 };
+
+exports.addFullEmployeeUsingConnection = addFullEmployeeUsingConnection;
+
+async function sendResetEmailAndSave(email, name) {
+  if (!email) {
+    throw new Error("email required to send reset email");
+  }
+
+  try {
+    const mailRes = await sendResetEmail(email, name);
+    if (mailRes && mailRes.resetToken) {
+      try {
+        await db.execute(queries.SAVE_RESET_TOKEN, [
+          email,
+          mailRes.resetToken,
+          mailRes.tokenExpiry,
+        ]);
+      } catch (saveErr) {
+        console.warn(
+          "[sendResetEmailAndSave] WARNING: failed to save reset token:",
+          saveErr && (saveErr.stack || saveErr)
+        );
+      }
+    } else {
+      console.warn(
+        "[sendResetEmailAndSave] Warning: sendResetEmail did not return resetToken",
+        { email, mailRes }
+      );
+    }
+    return mailRes;
+  } catch (err) {
+    console.warn("[sendResetEmailAndSave] sendResetEmail failed:", err);
+    throw err;
+  }
+}
+
+exports.sendResetEmailAndSave = sendResetEmailAndSave;

@@ -3,20 +3,30 @@ module.exports = {
     SELECT id FROM departments WHERE name = ?
   `,
 
+  SELECT_ORG_FOR_UPDATE: `
+    SELECT id, employee_prefix, employee_counter, no_employees
+    FROM Organizations
+    WHERE id = ?
+    FOR UPDATE
+  `,
+
+  UPDATE_ORG_COUNTER: `
+    UPDATE Organizations
+    SET employee_counter = ?
+    WHERE id = ?
+  `,
+
   ADD_EMPLOYEE_CORE: `
-  INSERT INTO employees (
-    first_name, last_name, email, password, phone_number, dob, Org_id, status, created_at, updated_at
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, 'Active', NOW(), NOW())
-`,
+    INSERT INTO employees (
+      employee_id, suffix, first_name, last_name, email, password, phone_number, dob, Org_id, status, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Active', NOW(), NOW())
+  `,
+
   UPDATE_EMPLOYEE_CORE: `
     UPDATE employees
-    SET first_name = ?,
-    last_name = ?,
-    email = ?,
-    phone_number = ?,
-    dob = ?
-    WHERE employee_id    = ?
-`,
+    SET first_name = ?, last_name = ?, email = ?, phone_number = ?, dob = ?
+    WHERE employee_id = ?
+  `,
 
   ADD_EMPLOYEE_PERSONAL: `
     INSERT INTO employee_personal (
@@ -692,7 +702,11 @@ LEFT JOIN (
   WHERE sa.employee_id = ?
   ORDER BY sa.start_date DESC
 `,
-  SELECT_ORG_FOR_UPDATE: `SELECT no_employees FROM Organizations WHERE id = ? FOR UPDATE`,
   SELECT_ORG: `SELECT no_employees FROM Organizations WHERE id = ?`,
   COUNT_ACTIVE_EMPLOYEES_BY_ORG: `SELECT COUNT(*) AS cnt FROM employees WHERE org_id = ?`,
+  UPDATE_EMPLOYEE_IDS_BY_ORG: `
+    UPDATE employees
+    SET employee_id = CONCAT(?, '-', LPAD(suffix, 6, '0'))
+    WHERE Org_id = ?
+  `,
 };

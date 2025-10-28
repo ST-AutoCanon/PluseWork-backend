@@ -14,7 +14,7 @@ const EmployeeQueries = require("./services/employeeQueries");
 const chatService = require("./services/chatService");
 const apiKeyMiddleware = require("./middleware/apiKeyMiddleware");
 const idleTimeout = require("./middleware/idleTimeout");
-
+const contact = require("./routes/contact");
 const holidayRoutes = require("./routes/holidayRoutes");
 const loginRoutes = require("./routes/login");
 const meRoute = require("./routes/meRoute");
@@ -149,6 +149,9 @@ app.use((req, res, next) => {
     );
 
     app.use(apiKeyMiddleware);
+
+    app.use("/", contact);
+
     app.use(idleTimeout);
 
     app.use(express.json({ limit: "50mb" }));

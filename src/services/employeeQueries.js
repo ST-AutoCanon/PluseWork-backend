@@ -1,4 +1,3 @@
-// services/employeeQueries.js
 const db = require("../config");
 const queries = require("../constants/empQueryQueries");
 
@@ -40,17 +39,15 @@ class EmployeeQueries {
       throw new Error("Invalid recipient role.");
     }
 
-    // Create the thread
     const [result] = await db.execute(queries.CREATE_THREAD, [
       orgId,
       sender_id,
       recipient_id,
       subject,
-      department_id,
+      department_id || null,
     ]);
     const threadId = result.insertId;
 
-    // Insert the initial message and capture the message id
     const [messageResult] = await db.execute(queries.ADD_MESSAGE, [
       threadId,
       sender_id,
@@ -60,7 +57,6 @@ class EmployeeQueries {
     ]);
     const messageId = messageResult.insertId;
 
-    // Only mark the message as unread for the intended recipient.
     await EmployeeQueries.markMessageUnreadForRecipients(messageId, [
       recipient_id,
     ]);
@@ -68,7 +64,6 @@ class EmployeeQueries {
     return threadId;
   }
 
-  // Helper: get admin ids for same org; derives org from a provided employee id
   static async getAdminIdsByEmployee(employeeId) {
     const [orgRows] = await db.execute(queries.GET_ORG_BY_EMPLOYEE, [
       employeeId,
@@ -80,7 +75,6 @@ class EmployeeQueries {
     return admins.map((a) => a.employee_id).filter((id) => id != null);
   }
 
-  // existing functions unchanged except where they need org scoping (use the new queries)
   static async updateThreadLatestMessage(thread_id, message, attachment_url) {
     let latestMessageValue = "";
     if (message && message.trim().length > 0) {

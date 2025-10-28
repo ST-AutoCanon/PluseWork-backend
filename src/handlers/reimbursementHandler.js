@@ -421,6 +421,13 @@ exports.updateReimbursement = async (req, res) => {
     console.log("Update Body:", req.body);
     console.log("Uploaded Files:", req.files);
 
+    const orgId =
+      req.headers["x-org-id"] ||
+      req.query?.orgId ||
+      req.body?.orgId ||
+      (req.user && req.user.orgId) ||
+      null;
+
     if (req.files && req.files.length) {
       const errMsg = validateAttachments(req.files);
       if (errMsg) {
@@ -458,6 +465,7 @@ exports.updateReimbursement = async (req, res) => {
       stationary: req.body.stationary || null,
       service_provider: req.body.service_provider || null,
       project: req.body.project || null,
+      orgId,
       attachments: req.files
         ? req.files.map((file) => ({
             file_name: file.filename,

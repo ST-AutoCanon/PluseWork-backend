@@ -28,5 +28,7 @@ module.exports = {
   GET_DEPARTMENTS: "SELECT * FROM departments WHERE Org_id = ?",
 
   GET_HOLIDAYS:
-    "SELECT date, occasion, type FROM holidays WHERE YEAR(date) = YEAR(CURDATE())",
+    "SELECT date, occasion, type FROM holidays WHERE org_id = ? AND YEAR(date) = YEAR(CURDATE())",
+  INSERT_HOLIDAYS_UPSERT:
+    "INSERT INTO holidays (org_id, `date`, `occasion`, `type`) VALUES ? ON DUPLICATE KEY UPDATE occasion = VALUES(occasion), type = VALUES(type)",
 };

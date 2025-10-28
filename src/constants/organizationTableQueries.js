@@ -1,3 +1,4 @@
+// constants/organizationTableQueries.js
 const GET_ALL_ORGANIZATIONS = `
 SELECT 
   o.id,
@@ -17,7 +18,9 @@ SELECT
   o.contact_email_id,
   o.contact_phone_no,
   o.start_date,
-  o.end_date
+  o.end_date,
+  o.employee_prefix,
+  o.employee_counter
 FROM Organizations o
 LEFT JOIN employees e
   ON LOWER(o.admin_email) = LOWER(e.email)
@@ -26,30 +29,38 @@ LEFT JOIN employee_personal ep
 `;
 
 const SELECT_ORG_BY_NAME_OR_SUBDOMAIN = `
-  SELECT id, Name, subdomain
-  FROM PULSEWORK.Organizations
-  WHERE Name = ? OR subdomain = ?
-  FOR UPDATE
-`;
-
-const INSERT_ORGANIZATION = `
-  INSERT INTO PULSEWORK.Organizations 
-    (Name, subdomain, created_at, no_employees, company_address, c_pan_no, admin_email, contact_email_id, contact_phone_no, start_date, end_date)
-  VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?)
+SELECT id, Name, subdomain
+FROM Organizations
+WHERE Name = ? OR subdomain = ?
 `;
 
 const SELECT_ORG_BY_NAME_OR_SUBDOMAIN_EXCLUDE_ID = `
-  SELECT id, Name, subdomain
-  FROM PULSEWORK.Organizations
-  WHERE (Name = ? OR subdomain = ?) AND id != ?
-  FOR UPDATE
+SELECT id, Name, subdomain
+FROM Organizations
+WHERE (Name = ? OR subdomain = ?) AND id != ?
+`;
+
+const INSERT_ORGANIZATION = `
+INSERT INTO Organizations
+  (Name, subdomain, created_at, no_employees, company_address, c_pan_no, admin_email, contact_email_id, contact_phone_no, start_date, end_date, employee_prefix, employee_counter)
+VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`;
+
+const SELECT_ORG_BY_ID = `
+SELECT id, Name, subdomain, employee_prefix, employee_counter, no_employees
+FROM Organizations
+WHERE id = ?
 `;
 
 const UPDATE_ORGANIZATION = `
-  UPDATE PULSEWORK.Organizations SET
-    Name = ?, subdomain = ?, no_employees = ?, company_address = ?, c_pan_no = ?, 
-    admin_email = ?, contact_email_id = ?, contact_phone_no = ?, start_date = ?, end_date = ?
-  WHERE id = ?
+UPDATE Organizations SET
+  Name = ?, subdomain = ?, no_employees = ?, company_address = ?, c_pan_no = ?,
+  admin_email = ?, contact_email_id = ?, contact_phone_no = ?, start_date = ?, end_date = ?, employee_prefix = ?
+WHERE id = ?
+`;
+
+const DELETE_ORGANIZATION = `
+DELETE FROM Organizations WHERE id = ?
 `;
 
 const GET_SIDEBAR_ACCESS_BY_ORG = `
@@ -71,22 +82,22 @@ const DELETE_SIDEBAR_ACCESS_BY_ORG = `
 const INSERT_SIDEBAR_ACCESS = `
   INSERT INTO sidebar_menu_access (sidebar_item_id, role, org_id) VALUES ?
 `;
+
 const GET_SIDEBAR_MENU = `
   SELECT id, label, path, icon
   FROM sidebar_menu
 `;
-const DELETE_ORGANIZATION = `
-  DELETE FROM PULSEWORK.Organizations WHERE id = ?
-`;
+
 module.exports = {
   GET_ALL_ORGANIZATIONS,
-  GET_SIDEBAR_ACCESS_BY_ORG,
-  INSERT_ORGANIZATION,
   SELECT_ORG_BY_NAME_OR_SUBDOMAIN,
   SELECT_ORG_BY_NAME_OR_SUBDOMAIN_EXCLUDE_ID,
-  GET_SIDEBAR_MENU,
+  INSERT_ORGANIZATION,
+  SELECT_ORG_BY_ID,
   UPDATE_ORGANIZATION,
+  DELETE_ORGANIZATION,
+  GET_SIDEBAR_ACCESS_BY_ORG,
   DELETE_SIDEBAR_ACCESS_BY_ORG,
   INSERT_SIDEBAR_ACCESS,
-  DELETE_ORGANIZATION,
+  GET_SIDEBAR_MENU,
 };

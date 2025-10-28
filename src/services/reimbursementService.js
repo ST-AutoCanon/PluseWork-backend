@@ -392,6 +392,7 @@ exports.updateReimbursement = async (reimbursementId, updateData) => {
       stationary,
       service_provider,
       project,
+      orgId,
       attachments,
     } = updateData;
 
@@ -422,6 +423,7 @@ exports.updateReimbursement = async (reimbursementId, updateData) => {
       service_provider,
       project,
       reimbursementId,
+      orgId,
     ]);
 
     if (result.affectedRows === 0) {
