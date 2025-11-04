@@ -3,6 +3,7 @@ const LoginService = require("../services/loginService");
 const ErrorHandler = require("../utils/errorHandler");
 const { redisClient } = require("../lib/sessionStore");
 const dotenv = require("dotenv");
+const moment = require("moment");
 dotenv.config();
 
 class LoginHandler {
@@ -33,6 +34,28 @@ class LoginHandler {
         return res
           .status(401)
           .json(ErrorHandler.generateErrorResponse(401, "Invalid credentials"));
+      }
+
+      try {
+        const org = await LoginService.fetchOrganizationById(user.Org_id);
+        if (org && org.end_date) {
+          // compare date-only: if end_date < today then expired
+          const today = moment().startOf("day");
+          const orgEnd = moment(org.end_date).endOf("day");
+          if (orgEnd.isBefore(today, "day")) {
+            return res
+              .status(403)
+              .json(
+                ErrorHandler.generateErrorResponse(
+                  403,
+                  "your subscription ended, to renew kindly contact Administrator"
+                )
+              );
+          }
+        }
+      } catch (orgErr) {
+        console.error("Org expiry check failed:", orgErr);
+        // proceed — don't block login for transient DB errors; or optionally block if you prefer
       }
 
       const dashboardFunction =

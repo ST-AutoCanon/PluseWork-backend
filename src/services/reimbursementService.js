@@ -100,19 +100,12 @@ const mapAttachmentsToReimbursements = (
 
 exports.updatePaymentStatus = async (id, payment_status, paid_date, orgId) => {
   try {
-    console.log("Service: Updating payment status...");
-    console.log("Reimbursement ID:", id);
-    console.log("New Payment Status:", payment_status);
-    console.log("Paid Date:", paid_date);
-
     const result = await db.query(queries.UPDATE_PAYMENT_STATUS, [
       payment_status,
       paid_date,
       id,
       orgId,
     ]);
-
-    console.log("Database update result:", result);
 
     return { id, payment_status, paid_date };
   } catch (error) {
@@ -136,13 +129,6 @@ exports.getAllReimbursements = async (
   orgId = null
 ) => {
   try {
-    console.log("getAllReimbursements params:", {
-      submittedFrom,
-      submittedFromForBetween,
-      submittedTo,
-      orgId,
-    });
-
     // query updated SQL expects the last two params to be orgId twice (see queries below)
     const [rawRows] = await db.query(queries.GET_ALL_REIMBURSEMENTS, [
       submittedFrom,
@@ -257,11 +243,6 @@ exports.createReimbursement = async (reimbursementData) => {
       orgId,
     ]);
 
-    console.log(
-      "🚀 createReimbursement: found existing claims with statuses:",
-      existingClaims.map((c) => c.status)
-    );
-
     const stillActive = existingClaims.filter(
       (c) => c.status && c.status.toString().toLowerCase().trim() !== "rejected"
     );
@@ -297,11 +278,7 @@ exports.createReimbursement = async (reimbursementData) => {
 };
 
 exports.getApproverDetails = async (approver_id) => {
-  console.log("Fetching approver details for Approver ID:", approver_id);
-
   const result = await db.query(queries.GET_APPROVER_DETAILS, [approver_id]);
-
-  console.log("Approver Query Result:", result);
 
   return result.length ? result[0] : null;
 };
@@ -320,14 +297,6 @@ exports.updateReimbursementStatus = async (
     throw new Error("Invalid status. Allowed values: 'approved', 'rejected'");
   }
 
-  console.log("Updating reimbursement status...");
-  console.log("Reimbursement ID:", id);
-  console.log("Status:", status);
-  console.log("Approver ID:", approver_id);
-  console.log("Approver Name:", approver_name);
-  console.log("Approver Designation:", approver_designation);
-  console.log("Project:", project);
-
   const result = await db.query(queries.UPDATE_REIMBURSEMENT_STATUS, [
     status,
     approver_comments,
@@ -339,8 +308,6 @@ exports.updateReimbursementStatus = async (
     id,
     orgId,
   ]);
-
-  console.log("Update Query Result:", result);
 
   return {
     id,
@@ -365,8 +332,6 @@ exports.getAttachments = async (reimbursementId) => {
 
 exports.updateReimbursement = async (reimbursementId, updateData) => {
   try {
-    console.log("Received updateData in service:", updateData);
-
     if (!updateData || Object.keys(updateData).length === 0) {
       throw new Error("updateData is missing or empty.");
     }

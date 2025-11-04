@@ -77,7 +77,6 @@ const getSalaryStatement = async (orgId, month, year) => {
     const normalizedYear = normalizeYear(year);
 
     const tableName = `${normalizedOrgId}_${normalizedMonth}_${normalizedYear}`;
-    console.log("Fetching salary statement from table:", tableName);
 
     const exists = await tableExists(tableName);
     if (!exists) {

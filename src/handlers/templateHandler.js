@@ -61,7 +61,6 @@ async function listTemplatesHandler(req, res) {
 async function serveUploadedFileHandler(req, res) {
   try {
     const { orgId, filename } = req.params;
-    console.log("orgId, filename", orgId, filename);
     const uploadsDir = path.join(
       __dirname,
       "..",
@@ -71,15 +70,12 @@ async function serveUploadedFileHandler(req, res) {
       "uploads"
     );
     const filePath = path.join(uploadsDir, filename);
-    console.log("filePath", filePath);
 
     const exists = await fs.pathExists(filePath);
-    console.log("exists", exists);
     if (!exists) return res.status(404).json({ error: "Not found" });
 
     return res.sendFile(filePath);
   } catch (err) {
-    console.log("err", err);
     console.error("serveUploadedFileHandler", err);
     return res.status(500).json({ error: "Failed to serve file" });
   }

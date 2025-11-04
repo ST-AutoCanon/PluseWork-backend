@@ -25,9 +25,6 @@ async function scheduleReminder(meetingRecord) {
       message,
       follow_up_date,
     ]);
-    console.log(
-      `[NotificationService] Inserted notification for meeting ID ${meetingId}`
-    );
   } catch (err) {
     console.error(
       `[NotificationService] Error inserting notification for meeting ID ${meetingId}:`,

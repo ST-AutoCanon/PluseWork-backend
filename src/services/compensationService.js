@@ -8,15 +8,17 @@ const {
   GET_LAST_COMPENSATION_ID,
   GET_ALL_EMPLOYEE_FULL_NAMES,
   GET_ALL_DEPARTMENT_NAMES,
-  GET_EMPLOYEES_BY_DEPARTMENT_ID
+  GET_EMPLOYEES_BY_DEPARTMENT_ID,
 } = require("../constants/compensationPlans");
 
 const getLastCompensationId = async () => {
   try {
-    const [rows] = await db.execute("SELECT MAX(CAST(SUBSTRING(id, 6) AS UNSIGNED)) as maxId FROM compensation_plans WHERE id REGEXP '^COMP-[0-9]{3}$'");
+    const [rows] = await db.execute(
+      "SELECT MAX(CAST(SUBSTRING(id, 6) AS UNSIGNED)) as maxId FROM compensation_plans WHERE id REGEXP '^COMP-[0-9]{3}$'"
+    );
     const lastNum = rows[0].maxId || 0;
     const nextNum = lastNum + 1;
-    return `COMP-${String(nextNum).padStart(3, '0')}`;
+    return `COMP-${String(nextNum).padStart(3, "0")}`;
   } catch (error) {
     console.error("❌ Error fetching last compensation ID:", error);
     throw new Error("Failed to generate compensation ID");
@@ -28,7 +30,6 @@ const addCompensation = async (compData) => {
     const compensation_id = await getLastCompensationId();
     const { compensationPlanName, formData } = compData;
     const values = [compensationPlanName, JSON.stringify(formData)];
-    console.log("Executing query:", INSERT_COMPENSATION_PLAN, "with values:", values); // Debug log
     const [result] = await db.execute(INSERT_COMPENSATION_PLAN, values);
     return { compensation_id, insertId: result.insertId };
   } catch (error) {
@@ -39,7 +40,6 @@ const addCompensation = async (compData) => {
 
 const getAllCompensations = async () => {
   try {
-    console.log("Executing GET_ALL_COMPENSATION_PLANS query:", GET_ALL_COMPENSATION_PLANS); // Debug log
     const [rows] = await db.execute(GET_ALL_COMPENSATION_PLANS);
     return rows;
   } catch (error) {
@@ -49,7 +49,6 @@ const getAllCompensations = async () => {
 };
 const getCompensationByEmployeeId = async (id) => {
   try {
-    console.log("Fetching compensation with id:", id, "Query:", GET_COMPENSATION_PLAN_BY_ID); // Debug log
     const [rows] = await db.execute(GET_COMPENSATION_PLAN_BY_ID, [id]);
     return rows;
   } catch (error) {
@@ -61,13 +60,16 @@ const getCompensationByEmployeeId = async (id) => {
 const updateCompensation = async (compensation_id, updateData) => {
   try {
     const { compensationPlanName, formData } = updateData;
-    const values = [compensationPlanName, JSON.stringify(formData), compensation_id];
-    console.log('Executing UPDATE_COMPENSATION_PLAN with values:', values);
+    const values = [
+      compensationPlanName,
+      JSON.stringify(formData),
+      compensation_id,
+    ];
     const [result] = await db.execute(UPDATE_COMPENSATION_PLAN, values); // Error here
     return { affectedRows: result.affectedRows };
   } catch (error) {
-    console.error('❌ Error updating compensation:', error);
-    throw new Error('Failed to update compensation');
+    console.error("❌ Error updating compensation:", error);
+    throw new Error("Failed to update compensation");
   }
 };
 
@@ -102,7 +104,9 @@ const getAllDepartmentNames = async () => {
 };
 const getEmployeesByDepartmentId = async (departmentId) => {
   try {
-    const [rows] = await db.execute(GET_EMPLOYEES_BY_DEPARTMENT_ID, [departmentId]);
+    const [rows] = await db.execute(GET_EMPLOYEES_BY_DEPARTMENT_ID, [
+      departmentId,
+    ]);
     return rows;
   } catch (error) {
     console.error("❌ Error fetching employees by department ID:", error);
@@ -118,5 +122,5 @@ module.exports = {
   deleteCompensation,
   getAllEmployeeNames,
   getAllDepartmentNames,
-  getEmployeesByDepartmentId
+  getEmployeesByDepartmentId,
 };

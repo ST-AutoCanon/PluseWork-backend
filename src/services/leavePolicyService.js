@@ -175,7 +175,6 @@ function computeEarnedLeavesFromWorked(
 }
 
 async function computeAndStoreMonthlyLOP(employeeId, month, year, orgId) {
-  console.log(`[computeAndStoreMonthlyLOP] ${employeeId} ${month}-${year}`);
   if (!employeeId) throw new Error("employeeId required");
   const m = Number(month);
   const y = Number(year);
@@ -399,7 +398,6 @@ async function autoExtendRecentPolicies(
 ) {
   const policies = await getAllPolicies(orgId);
   if (!Array.isArray(policies) || policies.length === 0) {
-    console.log("[autoExtendRecentPolicies] no policies found");
     return [];
   }
 
@@ -407,14 +405,6 @@ async function autoExtendRecentPolicies(
   today.setHours(0, 0, 0, 0);
   const cutoff = new Date(today);
   cutoff.setDate(cutoff.getDate() - Number(extensionDays || 90));
-
-  console.log(
-    `[autoExtendRecentPolicies] today=${today
-      .toISOString()
-      .slice(0, 10)} cutoff=${cutoff
-      .toISOString()
-      .slice(0, 10)} extensionDays=${extensionDays}`
-  );
 
   const candidates = [];
   for (const p of policies) {
@@ -430,25 +420,13 @@ async function autoExtendRecentPolicies(
     // (i.e. year_end <= today && year_end >= cutoff)
     const endedOnOrBeforeToday = end <= today;
     const newerThanCutoff = end >= cutoff;
-    console.log(
-      `[autoExtendRecentPolicies] policy id=${p.id} year_end=${
-        p.year_end
-      } parsed=${end
-        .toISOString()
-        .slice(
-          0,
-          10
-        )} endedOnOrBeforeToday=${endedOnOrBeforeToday} newerThanCutoff=${newerThanCutoff}`
-    );
+
     if (endedOnOrBeforeToday && newerThanCutoff) {
       candidates.push({ policy: p, end });
     }
   }
 
   if (candidates.length === 0) {
-    console.log(
-      "[autoExtendRecentPolicies] no policies to extend based on cutoff"
-    );
     return [];
   }
 
@@ -530,9 +508,7 @@ async function autoExtendRecentPolicies(
 
     await conn.commit();
     conn.release();
-    console.log(
-      `[autoExtendRecentPolicies] extended ${updated.length} policy(ies)`
-    );
+
     return updated;
   } catch (err) {
     console.error("[autoExtendRecentPolicies] error, rolling back:", err);

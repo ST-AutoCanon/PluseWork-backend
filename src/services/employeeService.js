@@ -93,7 +93,6 @@ function deleteFilesByUrlsMixed(val) {
       const full = webUrlToFullPath(url);
       if (full && fs.existsSync(full)) {
         fs.unlinkSync(full);
-        console.log("[file-delete] removed:", full);
       } else {
       }
     } catch (e) {
@@ -409,20 +408,16 @@ exports.addFullEmployee = async (data, options = {}) => {
 };
 
 exports.editFullEmployee = async (data) => {
-  console.log("[editFullEmployee] ⇒ start", { employee_id: data.employee_id });
-  console.log("[editFullEmployee] ⇒ start", data);
   normalizeOrgId(data);
 
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
-    console.log("[editFullEmployee] began transaction");
 
     const eid = data.employee_id;
 
     const [existingRows] = await conn.execute(queries.GET_FULL_EMPLOYEE, [eid]);
     const existing = existingRows && existingRows[0] ? existingRows[0] : {};
-    console.log("[editFullEmployee] loaded existing row for fallback");
 
     const hasKey = (k) => Object.prototype.hasOwnProperty.call(data, k);
 
@@ -632,7 +627,6 @@ exports.editFullEmployee = async (data) => {
         }
       }
     } else {
-      console.log("[editFullEmployee] skipping additional_certs (no key)");
     }
 
     const chosenResume = (() => {
@@ -671,7 +665,6 @@ exports.editFullEmployee = async (data) => {
         }
       }
     } else {
-      console.log("[editFullEmployee] skipping other_docs (no key)");
     }
 
     const fullName = `${pick("first_name") || existing.first_name || ""} ${
@@ -713,11 +706,9 @@ exports.editFullEmployee = async (data) => {
         ]);
       }
     } else {
-      console.log("[editFullEmployee] skipping experience (no key)");
     }
 
     await conn.commit();
-    console.log("[editFullEmployee] committed");
   } catch (err) {
     await conn.rollback();
     console.error("[editFullEmployee] error:", err && (err.stack || err));

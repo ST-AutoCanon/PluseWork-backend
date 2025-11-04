@@ -4,7 +4,6 @@ const queries = require("../constants/letterheadTemplateQueries");
 const createLetterheadTemplatesTable = async () => {
   try {
     await db.query(queries.CREATE_LETTERHEAD_TEMPLATES_TABLE);
-    console.log("Letterhead templates table created or already exists");
   } catch (error) {
     console.error("Error creating letterhead templates table:", error);
     throw new Error("Error creating letterhead templates table");
@@ -14,7 +13,6 @@ const createLetterheadTemplatesTable = async () => {
 const insertDefaultTemplates = async () => {
   try {
     await db.query(queries.INSERT_DEFAULT_TEMPLATES);
-    console.log("Default templates inserted successfully");
   } catch (error) {
     console.error("Error inserting default templates:", error);
     throw new Error("Error inserting default templates");
@@ -43,7 +41,10 @@ const insertTemplate = async (templateData) => {
 
 const updateTemplateByLetterType = async (templateData, letterType) => {
   try {
-    const [result] = await db.query(queries.UPDATE_TEMPLATE_BY_LETTER_TYPE, [...templateData, letterType]);
+    const [result] = await db.query(queries.UPDATE_TEMPLATE_BY_LETTER_TYPE, [
+      ...templateData,
+      letterType,
+    ]);
     return result;
   } catch (error) {
     console.error("Error updating template:", error);

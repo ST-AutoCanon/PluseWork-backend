@@ -102,8 +102,6 @@ router.get("/vendors/download/:orgId/:filename", (req, res) => {
   const safeFilename = path.basename(filename);
   const filePath = path.join(vendorFilesDir, orgId, safeFilename);
 
-  console.log("Serving vendor file:", filePath);
-
   if (fs.existsSync(filePath)) {
     res.sendFile(filePath);
   } else {

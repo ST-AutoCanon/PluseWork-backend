@@ -15,9 +15,7 @@ const getInvoices = async (req, res) => {
 
 const createInvoice = async (req, res) => {
   const orgId = req.headers["x-org-id"] || req.body?.orgId || null;
-  console.log("Reached createInvoice handler");
   const invoiceData = req.body;
-  console.log("invoice data", invoiceData);
 
   if (!invoiceData.projectId || !invoiceData.invoiceDate) {
     return res
@@ -27,7 +25,6 @@ const createInvoice = async (req, res) => {
 
   try {
     const invoice = await invoiceService.createInvoice(invoiceData, orgId);
-    console.log("Invoice created:", invoice);
     res.status(201).json(invoice);
   } catch (error) {
     console.error("createInvoice error", error);
@@ -50,7 +47,6 @@ const updateInvoice = async (req, res) => {
 const updateInvoiceExtra = async (req, res) => {
   try {
     const invoiceData = req.body;
-    console.log("Received invoice update body:", invoiceData);
 
     const updatedInvoice = await invoiceService.updateInvoiceExtra(
       req.params.id,
@@ -59,7 +55,6 @@ const updateInvoiceExtra = async (req, res) => {
 
     res.json(updatedInvoice);
   } catch (err) {
-    console.log(err);
     res.status(500).json({ error: err.message });
   }
 };
@@ -67,7 +62,6 @@ const updateInvoiceExtra = async (req, res) => {
 const generateTemplateInvoice = async (req, res) => {
   const orgId = req.headers["x-org-id"] || req.body?.orgId || null;
   const { invoiceType } = req.query;
-  console.log(req.query);
   if (!invoiceType) {
     return res.status(400).json({ error: "invoiceType is required" });
   }

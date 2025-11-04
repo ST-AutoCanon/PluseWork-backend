@@ -1,4 +1,4 @@
-const express = require('express');
+const express = require("express");
 const {
   checkEmployeeAssignmentHandler,
   assignCompensationHandler,
@@ -13,39 +13,35 @@ const {
   handleApproveOvertimeRow,
   handleRejectOvertimeRow,
   getOvertimeDetailsHandler,
-  
-  getEmployeeLopHandler
-} = require('../handlers/assignCompensationHandler'); // Adjust path if needed
+
+  getEmployeeLopHandler,
+} = require("../handlers/assignCompensationHandler"); // Adjust path if needed
 
 const router = express.Router();
 
-// Log imported handlers
-console.log('checkEmployeeAssignmentHandler:', typeof checkEmployeeAssignmentHandler);
-console.log('assignCompensationHandler:', typeof assignCompensationHandler);
-
 // Check if an employee has an existing assignment
-router.post('/check-assignment', checkEmployeeAssignmentHandler);
+router.post("/check-assignment", checkEmployeeAssignmentHandler);
 
 // Assign a compensation plan to an employee or department
-router.post('/assign', assignCompensationHandler);
+router.post("/assign", assignCompensationHandler);
 
 // Get all assigned compensation details
-router.get('/assigned', getAssignedCompensationDetailsHandler);
+router.get("/assigned", getAssignedCompensationDetailsHandler);
 
 // Add bonus to a single employee
-router.post('/add-bonus', addEmployeeBonusHandler);
+router.post("/add-bonus", addEmployeeBonusHandler);
 
 // Add bonus to multiple employees (bulk)
-router.post('/add-bonus-bulk', addEmployeeBonusBulkHandler);
+router.post("/add-bonus-bulk", addEmployeeBonusBulkHandler);
 
 // Get all employee bonus details
-router.get('/bonus-list', getEmployeeBonusDetailsHandler);
+router.get("/bonus-list", getEmployeeBonusDetailsHandler);
 
 // Add advance to an employee
-router.post('/advance', addEmployeeAdvanceHandler);
+router.post("/advance", addEmployeeAdvanceHandler);
 
 // Get all employee advance details
-router.get('/advance-details', getEmployeeAdvanceDetailsHandler);
+router.get("/advance-details", getEmployeeAdvanceDetailsHandler);
 
 // Get all employee extra hours details
 router.get("/employee-extra-hours", fetchEmployeeExtraHours);
@@ -68,7 +64,6 @@ router.get("/lop-details", getEmployeeLopHandler);
 // Log registered routes
 router.stack.forEach((r) => {
   if (r.route) {
-    console.log(`Router registered: ${Object.keys(r.route.methods)} ${r.route.path}`);
   }
 });
 

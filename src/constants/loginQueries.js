@@ -21,6 +21,8 @@ module.exports = {
     WHERE e.email = ?;
   `,
 
+  GET_END_DATE: `SELECT id, Name, start_date, end_date FROM Organizations WHERE id = ?`,
+
   // GET_ADMIN_DETAILS now returns Org_id
   GET_ADMIN_DETAILS: `
     SELECT

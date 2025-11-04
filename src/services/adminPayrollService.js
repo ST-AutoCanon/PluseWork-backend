@@ -16,21 +16,15 @@ const getLastMonthTotalSalary = async (orgId) => {
     // Table pattern with orgId (e.g., salary_101_sep_2025)
     const searchPattern = `salary_${orgId}_${formattedMonth}_${formattedYear}`;
 
-    console.log("Searching for tables like:", searchPattern);
-
     // Check for matching tables
     const [tables] = await pool.query(`SHOW TABLES LIKE ?`, [searchPattern]);
 
     if (tables.length === 0) {
-      console.log(
-        `No table found for org ${orgId} in ${formattedMonth}_${formattedYear}`
-      );
       return null; // ✅ return null instead of throwing error
     }
 
     // Use the found table
     const tableName = Object.values(tables[0])[0];
-    console.log("Using table:", tableName);
 
     // Fetch total salary from that table
     const [result] = await pool.query(getLastMonthTotalSalaryQuery(tableName));

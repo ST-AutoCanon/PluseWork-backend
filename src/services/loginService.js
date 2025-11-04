@@ -8,6 +8,12 @@ class LoginService {
     return rows[0];
   }
 
+  static async fetchOrganizationById(orgId) {
+    if (!orgId) return null;
+    const [rows] = await db.execute(queries.GET_END_DATE, [orgId]);
+    return rows && rows.length ? rows[0] : null;
+  }
+
   static async fetchAdminDashboard(employee_id) {
     const [adminDetails] = await db.execute(queries.GET_ADMIN_DETAILS, [
       employee_id,

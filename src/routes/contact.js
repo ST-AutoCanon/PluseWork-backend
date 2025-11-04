@@ -3,7 +3,6 @@ const {
   contactRequestHandler,
   getContactRequestsHandler,
 } = require("../handlers/contact");
-console.log("routes line 6");
 const router = express.Router();
 
 router.post("/contact", contactRequestHandler);

@@ -92,8 +92,6 @@ const insertOldEmployeeDetails = async (data, orgId) => {
     Number(year) || null,
   ];
 
-  console.log("Insert Values:", values); // Debug log
-
   try {
     const [result] = await pool.execute(
       queries.INSERT_OLD_EMPLOYEE_DETAILS,
@@ -209,8 +207,6 @@ const updateOldEmployeeDetails = async (data, orgId) => {
     employee_id,
     orgId,
   ];
-
-  console.log("Update Values:", values);
 
   try {
     const [result] = await pool.execute(

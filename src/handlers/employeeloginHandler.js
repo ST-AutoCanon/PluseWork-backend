@@ -1,19 +1,16 @@
-
-
-const attendanceService = require('../services/employeeloginService');
-
-// Debug log to verify import
-console.log('Imported attendanceService:', attendanceService);
+const attendanceService = require("../services/employeeloginService");
 
 const getTodayAndYesterdayPunchData = async (req, res) => {
   try {
     const { org_id } = req.query; // Extract org_id from query parameters
     if (!org_id) {
-      return res.status(400).json({ success: false, message: 'org_id is required' });
+      return res
+        .status(400)
+        .json({ success: false, message: "org_id is required" });
     }
-    console.log('[TODAY_YESTERDAY_PUNCHES] Fetching records for org_id:', org_id);
-    const punchData = await attendanceService.fetchTodayAndYesterdayData(org_id);
-    console.log('[TODAY_YESTERDAY_PUNCHES] Response data:', punchData);
+    const punchData = await attendanceService.fetchTodayAndYesterdayData(
+      org_id
+    );
     res.status(200).json({ success: true, data: punchData });
   } catch (error) {
     console.error("[TODAY_YESTERDAY_PUNCHES] Error:", error.message);
@@ -22,5 +19,5 @@ const getTodayAndYesterdayPunchData = async (req, res) => {
 };
 
 module.exports = {
-  getTodayAndYesterdayPunchData
+  getTodayAndYesterdayPunchData,
 };

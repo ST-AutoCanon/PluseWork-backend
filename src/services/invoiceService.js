@@ -214,13 +214,11 @@ const createInvoice = async (invoiceData, orgId) => {
   const connection = await db.getConnection();
 
   try {
-    console.log("Generating Invoice Number...");
     const invoiceNo = await generateInvoiceNo(
       invoiceData.invoiceDate,
       invoiceData.invoiceType,
       orgId
     );
-    console.log("Generated Invoice No:", invoiceNo);
 
     const [results] = await connection.execute(invoiceQueries.INSERT_INVOICE, [
       invoiceData.projectId,
@@ -286,7 +284,6 @@ const updateInvoice = async (id, invoiceData) => {
     invoiceQueries.UPDATE_INVOICE_BASIC,
     basicValues
   );
-  console.log("Basic invoice update executed. Results:", basicResults);
 
   return await getInvoiceById(id);
 };
@@ -360,17 +357,11 @@ const updateInvoiceExtra = async (id, invoiceData) => {
 const updateSequence = async (invoiceType, orgId) => {
   const connection = await db.getConnection();
   try {
-    console.log(
-      "[updateSequence] Starting updateSequence for invoiceType:",
-      invoiceType
-    );
-
     const today = new Date();
     const financialYear = getFinancialYear(today);
     const cleanedFinancialYear = financialYear.trim();
     const cleanInvoiceType = invoiceType.toString().trim().toLowerCase();
 
-    console.log("[updateSequence] Fetching next available sequence...");
     const [rows] = await connection.execute(invoiceQueries.GET_NEXT_SEQUENCE, [
       cleanInvoiceType,
       cleanedFinancialYear,
@@ -378,27 +369,19 @@ const updateSequence = async (invoiceType, orgId) => {
     ]);
 
     const nextSequence = rows && rows.length > 0 ? Number(rows[0].sequence) : 1;
-    console.log("[updateSequence] Next Sequence: ", nextSequence);
 
-    console.log("[updateSequence] Updating sequence in the database...");
     const [updateResult] = await connection.execute(
       invoiceQueries.UPDATE_SEQUENCE,
       [nextSequence, cleanInvoiceType, cleanedFinancialYear, orgId]
     );
 
-    console.log("[updateSequence] Sequence update result:", updateResult);
-
     if (updateResult.affectedRows === 0) {
-      console.log(
-        "[updateSequence] No row updated, inserting initial sequence..."
-      );
       await connection.execute(invoiceQueries.INSERT_INITIAL_SEQUENCE, [
         cleanInvoiceType,
         cleanedFinancialYear,
         orgId,
         nextSequence,
       ]);
-      console.log("[updateSequence] Inserted initial sequence.");
     }
 
     return { updatedSequence: nextSequence };
@@ -443,8 +426,6 @@ async function recordDownloadDetails(
     totalIncludingTax,
     terms,
   } = details;
-
-  console.log("details", details);
 
   const params = [
     orgId,

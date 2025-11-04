@@ -108,7 +108,6 @@ const updateMilestone = async (id, milestoneData) => {
 };
 
 const updateFinancialDetails = async (params) => {
-  console.log("⏩ updateFinancialDetails params:", params);
   await db.execute(queries.UPDATE_FINANCIAL_DETAILS, params);
 };
 
@@ -186,7 +185,6 @@ const updateFinancialDetailsForInvoice = async (data) => {
       queries.UPDATE_FINANCIAL_DETAILS_FOR_INVOICE,
       cleanParams
     );
-    console.log("Update result:", result);
   } catch (err) {
     console.error("Error updating financial details:", err);
     throw err;

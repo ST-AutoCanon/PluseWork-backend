@@ -8,7 +8,6 @@ const saveOldEmployeeDetails = async (req, res) => {
       req.headers["x-organization-id"] ||
       (req.body && req.body.orgId) ||
       null;
-    console.log("Received req.body in handler:", req.body);
 
     const result = await service.insertOldEmployeeDetails(req.body, orgId);
     res.status(201).json({

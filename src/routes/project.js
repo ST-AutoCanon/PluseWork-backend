@@ -11,7 +11,6 @@ const projectsFolder = path.join(__dirname, "../../../projects");
 
 if (!fs.existsSync(projectsFolder)) {
   fs.mkdirSync(projectsFolder, { recursive: true });
-  console.log(`Created folder: ${projectsFolder}`);
 }
 
 function sanitizeName(name = "") {

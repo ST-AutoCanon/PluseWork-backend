@@ -70,7 +70,6 @@ async function handleVoiceDialog(req, res) {
  * POST /api/meetings/voice-final
  */
 async function handleVoiceFinal(req, res) {
-  console.log("[handleVoiceFinal] Received request body:", req.body);
   try {
     const {
       client_company,
@@ -109,10 +108,8 @@ async function handleVoiceFinal(req, res) {
       }
       jsDate = chronoDate;
     }
-    console.log("[handleVoiceFinal] Local JS date:", jsDate);
 
     const mysqlDateTime = toMySQLDateTime(jsDate);
-    console.log("[handleVoiceFinal] Formatted MySQL DATETIME:", mysqlDateTime);
 
     // Resolve spoken assignee
     const matches = await employeeService.searchEmployees(spokenAssignee);
@@ -139,13 +136,10 @@ async function handleVoiceFinal(req, res) {
     // Insert into DB
     let record;
     try {
-      console.log("[handleVoiceFinal] Calling meetingService.createMeeting");
       record = await meetingService.createMeeting({
         ...meetingData,
         created_by,
       });
-
-      console.log("[handleVoiceFinal] createMeeting returned:", record);
     } catch (dbErr) {
       console.error("[handleVoiceFinal] DB error:", dbErr);
       return res
@@ -205,9 +199,7 @@ async function handleGetMeetingsByCreator(req, res) {
 async function handleScanFinal(req, res) {
   try {
     const { ocr_text } = req.body;
-    console.log("req.body", req.body);
     const created_by = (req.headers["x-employee-id"] || "").trim();
-    console.log("x-employee-id", created_by);
     if (!created_by || !ocr_text) {
       return res
         .status(400)

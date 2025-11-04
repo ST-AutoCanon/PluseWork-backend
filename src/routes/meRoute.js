@@ -3,8 +3,6 @@ const router = express.Router();
 
 // GET /me
 router.get("/me", (req, res) => {
-  console.log("/me: cookies:", req.headers.cookie);
-  console.log("/me: session:", req.session);
   try {
     // if there's no session user, return 401
     if (!req.session || !req.session.user) {

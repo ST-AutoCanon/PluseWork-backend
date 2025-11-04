@@ -17,8 +17,8 @@ SELECT
   ep.pan_number,
   o.contact_email_id,
   o.contact_phone_no,
-  o.start_date,
-  o.end_date,
+  DATE_FORMAT(o.start_date, '%Y-%m-%d') AS start_date,
+  DATE_FORMAT(o.end_date, '%Y-%m-%d') AS end_date,
   o.employee_prefix,
   o.employee_counter
 FROM Organizations o
@@ -75,6 +75,10 @@ const GET_SIDEBAR_ACCESS_BY_ORG = `
   WHERE a.org_id = ?
 `;
 
+const DELETE_ALL_EMPLOYEES = `
+DELETE FROM employees WHERE Org_id = ?
+`;
+
 const DELETE_SIDEBAR_ACCESS_BY_ORG = `
   DELETE FROM sidebar_menu_access WHERE org_id = ?
 `;
@@ -86,6 +90,21 @@ const INSERT_SIDEBAR_ACCESS = `
 const GET_SIDEBAR_MENU = `
   SELECT id, label, path, icon
   FROM sidebar_menu
+`;
+
+const GET_ORGS_ENDING_IN_DAYS = `
+  SELECT id, Name, admin_email, end_date
+  FROM Organizations
+  WHERE end_date = DATE_ADD(CURDATE(), INTERVAL ? DAY)
+`;
+
+const SELECT_EMPLOYEE_ID_BY_EMAIL = `
+  SELECT employee_id
+  FROM employees
+  WHERE email = ?
+    AND Org_id = ?
+    AND status = 'Active'
+  LIMIT 1
 `;
 
 module.exports = {
@@ -100,4 +119,7 @@ module.exports = {
   DELETE_SIDEBAR_ACCESS_BY_ORG,
   INSERT_SIDEBAR_ACCESS,
   GET_SIDEBAR_MENU,
+  DELETE_ALL_EMPLOYEES,
+  GET_ORGS_ENDING_IN_DAYS,
+  SELECT_EMPLOYEE_ID_BY_EMAIL,
 };

@@ -8,6 +8,7 @@ const {
   SELECT_ORG_BY_ID,
   DELETE_ORGANIZATION,
   GET_SIDEBAR_ACCESS_BY_ORG,
+  DELETE_ALL_EMPLOYEES,
   GET_SIDEBAR_MENU,
   DELETE_SIDEBAR_ACCESS_BY_ORG,
   INSERT_SIDEBAR_ACCESS,
@@ -275,6 +276,8 @@ const deleteOrganization = async (id) => {
     await conn.beginTransaction();
 
     await conn.execute(DELETE_SIDEBAR_ACCESS_BY_ORG, [id]);
+
+    await conn.execute(DELETE_ALL_EMPLOYEES, [id]);
 
     const [result] = await conn.execute(DELETE_ORGANIZATION, [id]);
 

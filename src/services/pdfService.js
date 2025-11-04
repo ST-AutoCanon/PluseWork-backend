@@ -64,7 +64,6 @@ async function mergeAttachments(pdfPath, attachments) {
           ...Array(total).keys(),
         ]);
         pages.forEach((page) => pdfDoc.addPage(page));
-        console.log(`Imported ${total} pages from PDF: ${att.file_path}`);
       } catch (err) {
         console.error("Failed to import PDF pages:", att.file_path, err);
       }
@@ -86,7 +85,6 @@ async function mergeAttachments(pdfPath, attachments) {
       }
       const page = pdfDoc.addPage([595, 842]);
       page.drawImage(embedded, { x: 50, y: 50, width: 500, height: 700 });
-      console.log(`Embedded image: ${att.file_path}`);
     } else {
       console.warn("Unsupported attachment type, skipping:", att.file_path);
     }
@@ -95,14 +93,11 @@ async function mergeAttachments(pdfPath, attachments) {
   // Save out the merged PDF
   const finalPdfPath = pdfPath.replace(".pdf", "_final.pdf");
   fs.writeFileSync(finalPdfPath, await pdfDoc.save());
-  console.log("Final PDF with attachments saved:", finalPdfPath);
   return finalPdfPath;
 }
 
 // ── Main export: convert DOCX → PDF and merge attachments ────────────────────
 exports.convertDocxToPdf = async (docxPath, claim, attachments = []) => {
-  console.log("Converting DOCX to PDF:", docxPath);
-
   // 1) DOCX → PDF
   const pdfPath = docxPath.replace(".docx", ".pdf");
   try {
@@ -114,7 +109,6 @@ exports.convertDocxToPdf = async (docxPath, claim, attachments = []) => {
       });
     });
     fs.writeFileSync(pdfPath, pdfBuffer);
-    console.log("PDF conversion successful:", pdfPath);
   } catch (error) {
     console.error("Error during DOCX to PDF conversion:", error);
     throw error;

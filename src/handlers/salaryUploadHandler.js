@@ -21,7 +21,6 @@ const createTableIfNotExists = async (tableName, columns) => {
   const query = createTableQuery(tableName, columns);
   try {
     await pool.query(query);
-    console.log(`Table ${tableName} is ready.`);
   } catch (error) {
     console.error("Error creating table:", error);
     throw new Error("Failed to create table.");
@@ -125,10 +124,8 @@ const uploadSalaryData = async (req, res) => {
     }
 
     const rawColumns = Object.keys(jsonData[0]);
-    console.log("📌 Extracted Columns:", rawColumns);
 
     const formattedColumns = rawColumns.map(formatColumnName);
-    console.log("✅ Formatted Columns:", formattedColumns);
 
     const processedData = jsonData.map((row) => {
       let newRow = {};
@@ -161,18 +158,14 @@ const uploadSalaryData = async (req, res) => {
       return newRow;
     });
 
-    console.log("🔄 Processed Data Example:", processedData[0]);
-
     if (!(await tableExists(tableName))) {
       await createTableIfNotExists(tableName, formattedColumns);
     }
 
     await pool.query(deleteExistingData(tableName));
-    console.log(`🗑️ Old data deleted from table: ${tableName}`);
 
     for (const row of processedData) {
       const { query, values } = insertSalaryData(tableName, row);
-      console.log("📝 Inserting Row:", values);
       await pool.query(query, values);
     }
 

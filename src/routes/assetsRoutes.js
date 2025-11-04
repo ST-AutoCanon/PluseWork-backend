@@ -67,12 +67,10 @@ router.get("/assets/download/:filename", (req, res) => {
 
   const filename = path.basename(req.params.filename || "");
   const filePath = path.join(uploadDir, orgId, filename);
-  console.log("Serving file:", filePath);
 
   if (fs.existsSync(filePath)) {
     res.sendFile(filePath);
   } else {
-    console.log("File not found:", filePath);
     res.status(404).json({ message: "File not found" });
   }
 });

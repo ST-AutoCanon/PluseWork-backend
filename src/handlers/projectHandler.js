@@ -5,10 +5,6 @@ exports.createProject = async (req, res) => {
     // derive org id from header (preferred) or body fallback
     const orgId = req.headers["x-org-id"] || req.body.org_id || null;
 
-    console.log("Request Body:", req.body);
-    console.log("Uploaded Files:", req.files);
-    console.log("Org ID:", orgId);
-
     const {
       country,
       state,
@@ -96,8 +92,6 @@ exports.createProject = async (req, res) => {
         milestoneIds.push({ id: milestoneId, details: milestone.details });
       }
     }
-
-    console.log("Stored Milestone IDs:", milestoneIds);
 
     let { financialDetails = [] } = req.body;
     const parsedFinancialDetails =
@@ -263,8 +257,6 @@ exports.searchEmployees = async (req, res) => {
 
 exports.getProjectById = async (req, res) => {
   try {
-    console.log("Session ID on GET:", req.sessionID);
-    console.log("Session data on GET:", req.session);
     const { id } = req.params;
     const project = await projectService.getProjectById(id);
 
@@ -273,7 +265,6 @@ exports.getProjectById = async (req, res) => {
     }
 
     const userRole = req.session.userRole;
-    console.log("User role from session:", userRole);
 
     if (userRole === "Employee" || userRole === "Team Lead") {
       delete project.project_amount;
@@ -318,9 +309,6 @@ exports.updateProject = async (req, res) => {
       milestones,
       financialDetails,
     } = req.body;
-
-    console.log("Request Body", req.body);
-    console.log("Uploaded Files:", req.files);
 
     const existingProject = await projectService.getProjectById(id);
     if (!existingProject) {

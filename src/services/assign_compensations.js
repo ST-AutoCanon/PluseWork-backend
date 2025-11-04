@@ -1,27 +1,30 @@
 const pool = require("../config");
 const queries = require("../constants/assign_compensation");
 
-
 async function checkEmployeeAssignment(employeeId) {
   const conn = await pool.getConnection();
   try {
-    const [result] = await conn.query(queries.CHECK_EMPLOYEE_ASSIGNMENT, [JSON.stringify(employeeId)]);
+    const [result] = await conn.query(queries.CHECK_EMPLOYEE_ASSIGNMENT, [
+      JSON.stringify(employeeId),
+    ]);
     if (result.length > 0) {
       // Assuming assigned_data contains compensation_plan_name
       const planName = result[0].compensation_plan_name || "Unknown Plan";
       return {
         hasAssignment: true,
-        assignmentIds: result.map(row => row.id),
-        compensation_plan_name: planName
+        assignmentIds: result.map((row) => row.id),
+        compensation_plan_name: planName,
       };
     }
     return {
       hasAssignment: false,
       assignmentIds: [],
-      compensation_plan_name: null
+      compensation_plan_name: null,
     };
   } catch (err) {
-    throw new Error(`Error checking assignment for employee ${employeeId}: ${err.message}`);
+    throw new Error(
+      `Error checking assignment for employee ${employeeId}: ${err.message}`
+    );
   } finally {
     conn.release();
   }
@@ -32,7 +35,7 @@ async function assignCompensation({
   departmentIds = [],
   compensationPlanName,
   assignedBy,
-  assignedDate
+  assignedDate,
 }) {
   const conn = await pool.getConnection();
   try {
@@ -67,21 +70,27 @@ async function assignCompensation({
     // Check for existing assignments
     const existingAssignments = [];
     for (const empId of allEmployeeIds) {
-      const [result] = await conn.query(queries.CHECK_EMPLOYEE_ASSIGNMENT, [JSON.stringify(empId)]);
+      const [result] = await conn.query(queries.CHECK_EMPLOYEE_ASSIGNMENT, [
+        JSON.stringify(empId),
+      ]);
       if (result.length > 0) {
         existingAssignments.push(empId);
       }
     }
 
     if (existingAssignments.length > 0) {
-      throw new Error(`Employees with IDs ${existingAssignments.join(', ')} already have assignments`);
+      throw new Error(
+        `Employees with IDs ${existingAssignments.join(
+          ", "
+        )} already have assignments`
+      );
     }
 
     // Fetch employee names
     const [rows] = await conn.query(
       `SELECT employee_id, CONCAT(first_name, ' ', last_name) AS employee_name
        FROM employees
-       WHERE employee_id IN (${allEmployeeIds.map(() => '?').join(',')})`,
+       WHERE employee_id IN (${allEmployeeIds.map(() => "?").join(",")})`,
       allEmployeeIds
     );
 
@@ -95,7 +104,7 @@ async function assignCompensation({
       assignedData.push({
         type: directEmployeeSet.has(empId) ? "individual" : "department",
         employee_id: empId,
-        employee_name: nameMap[empId] || null
+        employee_name: nameMap[empId] || null,
       });
     }
 
@@ -104,7 +113,7 @@ async function assignCompensation({
       compensationPlanName,
       JSON.stringify(assignedData),
       assignedBy,
-      assignedDate || new Date()
+      assignedDate || new Date(),
     ]);
 
     await conn.commit();
@@ -120,9 +129,9 @@ async function getCompensationPlans() {
   const conn = await pool.getConnection();
   try {
     const [result] = await conn.query(queries.GET_COMPENSATION_PLANS);
-    return result.map(row => ({
+    return result.map((row) => ({
       id: row.id,
-      compensation_plan_name: row.compensation_plan_name
+      compensation_plan_name: row.compensation_plan_name,
     }));
   } catch (err) {
     throw new Error(`Error fetching compensation plans: ${err.message}`);
@@ -134,7 +143,9 @@ async function getCompensationPlans() {
 async function getAssignedCompensationDetails() {
   const conn = await pool.getConnection();
   try {
-    const [result] = await conn.query(queries.GET_ASSIGNED_COMPENSATION_DETAILS);
+    const [result] = await conn.query(
+      queries.GET_ASSIGNED_COMPENSATION_DETAILS
+    );
     return result;
   } catch (err) {
     throw err;
@@ -143,7 +154,12 @@ async function getAssignedCompensationDetails() {
   }
 }
 
-async function addEmployeeBonus({ percentageCtc, percentageMonthlySalary, fixedAmount, applicableMonth }) {
+async function addEmployeeBonus({
+  percentageCtc,
+  percentageMonthlySalary,
+  fixedAmount,
+  applicableMonth,
+}) {
   const [result] = await pool.query(queries.ADD_EMPLOYEE_BONUS, [
     percentageCtc,
     percentageMonthlySalary,
@@ -153,7 +169,12 @@ async function addEmployeeBonus({ percentageCtc, percentageMonthlySalary, fixedA
   return result;
 }
 
-async function addEmployeeBonusBulk({ percentageCtc, percentageMonthlySalary, fixedAmount, applicableMonth }) {
+async function addEmployeeBonusBulk({
+  percentageCtc,
+  percentageMonthlySalary,
+  fixedAmount,
+  applicableMonth,
+}) {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
@@ -166,7 +187,7 @@ JOIN employee_professional ep ON e.employee_id = ep.employee_id
 WHERE e.status = 'Active' AND (ep.salary IS NULL OR ep.salary <= 0)
 `
     );
-    const skippedEmployees = skipped.map(row => row.full_name);
+    const skippedEmployees = skipped.map((row) => row.full_name);
 
     // Insert bonuses for all active employees with valid CTC
     const [result] = await conn.query(queries.ADD_EMPLOYEE_BONUS_BULK, [
@@ -177,7 +198,11 @@ WHERE e.status = 'Active' AND (ep.salary IS NULL OR ep.salary <= 0)
     ]);
 
     await conn.commit();
-    return { success: true, affectedRows: result.affectedRows, skippedEmployees };
+    return {
+      success: true,
+      affectedRows: result.affectedRows,
+      skippedEmployees,
+    };
   } catch (err) {
     await conn.rollback();
     throw err;
@@ -186,20 +211,22 @@ WHERE e.status = 'Active' AND (ep.salary IS NULL OR ep.salary <= 0)
   }
 }
 
-
 async function getEmployeeBonusDetails() {
-  console.log('Executing GET_EMPLOYEE_BONUS_DETAILS query');
   try {
     const [rows] = await pool.query(queries.GET_EMPLOYEE_BONUS_DETAILS);
-    console.log('Query successful, rows:', rows.length);
     return rows;
   } catch (error) {
-    console.error('Query failed:', error);
+    console.error("Query failed:", error);
     throw error;
   }
 }
 
-async function addEmployeeAdvance({ employeeId, advanceAmount, recoveryMonths, applicableMonths }) {
+async function addEmployeeAdvance({
+  employeeId,
+  advanceAmount,
+  recoveryMonths,
+  applicableMonths,
+}) {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
@@ -238,7 +265,10 @@ async function getEmployeeAdvanceDetails() {
 }
 
 const getEmployeeExtraHoursService = async (startDate, endDate) => {
-  const [rows] = await pool.query(queries.GET_EMPLOYEE_EXTRA_HOURS, [startDate, endDate]);
+  const [rows] = await pool.query(queries.GET_EMPLOYEE_EXTRA_HOURS, [
+    startDate,
+    endDate,
+  ]);
   return rows;
 };
 
@@ -247,7 +277,7 @@ async function addOvertimeDetailsBulk(dataArray) {
   try {
     await conn.beginTransaction();
 
-    const values = dataArray.map(row => [
+    const values = dataArray.map((row) => [
       row.punch_id,
       row.work_date,
       row.employee_id,
@@ -258,10 +288,12 @@ async function addOvertimeDetailsBulk(dataArray) {
       row.comments,
       row.status,
       new Date(),
-      new Date()
+      new Date(),
     ]);
 
-    const [result] = await conn.query(queries.ADD_OVERTIME_DETAILS_BULK, [values]);
+    const [result] = await conn.query(queries.ADD_OVERTIME_DETAILS_BULK, [
+      values,
+    ]);
     await conn.commit();
     return { success: true, affectedRows: result.affectedRows };
   } catch (err) {
@@ -281,7 +313,7 @@ async function approveOvertimeRow(row) {
     row.rate,
     row.project,
     row.supervisor,
-    row.comments
+    row.comments,
   ]);
   return { success: true, insertId: result.insertId };
 }
@@ -295,7 +327,7 @@ async function rejectOvertimeRow(row) {
     row.rate,
     row.project,
     row.supervisor,
-    row.comments
+    row.comments,
   ]);
   return { success: true, insertId: result.insertId };
 }
@@ -307,7 +339,9 @@ async function getAllOvertimeDetails() {
 
 async function getEmployeeLopDetailsForCurrentPeriod() {
   try {
-    const [rows] = await pool.query(queries.GET_EMPLOYEE_LOP_DAYS_FOR_CURRENT_PERIOD);
+    const [rows] = await pool.query(
+      queries.GET_EMPLOYEE_LOP_DAYS_FOR_CURRENT_PERIOD
+    );
     return rows;
   } catch (err) {
     console.error("Error fetching LOP details:", err);
@@ -318,7 +352,7 @@ async function getEmployeeLopDetailsForCurrentPeriod() {
 module.exports = {
   checkEmployeeAssignment,
   assignCompensation,
-  
+
   getAssignedCompensationDetails,
   addEmployeeBonus,
   addEmployeeBonusBulk,

@@ -30,9 +30,7 @@ const storage = multer.diskStorage({
       req.body?.orgId ||
       req.user?.orgId ||
       null;
-    console.log("orgIdRaw", orgIdRaw);
     const orgIdSeg = orgIdRaw ? String(orgIdRaw) : "unknown_org";
-    console.log("orgIdSeg", orgIdSeg);
     const employeeId =
       req.user?.employeeId || req.body?.employeeId || "unknown_user";
 
@@ -48,12 +46,6 @@ const storage = multer.diskStorage({
       employeeId
     );
 
-    console.log("[MULTER] Upload date:", isoDate);
-    console.log("[MULTER] Year/month:", year, month);
-    console.log("[MULTER] Employee ID:", employeeId);
-    console.log("[MULTER] OrgId:", orgIdSeg);
-    console.log("[MULTER] Destination folder:", dest);
-
     fs.mkdirSync(dest, { recursive: true });
     cb(null, dest);
   },
@@ -61,9 +53,6 @@ const storage = multer.diskStorage({
   filename: (req, file, cb) => {
     const datePrefix = new Date().toISOString().slice(0, 10);
     const filename = `${datePrefix}-${Date.now()}-${file.originalname}`;
-
-    console.log("[MULTER] Original filename:", file.originalname);
-    console.log("[MULTER] Generated filename:", filename);
 
     cb(null, filename);
   },
@@ -109,13 +98,6 @@ exports.generateReimbursementPDF = async (req, res) => {
       req.body?.orgId ||
       (req.user && req.user.orgId) ||
       null;
-
-    console.log(
-      "Fetching claim details for Claim ID:",
-      claimId,
-      "orgId:",
-      orgId
-    );
 
     // GET_CLAIM_DETAILS query updated to accept org filter (see queries below)
     const claimResult = await db.query(queries.GET_CLAIM_DETAILS, [
@@ -164,11 +146,6 @@ exports.generateReimbursementPDF = async (req, res) => {
     });
 
     const docxPath = await generateDocx(claim, employee, attachmentsWithFiles);
-
-    console.log("Attachments about to be merged:");
-    attachmentsWithFiles.forEach((att, idx) =>
-      console.log(`  [${idx}] ${att.file_path}`)
-    );
 
     const pdfPath = await convertDocxToPdf(
       docxPath,
@@ -334,9 +311,6 @@ exports.exportReimbursements = async (req, res) => {
 
 exports.createReimbursement = async (req, res) => {
   try {
-    console.log("Request Body:", req.body);
-    console.log("Uploaded Files:", req.files);
-
     const orgId =
       req.headers["x-org-id"] ||
       req.query?.orgId ||
@@ -418,9 +392,6 @@ exports.createReimbursement = async (req, res) => {
 
 exports.updateReimbursement = async (req, res) => {
   try {
-    console.log("Update Body:", req.body);
-    console.log("Uploaded Files:", req.files);
-
     const orgId =
       req.headers["x-org-id"] ||
       req.query?.orgId ||

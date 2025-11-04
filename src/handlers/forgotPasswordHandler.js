@@ -8,7 +8,6 @@ const { sendResetEmail } = require("../utils/brevoMailer");
 exports.forgotPassword = async (req, res) => {
   try {
     const { email } = req.body;
-    console.log("Forgot password requested for:", email);
 
     const employee = await getEmployeeByEmail(email);
     if (!employee) {
@@ -27,11 +26,6 @@ exports.forgotPassword = async (req, res) => {
     let sendResult;
     try {
       sendResult = await sendResetEmail(email, userName);
-      console.log("Brevo send result:", {
-        email,
-        resetToken: sendResult.resetToken ? "[REDACTED]" : undefined,
-        tokenExpiry: sendResult.tokenExpiry,
-      });
     } catch (mailErr) {
       console.error("Failed to send reset email via Brevo:", mailErr);
       const mailErrorResponse = ErrorHandler.generateErrorResponse(
@@ -47,7 +41,6 @@ exports.forgotPassword = async (req, res) => {
         sendResult.resetToken,
         sendResult.tokenExpiry
       );
-      console.log("Reset token saved for:", email);
     } catch (saveErr) {
       console.error("Failed to save reset token after sending email:", saveErr);
       const serverError = ErrorHandler.generateErrorResponse(

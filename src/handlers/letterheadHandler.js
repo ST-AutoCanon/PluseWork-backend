@@ -1,6 +1,6 @@
-const letterheadService = require('../services/letterheadService');
-const path = require('path');
-const fs = require('fs');
+const letterheadService = require("../services/letterheadService");
+const path = require("path");
+const fs = require("fs");
 
 const addLetterheadHandler = async (req, res) => {
   try {
@@ -26,14 +26,15 @@ const addLetterheadHandler = async (req, res) => {
 
     // Validate required fields
     if (!letter_type || !body) {
-      return res.status(400).json({ error: 'Required fields (letter_type, body) are missing' });
+      return res
+        .status(400)
+        .json({ error: "Required fields (letter_type, body) are missing" });
     }
 
     const files = req.files || {};
     let attachment = null;
     if (files.letterhead_file) {
       attachment = files.letterhead_file[0].filename; // Use filename from multer
-      console.log('New attachment filename:', attachment);
     }
 
     const letterheadData = {
@@ -58,10 +59,14 @@ const addLetterheadHandler = async (req, res) => {
     };
 
     const result = await letterheadService.insertLetterhead(letterheadData);
-    res.status(201).json({ message: 'Letterhead added successfully', id: result.insertId });
+    res
+      .status(201)
+      .json({ message: "Letterhead added successfully", id: result.insertId });
   } catch (error) {
-    console.error('Error in addLetterheadHandler:', error);
-    res.status(500).json({ error: 'Failed to add letterhead', details: error.message });
+    console.error("Error in addLetterheadHandler:", error);
+    res
+      .status(500)
+      .json({ error: "Failed to add letterhead", details: error.message });
   }
 };
 
@@ -70,8 +75,10 @@ const getAllLetterheadsHandler = async (req, res) => {
     const letterheads = await letterheadService.getAllLetterheads();
     res.status(200).json({ success: true, data: letterheads });
   } catch (error) {
-    console.error('Error in getAllLetterheadsHandler:', error);
-    res.status(500).json({ error: 'Failed to fetch letterheads', details: error.message });
+    console.error("Error in getAllLetterheadsHandler:", error);
+    res
+      .status(500)
+      .json({ error: "Failed to fetch letterheads", details: error.message });
   }
 };
 
@@ -101,7 +108,9 @@ const updateLetterheadHandler = async (req, res) => {
 
     // Validate required fields
     if (!letter_type || !body) {
-      return res.status(400).json({ error: 'Required fields (letter_type, body) are missing' });
+      return res
+        .status(400)
+        .json({ error: "Required fields (letter_type, body) are missing" });
     }
 
     const files = req.files || {};
@@ -110,18 +119,22 @@ const updateLetterheadHandler = async (req, res) => {
     // Get existing letterhead to check for old attachment
     const existingLetterhead = await letterheadService.getLetterheadById(id);
     if (!existingLetterhead) {
-      return res.status(404).json({ error: 'Letterhead not found' });
+      return res.status(404).json({ error: "Letterhead not found" });
     }
 
     if (files.letterhead_file) {
       attachment = files.letterhead_file[0].filename; // Use filename from multer
-      console.log('Updated attachment filename:', attachment);
       // Delete old file if it exists
       if (existingLetterhead.attachment) {
-        const oldFilePath = path.join(__dirname, '..', '..', 'letterheadfiles', existingLetterhead.attachment);
+        const oldFilePath = path.join(
+          __dirname,
+          "..",
+          "..",
+          "letterheadfiles",
+          existingLetterhead.attachment
+        );
         if (fs.existsSync(oldFilePath)) {
           fs.unlinkSync(oldFilePath);
-          console.log('Deleted old file:', oldFilePath);
         }
       }
     } else {
@@ -150,11 +163,18 @@ const updateLetterheadHandler = async (req, res) => {
       place,
     };
 
-    const result = await letterheadService.updateLetterheadById(letterheadData, id);
-    res.status(200).json({ message: 'Letterhead updated successfully', result });
+    const result = await letterheadService.updateLetterheadById(
+      letterheadData,
+      id
+    );
+    res
+      .status(200)
+      .json({ message: "Letterhead updated successfully", result });
   } catch (error) {
-    console.error('Error in updateLetterheadHandler:', error);
-    res.status(500).json({ error: 'Failed to update letterhead', details: error.message });
+    console.error("Error in updateLetterheadHandler:", error);
+    res
+      .status(500)
+      .json({ error: "Failed to update letterhead", details: error.message });
   }
 };
 
@@ -163,12 +183,14 @@ const getLetterheadByIdHandler = async (req, res) => {
     const id = req.params.id;
     const letterhead = await letterheadService.getLetterheadById(id);
     if (!letterhead) {
-      return res.status(404).json({ error: 'Letterhead not found' });
+      return res.status(404).json({ error: "Letterhead not found" });
     }
     res.status(200).json({ success: true, data: letterhead });
   } catch (error) {
-    console.error('Error in getLetterheadByIdHandler:', error);
-    res.status(500).json({ error: 'Failed to fetch letterhead', details: error.message });
+    console.error("Error in getLetterheadByIdHandler:", error);
+    res
+      .status(500)
+      .json({ error: "Failed to fetch letterhead", details: error.message });
   }
 };
 

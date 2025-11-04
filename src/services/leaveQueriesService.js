@@ -10,9 +10,6 @@ class LeaveQueriesService {
    */
   static async getLeaveQueriesForDashboard(employee_id) {
     try {
-      console.log("Executing query:", queries.GET_LEAVE_QUERIES_IN_DASHBOARD);
-      console.log("With parameter:", employee_id);
-
       const [rows] = await db.execute(queries.GET_LEAVE_QUERIES_IN_DASHBOARD, [
         employee_id,
       ]);

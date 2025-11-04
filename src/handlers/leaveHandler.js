@@ -95,15 +95,6 @@ class LeaveHandler {
         preserved_leave_days = null,
       } = req.body || {};
 
-      console.log("[LeaveHandler.updateLeaveRequest] ENTER handler");
-      console.log("[LeaveHandler.updateLeaveRequest] params.leaveId:", leaveId);
-      console.log("[LeaveHandler.updateLeaveRequest] raw body:", req.body);
-
-      // Basic validation for status
-      console.log(
-        "[LeaveHandler.updateLeaveRequest] validating status:",
-        status
-      );
       if (!["Approved", "Rejected"].includes(status)) {
         console.warn(
           "[LeaveHandler.updateLeaveRequest] VALIDATION FAILED - invalid status:",
@@ -118,12 +109,7 @@ class LeaveHandler {
             )
           );
       }
-      console.log("[LeaveHandler.updateLeaveRequest] status validation passed");
 
-      // Rejection requires comments
-      console.log(
-        "[LeaveHandler.updateLeaveRequest] validating rejection comments (if rejected)"
-      );
       if (status === "Rejected" && !comments) {
         console.warn(
           "[LeaveHandler.updateLeaveRequest] VALIDATION FAILED - rejection without comments"
@@ -138,10 +124,6 @@ class LeaveHandler {
           );
       }
       if (status === "Rejected") {
-        console.log(
-          "[LeaveHandler.updateLeaveRequest] rejection reason provided:",
-          comments
-        );
       }
 
       // actor/admin id for audit
@@ -155,11 +137,6 @@ class LeaveHandler {
         (req.headers["x-employee-id"] || req.headers["x-actor-id"]);
       const actorId =
         actorIdFromBody || actorIdFromUser || actorIdFromHeader || null;
-
-      console.log(
-        "[LeaveHandler.updateLeaveRequest] actorId resolved from request/auth/header:",
-        actorId
-      );
 
       // parse is_defaulted from body or headers. Accept many forms:
       // - req.body.is_defaulted, req.body.isDefaulted, req.body.is_default, req.body.defaulted
@@ -176,13 +153,6 @@ class LeaveHandler {
 
       const is_defaulted = parseBoolFlexible(rawIsDefault);
 
-      console.log(
-        "[LeaveHandler.updateLeaveRequest] parsed is_defaulted:",
-        is_defaulted,
-        "raw:",
-        rawIsDefault
-      );
-
       // build payload to send to service
       const payload = {
         leaveId,
@@ -198,25 +168,11 @@ class LeaveHandler {
         is_defaulted,
       };
 
-      console.log(
-        "[LeaveHandler.updateLeaveRequest] calling LeaveService.updateLeaveRequest with payload:",
-        payload
-      );
-
       await LeaveService.updateLeaveRequest(payload);
-
-      console.log(
-        "[LeaveHandler.updateLeaveRequest] LeaveService.updateLeaveRequest resolved successfully for leaveId:",
-        leaveId
-      );
 
       const message = `Leave request ${String(
         status
       ).toLowerCase()} successfully.`;
-      console.log(
-        "[LeaveHandler.updateLeaveRequest] sending success response:",
-        message
-      );
 
       return res
         .status(200)
@@ -259,7 +215,6 @@ class LeaveHandler {
         null;
       const { employeeId, reason, leavetype, h_f_day, startDate, endDate } =
         req.body;
-      console.log("body", req.body);
 
       // Required Field Checks
       if (
@@ -431,11 +386,9 @@ class LeaveHandler {
   static async editLeaveRequestHandler(req, res) {
     try {
       const { leaveId } = req.params;
-      console.log("Received leaveId:", leaveId);
 
       const { employeeId, startDate, endDate, h_f_day, reason, leavetype } =
         req.body;
-      console.log("Request Body:", req.body);
 
       // Required Field Checks
       if (
@@ -591,7 +544,6 @@ class LeaveHandler {
   static async getLeaveRequestsForTeamLeadHandler(req, res) {
     try {
       const { teamLeadId } = req.params;
-      console.log("Team Lead ID:", teamLeadId);
       const filters = req.query;
 
       const leaveRequests = await LeaveService.getLeaveQueriesForTeamLead(
@@ -604,7 +556,6 @@ class LeaveHandler {
           ErrorHandler.generateSuccessResponse(200, { data: leaveRequests })
         );
     } catch (err) {
-      console.log("Error fetching leave requests for team lead:", err);
       console.error(
         "Error fetching leave requests for team lead:",
         err && err.message ? err.message : err

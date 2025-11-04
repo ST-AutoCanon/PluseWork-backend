@@ -13,7 +13,6 @@ const path = require("path");
 const numberToWords = require("number-to-words");
 
 exports.generateDocx = async (claim, employee) => {
-  console.log("Generating DOCX for Claim:", claim);
   if (!claim || !claim.id) {
     console.error("Invalid Claim ID:", claim);
     throw new Error("Claim ID is undefined, cannot generate document.");
@@ -276,8 +275,6 @@ exports.generateDocx = async (claim, employee) => {
   const formattedAmountWords =
     amountWords.charAt(0).toUpperCase() + amountWords.slice(1) + " only.";
 
-  console.log("Amount in Words:", formattedAmountWords);
-
   // ✅ Amount in Words in the Document
   const amountInWords = new Paragraph({
     children: [
@@ -376,11 +373,9 @@ exports.generateDocx = async (claim, employee) => {
     __dirname,
     `../temp/Reimbursement_${claim.id}.docx`
   );
-  console.log("Saving DOCX file to:", docxPath);
 
   const buffer = await Packer.toBuffer(doc);
   fs.writeFileSync(docxPath, buffer);
-  console.log("✅ DOCX file generated successfully!");
 
   return docxPath;
 };

@@ -11,18 +11,6 @@ const {
 
 const router = express.Router();
 
-// Debug logs: Remove once verified
-console.log("submitLeaveRequestHandler:", submitLeaveRequestHandler);
-console.log("getLeaveRequestsHandler:", getLeaveRequestsHandler);
-console.log("getLeaveQueries:", getLeaveQueries);
-console.log("updateLeaveRequest:", updateLeaveRequest);
-console.log("editLeaveRequestHandler:", editLeaveRequestHandler);
-console.log("cancelLeaveRequestHandler:", cancelLeaveRequestHandler);
-console.log(
-  "getLeaveRequestsForTeamLeadHandler:",
-  getLeaveRequestsForTeamLeadHandler
-);
-
 // Define routes using the destructured handlers
 router.post("/employee/leave", submitLeaveRequestHandler);
 router.get("/employee/leave/:employeeId", getLeaveRequestsHandler);

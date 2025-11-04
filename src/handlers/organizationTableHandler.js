@@ -75,13 +75,6 @@ const fetchSidebarMenu = async (req, res) => {
 
 const deleteOrganization = async (req, res) => {
   try {
-    console.log("DELETE request received:", {
-      url: req?.originalUrl,
-      params: req?.params,
-      method: req?.method,
-      headers: req?.headers,
-    });
-
     // Validate request and parameters
     if (!req || !req.params) {
       throw new Error("Invalid request: Missing request parameters");

@@ -1,4 +1,3 @@
-
 // const db = require('../config');
 
 // const fetchTodayAndYesterdayData = async () => {
@@ -16,7 +15,7 @@
 //            e.first_name,
 //            e.last_name,
 //            e.photo_url,
-//            CASE 
+//            CASE
 //              WHEN DATE(ea.punchin_time) = CURDATE() THEN 'Today'
 //              WHEN DATE(ea.punchin_time) = CURDATE() - INTERVAL 1 DAY THEN 'Yesterday'
 //            END AS record_day
@@ -26,9 +25,7 @@
 //   `;
 
 //   try {
-//     console.log('Executing query:', query);
 //     const [rows] = await db.query(query);
-//     console.log('Query returned rows:', rows);
 //     return rows;
 //   } catch (error) {
 //     console.error("Error fetching punch data:", error);
@@ -40,14 +37,14 @@
 //   fetchTodayAndYesterdayData
 // };
 
-const db = require('../config');
-const { getTodayAndYesterdayPunchDataQuery } = require('../constants/employeeloginQueries');
+const db = require("../config");
+const {
+  getTodayAndYesterdayPunchDataQuery,
+} = require("../constants/employeeloginQueries");
 
 const fetchTodayAndYesterdayData = async (org_id) => {
   try {
-    console.log('Executing query with org_id:', org_id);
     const [rows] = await db.query(getTodayAndYesterdayPunchDataQuery, [org_id]);
-    console.log('Query returned rows:', rows);
     return rows;
   } catch (error) {
     console.error("Error fetching punch data:", error);
@@ -56,5 +53,5 @@ const fetchTodayAndYesterdayData = async (org_id) => {
 };
 
 module.exports = {
-  fetchTodayAndYesterdayData
+  fetchTodayAndYesterdayData,
 };

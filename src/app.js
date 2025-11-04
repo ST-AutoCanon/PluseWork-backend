@@ -208,9 +208,6 @@ app.use((req, res, next) => {
         try {
           await policyNotificationService.sendPolicyEndNotifications(10);
           await policyNotificationService.sendPolicyEndNotifications(5);
-          console.log(
-            "[cron] policy end alerts executed at 17:30 Asia/Kolkata"
-          );
         } catch (err) {
           console.error("[cron] policy alert error:", err);
         }
@@ -224,9 +221,6 @@ app.use((req, res, next) => {
         try {
           await policyNotificationService.sendPolicyEndNotifications(10);
           await policyNotificationService.sendPolicyEndNotifications(5);
-          console.log(
-            "[cron] policy end alerts executed at 12:00 Asia/Kolkata"
-          );
         } catch (err) {
           console.error("[cron] policy alert error:", err);
         }
@@ -263,7 +257,6 @@ app.use((req, res, next) => {
           attempt++;
           await db.execute("SELECT 1");
           scheduleJob();
-          console.log("[startup] profileMissingNotifier scheduled (DB ready)");
           return;
         } catch (err) {
           console.warn(
@@ -277,9 +270,6 @@ app.use((req, res, next) => {
         "[startup] profileMissingNotifier: DB did not become ready — job not scheduled"
       );
     })();
-
-
-
 
     app.use("/", holidayRoutes);
     app.use("/", loginRoutes);
@@ -339,18 +329,18 @@ app.use((req, res, next) => {
     app.use("/api", employeeProjectsRoute);
     app.use("/api/lop", lossofPayCalculationRoutes);
     app.use("/api/leave-policies", leavePolicy);
-//  app.use("/api", configRoutes);
+    //  app.use("/api", configRoutes);
     /////////////
- app.use("/api/weekly_task_supervisor", weeklyTaskSupervisorRoutes);
-app.use("/api/week_tasks", weekTaskRoutes);
-app.use("/api/tasks", taskRoutes);
-app.use("/api/messages", taskMessagesRoutes);
-app.use("/api/supervisor", supervisorRoutes);
-// app.use("/api/plans", planRoutes);
-app.use("/api/supervisor", supervisorEmployeesRoutes);
-app.use("/api", configRoutes);
-app.use("/api/task-emp-emp", taskEmployeesRoutes);
-app.use("/api/employee-tasks", employeeTaskRoutes);
+    app.use("/api/weekly_task_supervisor", weeklyTaskSupervisorRoutes);
+    app.use("/api/week_tasks", weekTaskRoutes);
+    app.use("/api/tasks", taskRoutes);
+    app.use("/api/messages", taskMessagesRoutes);
+    app.use("/api/supervisor", supervisorRoutes);
+    // app.use("/api/plans", planRoutes);
+    app.use("/api/supervisor", supervisorEmployeesRoutes);
+    app.use("/api", configRoutes);
+    app.use("/api/task-emp-emp", taskEmployeesRoutes);
+    app.use("/api/employee-tasks", employeeTaskRoutes);
     app.get("/", (req, res) => res.send("Employee Face Recognition API"));
 
     const io = new Server(server, {
@@ -389,30 +379,16 @@ app.use("/api/employee-tasks", employeeTaskRoutes);
     });
 
     io.on("connection", (socket) => {
-      console.log(
-        `[socket] new connection ${socket.id} userId=${socket.userId}`,
-        {
-          query: socket.handshake.query,
-          auth: socket.handshake.auth,
-        }
-      );
-
       if (socket.userId) {
         chatService
           .getUserRooms(socket.userId)
           .then((rooms) => {
-            console.log(
-              `[socket:${socket.id}] joining ${rooms.length} rooms for user ${socket.userId}`
-            );
             rooms.forEach((r) => socket.join(String(r.id)));
           })
           .catch((err) => console.error("[socket] getUserRooms error:", err));
 
         EmployeeQueries.getThreadsByEmployee(socket.userId)
           .then((threads) => {
-            console.log(
-              `[socket:${socket.id}] joining ${threads.length} query threads for user ${socket.userId}`
-            );
             threads.forEach((t) => socket.join(`query_${String(t.id)}`));
           })
           .catch((err) =>
@@ -426,7 +402,6 @@ app.use("/api/employee-tasks", employeeTaskRoutes);
 
       socket.on("joinThread", (threadId) => {
         try {
-          console.log(`[socket:${socket.id}] joinThread ${threadId}`);
           socket.join(`query_${String(threadId)}`);
         } catch (e) {
           console.error(`[socket:${socket.id}] joinThread error`, e);
@@ -434,7 +409,6 @@ app.use("/api/employee-tasks", employeeTaskRoutes);
       });
 
       socket.on("sendQueryMessage", async (payload, callback) => {
-        console.log(`[socket:${socket.id}] sendQueryMessage payload:`, payload);
         try {
           if (!payload || !payload.thread_id) {
             const errMsg =
@@ -461,10 +435,6 @@ app.use("/api/employee-tasks", employeeTaskRoutes);
             payload.recipient_id,
             null,
             payload.attachmentBase64
-          );
-
-          console.log(
-            `[socket:${socket.id}] sendQueryMessage inserted id=${messageId}`
           );
 
           const newMsg = {
@@ -500,14 +470,6 @@ app.use("/api/employee-tasks", employeeTaskRoutes);
       });
 
       socket.on("send_message", async (payload = {}, ack) => {
-        console.log(
-          `[socket:${socket.id}] send_message payload:`,
-          payload && {
-            ...payload,
-            location: payload?.location ? "present" : null,
-          }
-        );
-
         try {
           const { roomId, content, type, fileUrl, location } = payload;
           const payloadSenderId = payload.senderId ?? payload.sender_id ?? null;
@@ -544,10 +506,6 @@ app.use("/api/employee-tasks", employeeTaskRoutes);
             lat,
             lng,
             address
-          );
-
-          console.log(
-            `[socket:${socket.id}] saved chat message id=${saved.id} room=${roomId} sender=${effectiveSenderId}`
           );
 
           const emitted = {
