@@ -9,6 +9,18 @@ const { Server } = require("socket.io");
 const webpush = require("web-push");
 const cron = require("node-cron");
 
+// const planRoutes = require("./routes/planRoute");
+
+const supervisorEmployeesRoutes = require("./routes/supervisorEmployeesRoutes");
+const supervisorRoutes = require("./routes/supervisorRoutes");
+const taskEmployeesRoutes = require("./routes/taskEmployeesRoutes");
+const taskRoutes = require("./routes/taskroutes");
+const taskMessagesRoutes = require("./routes/taskMessagesRoutes");
+const employeeTaskRoutes = require("./routes/employeeTaskUpdateRoutes");
+const weeklyTaskSupervisorRoutes = require("./routes/weekly_task_supervisor");
+const weekTaskRoutes = require("./routes/weekTaskRoutes");
+const configRoutes = require("./routes/configRoutes");
+
 const { createSessionStore, _initPromise } = require("./lib/sessionStore");
 const EmployeeQueries = require("./services/employeeQueries");
 const chatService = require("./services/chatService");
@@ -102,7 +114,7 @@ app.use((req, res, next) => {
   );
   res.setHeader(
     "Access-Control-Allow-Headers",
-    "Content-Type, Authorization, x-api-key, x-employee-id, x-org-id, X-Requested-With, Accept, Origin, Access-Control-Request-Method, Access-Control-Request-Headers"
+    "Content-Type, Authorization, x-api-key, x-employee-id, x-org-id, X-Requested-With,x-role, Accept, Origin, Access-Control-Request-Method, Access-Control-Request-Headers"
   );
   res.setHeader(
     "Access-Control-Expose-Headers",
@@ -266,6 +278,9 @@ app.use((req, res, next) => {
       );
     })();
 
+
+
+
     app.use("/", holidayRoutes);
     app.use("/", loginRoutes);
     app.use("/", meRoute);
@@ -324,6 +339,18 @@ app.use((req, res, next) => {
     app.use("/api", employeeProjectsRoute);
     app.use("/api/lop", lossofPayCalculationRoutes);
     app.use("/api/leave-policies", leavePolicy);
+//  app.use("/api", configRoutes);
+    /////////////
+ app.use("/api/weekly_task_supervisor", weeklyTaskSupervisorRoutes);
+app.use("/api/week_tasks", weekTaskRoutes);
+app.use("/api/tasks", taskRoutes);
+app.use("/api/messages", taskMessagesRoutes);
+app.use("/api/supervisor", supervisorRoutes);
+// app.use("/api/plans", planRoutes);
+app.use("/api/supervisor", supervisorEmployeesRoutes);
+app.use("/api", configRoutes);
+app.use("/api/task-emp-emp", taskEmployeesRoutes);
+app.use("/api/employee-tasks", employeeTaskRoutes);
     app.get("/", (req, res) => res.send("Employee Face Recognition API"));
 
     const io = new Server(server, {

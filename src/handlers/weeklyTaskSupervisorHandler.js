@@ -1,0 +1,153 @@
+
+
+const {
+  fetchEmployeesBySupervisor,
+  fetchAllEmployees,
+  fetchTasksBySupervisor,
+  fetchAllTasks,
+  updateTaskById,
+  insertNewTask,
+  fetchConfig,
+  updateConfig,
+  fetchHolidays,
+} = require("../services/weekly_task_supervisor_service");
+
+// ── Helper: get supervisorId from header (fallback to param) ──
+const getSupervisorId = (req) => {
+  return req.headers["x-employee-id"] || req.params.supervisorId;
+};
+
+// ── Employees ─────────────────────
+const getEmployees = async (req, res) => {
+  try {
+    const supervisorId = getSupervisorId(req);
+    if (!supervisorId) return res.status(400).json({ error: "Supervisor ID required" });
+
+    const employees = await fetchEmployeesBySupervisor(supervisorId);
+    res.json({ success: true, employees });
+  } catch (err) {
+    console.error("Error fetching employees:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+const getAllEmployees = async (req, res) => {
+  try {
+    const supervisorId = getSupervisorId(req);
+    if (!supervisorId) return res.status(400).json({ error: "Supervisor ID required" });
+
+    const employees = await fetchAllEmployees(supervisorId);
+    res.json({ success: true, employees });
+  } catch (err) {
+    console.error("Error fetching all employees:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// ── Tasks ─────────────────────────
+const getTasks = async (req, res) => {
+  try {
+    const supervisorId = req.params.supervisorId;
+    const tasks = await fetchTasksBySupervisor(supervisorId);
+    res.json({ success: true, data: tasks });
+  } catch (err) {
+    console.error("Error fetching tasks:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+const getAllTasks = async (req, res) => {
+  try {
+    const supervisorId = getSupervisorId(req);
+    if (!supervisorId) return res.status(400).json({ error: "Supervisor ID required" });
+
+    const tasks = await fetchAllTasks(supervisorId);
+    res.json({ success: true, data: tasks });
+  } catch (err) {
+    console.error("Error fetching all tasks:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// ── Task mutations ─────────────────
+const updateTask = async (req, res) => {
+  try {
+    const taskId = req.params.taskId;
+    const updateData = req.body;
+    const result = await updateTaskById(taskId, updateData);
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: "Task not found" });
+    }
+    res.json({ success: true, message: "Task updated successfully" });
+  } catch (err) {
+    console.error("Error updating task:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+const createTask = async (req, res) => {
+  try {
+    const taskData = req.body;
+    const newTask = await insertNewTask(taskData);
+    res.status(201).json({ success: true, message: "Task created successfully", newTask });
+  } catch (err) {
+    console.error("Error creating task:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// ── Config ────────────────────────
+const getConfig = async (req, res) => {
+  try {
+    const supervisorId = getSupervisorId(req);
+    const rows = await fetchConfig(supervisorId);
+
+    const configData = rows.reduce((acc, row) => {
+      acc[row.key] = row.value;
+      return acc;
+    }, {});
+
+    res.json({ success: true, config: configData, raw: rows });
+  } catch (err) {
+    console.error("Error fetching config:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+const updateConfigValue = async (req, res) => {
+  try {
+    const { key, value } = req.body;
+    const supervisorId = getSupervisorId(req);
+    await updateConfig(key, value, supervisorId);
+    res.json({ success: true, message: "Config updated successfully" });
+  } catch (err) {
+    console.error("Error updating config:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// ── Holidays ───────────────────────
+const getHolidays = async (req, res) => {
+  try {
+    const supervisorId = getSupervisorId(req);
+    if (!supervisorId) return res.status(400).json({ error: "Supervisor ID required" });
+
+    const holidays = await fetchHolidays(supervisorId);
+    res.json({ success: true, holidays });
+  } catch (err) {
+    console.error("Error fetching holidays:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+module.exports = {
+  getEmployees,
+  getAllEmployees,
+  getTasks,
+  getAllTasks,
+  updateTask,
+  createTask,
+  getConfig,
+  updateConfigValue,
+  getHolidays,
+};

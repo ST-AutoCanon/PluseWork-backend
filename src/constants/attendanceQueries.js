@@ -250,13 +250,14 @@ PreviousMonthDays AS (
     WHERE work_date < LAST_DAY(DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH))
 ),
 PreviousMonthData AS (
-    SELECT 
+    SELECT
         DATE(punchin_time) AS work_date,
         SUM(TIMESTAMPDIFF(SECOND, punchin_time, punchout_time) / 3600) AS total_hours
     FROM emp_attendence
     WHERE employee_id = ?
-        AND punch_status = 'Punch Out'
-        AND punchin_time >= DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH)
+        AND punchin_time BETWEEN
+            DATE_SUB(DATE_SUB(CURRENT_DATE(), INTERVAL DAY(CURRENT_DATE()) - 1 DAY), INTERVAL 1 MONTH)
+            AND LAST_DAY(DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH))
     GROUP BY work_date
 ),
 FinalMonthlyData AS (
