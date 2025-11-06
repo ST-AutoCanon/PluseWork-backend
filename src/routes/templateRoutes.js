@@ -21,6 +21,12 @@ router.post(
 );
 
 router.post(
+  "/:orgId/uploads",
+  upload.single("file"),
+  handler.uploadImageHandler
+);
+
+router.post(
   "/:orgId/templates",
   express.json({ limit: "50mb" }),
   handler.saveTemplateHandler

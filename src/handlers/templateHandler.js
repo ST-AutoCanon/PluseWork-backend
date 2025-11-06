@@ -2,35 +2,208 @@ const templateService = require("../services/templateService");
 const path = require("path");
 const fs = require("fs-extra");
 
+async function moveFileToUploads(tmpPath, originalName) {
+  if (!tmpPath) return null;
+  const publicUploads = path.join(
+    __dirname,
+    "..",
+    "..",
+    "..",
+    "public",
+    "uploads"
+  );
+  await fs.ensureDir(publicUploads);
+
+  const destName = `${Date.now()}_${path
+    .basename(originalName || tmpPath)
+    .replace(/\s/g, "_")}`;
+  const destPath = path.join(publicUploads, destName);
+
+  await fs.ensureDir(path.dirname(destPath));
+  await fs.move(tmpPath, destPath, { overwrite: true });
+
+  return destName; // store filename, front-end will build full URL when rendering
+}
+
+// Helper: build minimal grapes_json + html to show header and footer images
+function buildSimpleTemplateHtml(orgId, headerName, footerName) {
+  const headerUrl = headerName
+    ? `/api/orgs/${orgId}/uploads/${headerName}`
+    : null;
+  const footerUrl = footerName
+    ? `/api/orgs/${orgId}/uploads/${footerName}`
+    : null;
+
+  const grapesJson = {
+    id: `scan-${Date.now()}`,
+    components: [
+      {
+        tagName: "div",
+        attributes: { class: "template-page", "data-org-template": true },
+        style: { position: "relative", width: "100%", maxWidth: "100%" },
+        components: [
+          ...(headerUrl
+            ? [
+                {
+                  type: "image",
+                  attributes: {
+                    src: headerUrl,
+                    alt: "header",
+                    class: "template-header",
+                  },
+                  style: {
+                    width: "100%",
+                    display: "block",
+                    pointerEvents: "none",
+                  },
+                  selectable: false,
+                  draggable: false,
+                },
+              ]
+            : []),
+          // body placeholder
+          {
+            tagName: "div",
+            attributes: { class: "template-body" },
+            components: [],
+            style: { minHeight: "200px", padding: "12px" },
+          },
+          ...(footerUrl
+            ? [
+                {
+                  type: "image",
+                  attributes: {
+                    src: footerUrl,
+                    alt: "footer",
+                    class: "template-footer",
+                  },
+                  style: {
+                    width: "100%",
+                    display: "block",
+                    pointerEvents: "none",
+                  },
+                  selectable: false,
+                  draggable: false,
+                },
+              ]
+            : []),
+        ],
+      },
+    ],
+    styles: `
+      .template-header { display:block; }
+      .template-footer { display:block; }
+    `,
+  };
+
+  const htmlParts = [];
+  if (headerUrl)
+    htmlParts.push(
+      `<img src="${headerUrl}" class="template-header" alt="header" style="width:100%;display:block" />`
+    );
+  htmlParts.push(
+    `<div class="template-body" style="min-height:200px;padding:12px"></div>`
+  );
+  if (footerUrl)
+    htmlParts.push(
+      `<img src="${footerUrl}" class="template-footer" alt="footer" style="width:100%;display:block" />`
+    );
+
+  const html = `<div class="template-page">${htmlParts.join("\n")}</div>`;
+
+  return { grapesJson, html, thumbnailName: headerName || footerName || null };
+}
+
 async function uploadScanHandler(req, res) {
   const orgId = parseInt(req.params.orgId, 10);
   const userId = req.user && req.user.id;
 
-  // Expect req.files = { header: [{...}], body: [{...}], footer: [{...}] }
-  if (!req.files || !req.files.body || !req.files.body[0]) {
-    return res.status(400).json({ error: "body file required" });
+  const headerFile = req.files && req.files.header && req.files.header[0];
+  const footerFile = req.files && req.files.footer && req.files.footer[0];
+  const bodyFile = req.files && req.files.body && req.files.body[0];
+
+  if (!headerFile && !bodyFile && !footerFile) {
+    return res.status(400).json({
+      error: "At least one image (header, body or footer) is required",
+    });
   }
 
   try {
-    const headerFile = req.files.header && req.files.header[0];
-    const bodyFile = req.files.body && req.files.body[0];
-    const footerFile = req.files.footer && req.files.footer[0];
+    // move each uploaded file to public/uploads and get the filenames
+    const headerName = headerFile
+      ? await moveFileToUploads(headerFile.path, headerFile.originalname)
+      : null;
+    const bodyName = bodyFile
+      ? await moveFileToUploads(bodyFile.path, bodyFile.originalname)
+      : null;
+    const footerName = footerFile
+      ? await moveFileToUploads(footerFile.path, footerFile.originalname)
+      : null;
 
-    const result = await templateService.processScanToTemplate({
+    // Build a minimal template that references the saved uploads (no OCR / no processing)
+    const { grapesJson, html, thumbnailName } = buildSimpleTemplateHtml(
+      orgId,
+      headerName,
+      footerName
+    );
+
+    // Save in DB: template_type 'scan' and thumbnail_url = filename (so frontend can build URL)
+    const nameFromClient =
+      (req.body && req.body.name) ||
+      `Uploaded template ${new Date().toISOString()}`;
+    const savePayload = {
+      name: nameFromClient,
+      template_type: "scan",
+      grapes_json: grapesJson, // templateService.saveTemplate will stringify if needed
+      html,
+      css: null,
+      thumbnail_url: thumbnailName, // store filename only
+    };
+
+    const saved = await templateService.saveTemplate(
       orgId,
       userId,
-      headerPath: headerFile ? headerFile.path : null,
-      headerOriginal: headerFile ? headerFile.originalname : null,
-      bodyPath: bodyFile.path,
-      bodyOriginal: bodyFile.originalname,
-      footerPath: footerFile ? footerFile.path : null,
-      footerOriginal: footerFile ? footerFile.originalname : null,
-    });
+      savePayload
+    );
 
-    return res.json(result);
+    // Return minimal success — frontend will re-fetch templates list and build image URLs
+    return res.json({ success: true, id: saved.id || saved.insertId || null });
   } catch (err) {
     console.error("uploadScanHandler", err);
-    return res.status(500).json({ error: err.message || "OCR failed" });
+    return res.status(500).json({ error: err.message || "Save failed" });
+  }
+}
+
+async function uploadImageHandler(req, res) {
+  try {
+    const orgId = parseInt(req.params.orgId, 10);
+    const file = req.file;
+    if (!file) return res.status(400).json({ error: "file required" });
+
+    const publicUploads = path.join(
+      __dirname,
+      "..",
+      "..",
+      "..",
+      "public",
+      "uploads"
+    );
+    await fs.ensureDir(publicUploads);
+
+    const destName = `${Date.now()}_${path
+      .basename(file.originalname || file.path)
+      .replace(/\s/g, "_")}`;
+    const destPath = path.join(publicUploads, destName);
+
+    // ensure parent exists then move
+    await fs.ensureDir(path.dirname(destPath));
+    await fs.move(file.path, destPath, { overwrite: true });
+
+    // return simple minimal response (filename) — front-end can build URLs when needed
+    return res.json({ success: true, filename: destName });
+  } catch (err) {
+    console.error("uploadImageHandler", err);
+    return res.status(500).json({ error: "Failed to upload" });
   }
 }
 
@@ -51,7 +224,21 @@ async function listTemplatesHandler(req, res) {
   const orgId = parseInt(req.params.orgId, 10);
   try {
     const rows = await templateService.getTemplates(orgId);
-    return res.json(rows);
+
+    // Parse grapes_json column if it's stored as a string
+    const parsed = (rows || []).map((r) => {
+      const out = { ...r };
+      try {
+        if (typeof out.grapes_json === "string" && out.grapes_json) {
+          out.grapes_json = JSON.parse(out.grapes_json);
+        }
+      } catch (e) {
+        // leave as-is on parse failure
+      }
+      return out;
+    });
+
+    return res.json(parsed);
   } catch (err) {
     console.error("listTemplatesHandler", err);
     return res.status(500).json({ error: err.message });
@@ -121,6 +308,7 @@ async function listBasicTemplatesHandler(req, res) {
 
 module.exports = {
   uploadScanHandler,
+  uploadImageHandler,
   saveTemplateHandler,
   listTemplatesHandler,
   serveUploadedFileHandler,

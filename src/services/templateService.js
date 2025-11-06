@@ -399,33 +399,46 @@ async function processScanToTemplate({
   );
   await fs.ensureDir(publicUploads);
 
-  async function moveToUploads(tmpPath, originalName) {
+  async function moveToUploads(tmpPath, originalName, uploadsDir) {
     if (!tmpPath) return null;
+
+    const destUploads =
+      uploadsDir || path.join(__dirname, "..", "..", "..", "public", "uploads");
+    await fs.ensureDir(destUploads);
+
     const destName = `${Date.now()}_${path
       .basename(originalName || tmpPath)
       .replace(/\s/g, "_")}`;
-    const destPath = path.join(publicUploads, destName);
+    const destPath = path.join(destUploads, destName);
+
+    await fs.ensureDir(path.dirname(destPath));
+
     await fs.move(tmpPath, destPath, { overwrite: true });
+
     const meta = await sharp(destPath)
       .metadata()
       .catch((e) => {
         console.warn("sharp metadata failed", e);
         return {};
       });
+
     return { destName, destPath, meta };
   }
 
   const headerInfo = headerPath
-    ? await moveToUploads(headerPath, headerOriginal)
+    ? await moveToUploads(headerPath, headerOriginal, publicUploads)
     : null;
-  const bodyInfo = await moveToUploads(bodyPath, bodyOriginal);
+  const bodyInfo = bodyPath
+    ? await moveToUploads(bodyPath, bodyOriginal, publicUploads)
+    : null;
   const footerInfo = footerPath
-    ? await moveToUploads(footerPath, footerOriginal)
+    ? await moveToUploads(footerPath, footerOriginal, publicUploads)
     : null;
 
   const backendBase =
     process.env.BACKEND_BASE_URL ||
     `http://localhost:${process.env.PORT || 5000}`;
+
   const headerUrl = headerInfo
     ? `${backendBase}/api/orgs/${orgId}/uploads/${headerInfo.destName}`
     : null;
@@ -436,11 +449,11 @@ async function processScanToTemplate({
     ? `${backendBase}/api/orgs/${orgId}/uploads/${footerInfo.destName}`
     : null;
 
-  const { compositePath, compositeUrl, compositeMeta } =
+  const { compositePath, compositeUrl, compositeMeta, resizedBuffers } =
     await makeCompositeAndCleanMask({
-      headerPath: headerInfo?.destPath,
-      bodyPath: bodyInfo.destPath,
-      footerPath: footerInfo?.destPath,
+      headerPath: headerInfo?.destPath || null,
+      bodyPath: bodyInfo?.destPath || null,
+      footerPath: footerInfo?.destPath || null,
       uploadsDir: publicUploads,
       backendBase,
       orgId,
@@ -497,16 +510,24 @@ async function processScanToTemplate({
 
 const saveTemplate = async (orgId, userId, payload) => {
   try {
-    const { name, template_type, grapes_json, html, css, thumbnail_url } =
-      payload;
+    const name = payload.name || payload.page?.name || "Untitled";
+    const template_type = payload.template_type || "generic";
+    const grapes_json_obj = payload.grapes_json || payload;
+    const grapes_json = grapes_json_obj
+      ? JSON.stringify(grapes_json_obj)
+      : null;
+    const html = payload.html || null;
+    const css = payload.css || null;
+    const thumbnail_url = payload.thumbnail_url || null;
+
     const [result] = await db.query(INSERT_TEMPLATE, [
       orgId,
       name,
-      template_type || "generic",
-      grapes_json || null,
-      html || null,
-      css || null,
-      thumbnail_url || null,
+      template_type,
+      grapes_json,
+      html,
+      css,
+      thumbnail_url,
       1,
       userId || null,
     ]);
@@ -516,9 +537,9 @@ const saveTemplate = async (orgId, userId, payload) => {
     try {
       await db.query(INSERT_TEMPLATE_VERSION, [
         insertId,
-        grapes_json || null,
-        html || null,
-        css || null,
+        grapes_json,
+        html,
+        css,
         1,
         userId || null,
       ]);
