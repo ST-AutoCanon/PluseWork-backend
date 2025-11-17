@@ -64,8 +64,11 @@ module.exports = {
   GET_EMPLOYEE_PROJECTS: `
     SELECT 
       p.id, 
-      p.company_name AS company, 
-      p.project_name AS project, 
+      p.company_name AS company,
+      p.company_address AS address,
+      p.company_gst AS gst,
+      p.service_location AS service, 
+      p.project_name AS project,
       p.start_date AS startDate, 
       p.end_date AS endDate, 
       p.project_status AS status, 

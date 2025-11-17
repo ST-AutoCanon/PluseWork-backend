@@ -1,5 +1,3 @@
-// backend/constants/notificationQueries.js
-
 const INSERT_NOTIFICATION = `
   INSERT INTO notifications
     (user_id, meeting_id, policy_id, message, triggered_at, is_read, created_at)
@@ -10,6 +8,7 @@ const CHECK_RECENT_SIMILAR_NOTIFICATION = `
   SELECT id FROM notifications
   WHERE user_id = ?
     AND message LIKE ?
+    AND is_read = 0
     AND triggered_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
   LIMIT 1
 `;
