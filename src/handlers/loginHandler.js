@@ -39,7 +39,6 @@ class LoginHandler {
       try {
         const org = await LoginService.fetchOrganizationById(user.Org_id);
         if (org && org.end_date) {
-          // compare date-only: if end_date < today then expired
           const today = moment().startOf("day");
           const orgEnd = moment(org.end_date).endOf("day");
           if (orgEnd.isBefore(today, "day")) {
@@ -55,7 +54,6 @@ class LoginHandler {
         }
       } catch (orgErr) {
         console.error("Org expiry check failed:", orgErr);
-        // proceed — don't block login for transient DB errors; or optionally block if you prefer
       }
 
       const dashboardFunction =
@@ -64,7 +62,6 @@ class LoginHandler {
           Employee: LoginService.fetchEmployeeDashboard,
         }[user.role] || LoginService.fetchEmployeeDashboard;
 
-      // dashboard can be empty; call safely and fall back to defaults
       let dashboard;
       try {
         dashboard = await dashboardFunction(user.employee_id);
@@ -235,7 +232,6 @@ class LoginHandler {
         orgId
       );
 
-      // If empty, return an empty chart structure rather than 404
       if (!loginDataCount || loginDataCount.length === 0) {
         return res.status(200).json({
           status: "success",
@@ -315,7 +311,6 @@ class LoginHandler {
 
       const categories = await LoginService.getEmployeeCountByDepartment(orgId);
 
-      // Return safe defaults when empty
       if (!categories || categories.length === 0) {
         return res.status(200).json({
           totalEmployees: 0,
@@ -346,7 +341,6 @@ class LoginHandler {
 
       const payrollData = await LoginService.getEmployeePayrollData(employeeId);
 
-      // Service returns defaults; but guard anyway
       if (!payrollData) {
         return res.status(200).json({
           status: "success",

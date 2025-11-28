@@ -1,134 +1,199 @@
-// src/services/pdfService.js
-
-const { PDFDocument } = require("pdf-lib");
+// ----------------- robust soffice-first conversion (replace your current functions) -----------------
+const { spawn, spawnSync } = require("child_process");
 const fs = require("fs");
-const libre = require("libreoffice-convert");
-const sharp = require("sharp");
+const fsp = require("fs").promises;
+const path = require("path");
+const libre = require("libreoffice-convert"); // keep as fallback
 
-// ── Helper: extract images from a PDF attachment ─────────────────────────────
-async function extractImagesFromPdf(pdfPath) {
-  const bytes = fs.readFileSync(pdfPath);
-  const srcPdf = await PDFDocument.load(bytes);
-  const context = srcPdf.context;
-  const images = [];
-
-  for (const [ref, obj] of context.enumerateIndirectObjects()) {
-    if (!obj || !obj.dict) continue;
-    const subtype = obj.dict.get("Subtype");
-    if (subtype && subtype.name === "Image") {
-      const imageBytes = obj.contents;
-      const filter = obj.dict.get("Filter");
-
-      if (filter && filter.name === "DCTDecode") {
-        // JPEG image stream
-        images.push({ data: imageBytes, type: "jpg" });
-      } else {
-        // Other (likely PNG or raw); normalize to PNG via Sharp
-        const pngBuffer = await sharp(imageBytes).png().toBuffer();
-        images.push({ data: pngBuffer, type: "png" });
-      }
-    }
+// ensure file exists and non-empty
+async function fileExistsNonEmpty(fp) {
+  try {
+    const st = await fsp.stat(fp);
+    return st && st.size && st.size > 0;
+  } catch (e) {
+    return false;
   }
-
-  return images; // [{ data: Buffer, type: "png"|"jpg" }, ...]
 }
 
-// ── Helper: normalize standalone images ───────────────────────────────────────
-async function optimizeImage(imagePath) {
-  return sharp(imagePath)
-    .resize(1000, 1000, { fit: "inside", withoutEnlargement: true })
-    .toBuffer();
-}
-
-// ── Merge attachments into the PDF ────────────────────────────────────────────
-// ── Merge attachments into the PDF (improved) ────────────────────────────────
-async function mergeAttachments(pdfPath, attachments) {
-  // Load the base PDF (converted from your DOCX)
-  const pdfDoc = await PDFDocument.load(fs.readFileSync(pdfPath));
-
-  for (const att of attachments) {
-    if (!att.file_path || !fs.existsSync(att.file_path)) {
-      console.warn("Skipping invalid attachment:", att.file_path);
-      continue;
+// poll for file created and non-empty
+async function waitForFileNonEmpty(
+  filePath,
+  timeoutMs = 120000,
+  intervalMs = 500
+) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const st = await fsp.stat(filePath);
+      if (st && st.size && st.size > 0) return true;
+    } catch (e) {
+      // file not present yet
     }
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  return false;
+}
 
-    const ext = att.file_path.toLowerCase().split(".").pop();
+// detect soffice
+function isSofficeAvailable() {
+  try {
+    const res = spawnSync("soffice", ["--version"], { encoding: "utf8" });
+    return res && (res.status === 0 || (res.stdout && res.stdout.length > 0));
+  } catch (e) {
+    return false;
+  }
+}
 
-    if (ext === "pdf") {
-      // ── Import all pages of the attached PDF ───────────────────────────────
-      try {
-        const otherPdfBytes = fs.readFileSync(att.file_path);
-        const otherPdf = await PDFDocument.load(otherPdfBytes);
-        const total = otherPdf.getPageCount();
-        const pages = await pdfDoc.copyPages(otherPdf, [
-          ...Array(total).keys(),
-        ]);
-        pages.forEach((page) => pdfDoc.addPage(page));
-      } catch (err) {
-        console.error("Failed to import PDF pages:", att.file_path, err);
-      }
-    } else if (["png", "jpg", "jpeg"].includes(ext)) {
-      // ── Normalize and embed a standalone image ────────────────────────────
-      let buffer;
-      try {
-        buffer = await optimizeImage(att.file_path);
-      } catch (err) {
-        console.error("Failed to optimize image:", att.file_path, err);
+// spawn soffice with retries on spawn EBUSY
+async function convertWithSofficeWithRetries(docxPath, outDir, options = {}) {
+  const { maxRetries = 4, timeoutMs = 120000 } = options;
+  const pdfName = path.basename(docxPath).replace(/\.docx$/i, ".pdf");
+  const pdfPath = path.join(outDir, pdfName);
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      await new Promise((resolve, reject) => {
+        const args = [
+          "--headless",
+          "--convert-to",
+          "pdf",
+          "--outdir",
+          outDir,
+          docxPath,
+        ];
+        const child = spawn("soffice", args, {
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+
+        let stderr = "";
+        child.stderr.on("data", (d) => (stderr += d.toString()));
+        child.on("error", (err) => {
+          // capture spawn errors (EBUSY etc)
+          return reject(err);
+        });
+        child.on("exit", (code) => {
+          if (code !== 0)
+            return reject(
+              new Error(`soffice exit code ${code}. stderr: ${stderr}`)
+            );
+          return resolve();
+        });
+      });
+
+      // wait for the PDF to actually appear and be non-empty
+      const ok = await waitForFileNonEmpty(pdfPath, timeoutMs);
+      if (ok && fs.existsSync(pdfPath)) return pdfPath;
+
+      throw new Error("soffice did not produce a non-empty PDF within timeout");
+    } catch (err) {
+      // if it's spawn EBUSY, backoff and retry
+      if (err && err.code === "EBUSY" && attempt < maxRetries) {
+        const backoff = 300 * attempt; // 300ms, 600ms, 900ms...
+        console.warn(
+          `soffice spawn EBUSY (attempt ${attempt}). retrying after ${backoff}ms`
+        );
+        await new Promise((r) => setTimeout(r, backoff));
         continue;
       }
-
-      let embedded;
-      if (ext === "png") {
-        embedded = await pdfDoc.embedPng(buffer);
-      } else {
-        embedded = await pdfDoc.embedJpg(buffer);
-      }
-      const page = pdfDoc.addPage([595, 842]);
-      page.drawImage(embedded, { x: 50, y: 50, width: 500, height: 700 });
-    } else {
-      console.warn("Unsupported attachment type, skipping:", att.file_path);
+      // otherwise rethrow so caller can fallback or log
+      throw err;
     }
   }
 
-  // Save out the merged PDF
-  const finalPdfPath = pdfPath.replace(".pdf", "_final.pdf");
-  fs.writeFileSync(finalPdfPath, await pdfDoc.save());
-  return finalPdfPath;
+  throw new Error("soffice conversion failed after retries");
 }
 
-// ── Main export: convert DOCX → PDF and merge attachments ────────────────────
-exports.convertDocxToPdf = async (docxPath, claim, attachments = []) => {
-  // 1) DOCX → PDF
-  const pdfPath = docxPath.replace(".docx", ".pdf");
-  try {
-    const docxBuffer = fs.readFileSync(docxPath);
-    const pdfBuffer = await new Promise((resolve, reject) => {
-      libre.convert(docxBuffer, ".pdf", undefined, (err, done) => {
-        if (err) return reject(err);
-        resolve(done);
-      });
-    });
-    fs.writeFileSync(pdfPath, pdfBuffer);
-  } catch (error) {
-    console.error("Error during DOCX to PDF conversion:", error);
-    throw error;
+// main conversion: try soffice first, fallback to libre.convert
+exports.convertDocxToPdf = async (docxPath, claim = {}, attachments = []) => {
+  console.log("Converting DOCX to PDF (soffice-first):", docxPath);
+
+  if (!docxPath) throw new Error("docxPath required");
+  const absDocx = path.resolve(docxPath);
+  const outDir = path.dirname(absDocx);
+
+  if (!(await fileExistsNonEmpty(absDocx))) {
+    throw new Error(`DOCX file missing or empty: ${absDocx}`);
   }
 
-  // 2) Filter attachments to those with valid file_path
-  const valid = attachments.filter((att) => att.file_path);
-  if (valid.length !== attachments.length) {
-    console.warn(
-      `Filtered out ${
-        attachments.length - valid.length
-      } attachments without file_path`
+  const pdfPath = absDocx.replace(/\.docx$/i, ".pdf");
+  let convertedPdfPath = null;
+
+  // 1) Try soffice CLI with retries (recommended)
+  if (isSofficeAvailable()) {
+    try {
+      convertedPdfPath = await convertWithSofficeWithRetries(absDocx, outDir, {
+        maxRetries: 4,
+        timeoutMs: 120000,
+      });
+      console.log("PDF conversion successful (soffice):", convertedPdfPath);
+    } catch (soErr) {
+      console.warn(
+        "soffice conversion attempt failed:",
+        soErr && soErr.message ? soErr.message : soErr
+      );
+      convertedPdfPath = null;
+    }
+  } else {
+    console.warn("soffice not available on PATH; skipping soffice attempt.");
+  }
+
+  // 2) Fallback to libre.convert only if soffice wasn't successful
+  if (!convertedPdfPath) {
+    try {
+      const docxBuffer = await fsp.readFile(absDocx);
+      if (!docxBuffer || docxBuffer.length === 0)
+        throw new Error("DOCX buffer empty");
+
+      const pdfBuffer = await new Promise((resolve, reject) => {
+        let timeout = setTimeout(
+          () => reject(new Error("libre.convert timeout")),
+          180000
+        );
+        try {
+          libre.convert(docxBuffer, ".pdf", undefined, (err, done) => {
+            clearTimeout(timeout);
+            if (err) return reject(err);
+            resolve(done);
+          });
+        } catch (err) {
+          clearTimeout(timeout);
+          return reject(err);
+        }
+      });
+
+      await fsp.writeFile(pdfPath, pdfBuffer);
+      convertedPdfPath = pdfPath;
+      console.log("PDF conversion successful (libreoffice-convert):", pdfPath);
+    } catch (libErr) {
+      console.error(
+        "libreoffice-convert fallback failed:",
+        libErr && libErr.message ? libErr.message : libErr
+      );
+    }
+  }
+
+  if (!convertedPdfPath) {
+    throw new Error(
+      "DOCX to PDF conversion failed with both soffice and libre.convert"
     );
   }
 
-  // 3) Merge if any valid attachments remain
+  // 3) merge attachments (existing logic)
+  const valid =
+    attachments && Array.isArray(attachments)
+      ? attachments.filter((att) => att && att.file_path)
+      : [];
   if (valid.length > 0) {
-    return mergeAttachments(pdfPath, valid);
+    try {
+      return await mergeAttachments(convertedPdfPath, valid);
+    } catch (mergeErr) {
+      console.error(
+        "mergeAttachments failed:",
+        mergeErr && mergeErr.message ? mergeErr.message : mergeErr
+      );
+      return convertedPdfPath;
+    }
   }
 
-  // 4) Otherwise just return the plain PDF
-  return pdfPath;
+  return convertedPdfPath;
 };

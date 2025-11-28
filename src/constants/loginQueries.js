@@ -23,7 +23,6 @@ module.exports = {
 
   GET_END_DATE: `SELECT id, Name, start_date, end_date FROM Organizations WHERE id = ?`,
 
-  // GET_ADMIN_DETAILS now returns Org_id
   GET_ADMIN_DETAILS: `
     SELECT
       pr.role,
@@ -40,7 +39,6 @@ module.exports = {
     WHERE e.employee_id = ?;
   `,
 
-  // Admin dashboard now filtered by org_id parameter (?)
   GET_ADMIN_DASHBOARD: `
     SELECT
       COUNT(DISTINCT e.employee_id) AS total_employees,
@@ -69,7 +67,6 @@ module.exports = {
     WHERE e.Org_id = ?;
   `,
 
-  // Salary distribution limited to organization
   GET_SALARY_DISTRIBUTION: `
     SELECT
       AVG(pr.salary) AS average_salary,
@@ -80,7 +77,6 @@ module.exports = {
     WHERE e.Org_id = ?;
   `,
 
-  // Department distribution per organization
   GET_DEPARTMENT_DISTRIBUTION: `
     SELECT
       d.name AS department_name,
@@ -93,7 +89,6 @@ module.exports = {
     GROUP BY pr.department_id, d.name;
   `,
 
-  // Financials per organization (assumes financials.org_id exists)
   GET_FINANCIAL_STATS: `
     SELECT
       SUM(total_expenses) AS previous_month_expenses,
@@ -105,7 +100,6 @@ module.exports = {
       AND YEAR(month) = YEAR(CURRENT_DATE - INTERVAL 1 MONTH);
   `,
 
-  // Projects per organization (assumes projects.org_id exists)
   GET_CURRENT_PROJECTS: `
     SELECT
       project_name,
@@ -145,7 +139,6 @@ module.exports = {
       AND end_date < CURRENT_DATE;
   `,
 
-  // Hourly login data filtered by org (join to employees)
   GET_HOURLY_LOGIN_DATA: `
     SELECT
       CASE
@@ -162,7 +155,6 @@ module.exports = {
     GROUP BY timing;
   `,
 
-  // Employee dashboard remains per-employee (no change)
   GET_EMPLOYEE_DASHBOARD: `
     SELECT
       CONCAT(e.first_name, ' ', e.last_name) AS name,
@@ -213,14 +205,12 @@ module.exports = {
     WHERE e.employee_id = ?;
   `,
 
-  // Sidebar menu (already org-specific) unchanged
   GET_SIDEBAR_MENU: `SELECT sm.label, sm.path, sm.icon
 FROM sidebar_menu sm
 JOIN sidebar_menu_access sma ON sm.id = sma.sidebar_item_id
 WHERE sma.role = ? AND sma.org_id = ?
 `,
 
-  // Employee count by department (org-specific)
   GET_EMPLOYEE_COUNT_BY_DEPARTMENT: `
     SELECT
       d.name AS department_name,
@@ -253,7 +243,6 @@ WHERE sma.role = ? AND sma.org_id = ?
        AND le.Org_id = ?) AS approved_leave;
 `,
 
-  // Employee login data count — rewrite to include org filter (emp_attendence table must have employee_id, we join employees)
   GET_EMPLOYEE_LOGIN_DATA_COUNT: `WITH FirstPunch AS (
     SELECT 
         a.employee_id, 
@@ -287,7 +276,6 @@ FROM HourlyData
 ORDER BY STR_TO_DATE(SUBSTRING_INDEX(punchin_label, ' ', 1), '%H');
 `,
 
-  // Salary ranges per org
   GET_EMPLOYEE_SALARY_RANGE: `
     SELECT
       CASE
@@ -305,7 +293,6 @@ ORDER BY STR_TO_DATE(SUBSTRING_INDEX(punchin_label, ' ', 1), '%H');
     ORDER BY FIELD(salary_range, '<30k', '30k-50k', '50k-70k', '70k+', '90k+');
   `,
 
-  // Payroll cards - if your employee_payrolldata is org-specific, filter by org_id; otherwise join employees
   GET_EMPLOYEE_PAYROLL: `
     SELECT
       SUM(CASE WHEN card_label = 'Previous Month Credit' THEN card_value ELSE 0 END) AS total_previous_month_credit,
@@ -317,7 +304,6 @@ ORDER BY STR_TO_DATE(SUBSTRING_INDEX(punchin_label, ' ', 1), '%H');
       AND card_label IN ('Previous Month Credit', 'Previous Month Expenses', 'Previous Month Salary');
   `,
 
-  // Leave queries in dashboard (per employee) unchanged - still needs employee_id
   GET_LEAVE_QUERIES_IN_DASHBOARD: `
     SELECT
       leave_type AS 'Leave Type',
@@ -333,7 +319,6 @@ ORDER BY STR_TO_DATE(SUBSTRING_INDEX(punchin_label, ' ', 1), '%H');
     LIMIT 5;
   `,
 
-  // Reimbursement stats (per employee) unchanged
   GET_REIMBURSEMENT_STATS: `
     SELECT
       SUM(CASE WHEN status = 'Approved'

@@ -25,17 +25,27 @@ async function moveFileToUploads(tmpPath, originalName) {
   return destName; // store filename, front-end will build full URL when rendering
 }
 
-// Helper: build minimal grapes_json + html to show header and footer images
-function buildSimpleTemplateHtml(orgId, headerName, footerName) {
+// Helper: build minimal grapes_json + html to show header, footer, and watermark images
+function buildSimpleTemplateHtml(
+  orgId,
+  headerName,
+  footerName,
+  watermarkUrl = null,
+  watermarkPlacement = null
+) {
   const headerUrl = headerName
     ? `/api/orgs/${orgId}/uploads/${headerName}`
     : null;
   const footerUrl = footerName
     ? `/api/orgs/${orgId}/uploads/${footerName}`
     : null;
+  // watermarkUrl may be a full URL (passed through) or null
 
   const grapesJson = {
     id: `scan-${Date.now()}`,
+    watermark: watermarkUrl
+      ? { url: watermarkUrl, ...watermarkPlacement }
+      : null,
     components: [
       {
         tagName: "div",
@@ -121,10 +131,13 @@ async function uploadScanHandler(req, res) {
   const headerFile = req.files && req.files.header && req.files.header[0];
   const footerFile = req.files && req.files.footer && req.files.footer[0];
   const bodyFile = req.files && req.files.body && req.files.body[0];
+  const watermarkFile =
+    req.files && req.files.watermark && req.files.watermark[0];
 
-  if (!headerFile && !bodyFile && !footerFile) {
+  if (!headerFile && !bodyFile && !footerFile && !watermarkFile) {
     return res.status(400).json({
-      error: "At least one image (header, body or footer) is required",
+      error:
+        "At least one image (header, body, footer, or watermark) is required",
     });
   }
 
@@ -139,12 +152,39 @@ async function uploadScanHandler(req, res) {
     const footerName = footerFile
       ? await moveFileToUploads(footerFile.path, footerFile.originalname)
       : null;
+    const watermarkName = watermarkFile
+      ? await moveFileToUploads(watermarkFile.path, watermarkFile.originalname)
+      : null;
+
+    // Parse meta JSON if provided
+    let watermarkPlacement = null;
+    let bodyType = "letter";
+    let incomingWatermarkFlag = false;
+    try {
+      if (req.body && req.body.meta) {
+        const meta = JSON.parse(req.body.meta);
+        watermarkPlacement = meta.watermarkPlacement || null;
+        bodyType = meta.bodyType || "letter";
+        incomingWatermarkFlag = !!meta.watermark;
+      }
+    } catch (e) {
+      // ignore parse errors, use defaults
+    }
+
+    // Get existing watermark URL if being re-saved without new file
+    const existingWatermarkUrl =
+      (req.body && req.body.existingWatermarkUrl) || null;
+    const watermarkUrlForGrapes = watermarkName
+      ? `/api/orgs/${orgId}/uploads/${watermarkName}`
+      : existingWatermarkUrl;
 
     // Build a minimal template that references the saved uploads (no OCR / no processing)
     const { grapesJson, html, thumbnailName } = buildSimpleTemplateHtml(
       orgId,
       headerName,
-      footerName
+      footerName,
+      watermarkUrlForGrapes,
+      watermarkPlacement
     );
 
     // Save in DB: template_type 'scan' and thumbnail_url = filename (so frontend can build URL)
@@ -158,6 +198,11 @@ async function uploadScanHandler(req, res) {
       html,
       css: null,
       thumbnail_url: thumbnailName, // store filename only
+      meta: JSON.stringify({
+        bodyType,
+        watermark: !!watermarkName || incomingWatermarkFlag,
+        watermarkPlacement: watermarkPlacement || null,
+      }),
     };
 
     const saved = await templateService.saveTemplate(
@@ -225,12 +270,19 @@ async function listTemplatesHandler(req, res) {
   try {
     const rows = await templateService.getTemplates(orgId);
 
-    // Parse grapes_json column if it's stored as a string
+    // Parse grapes_json and meta columns if they're stored as strings
     const parsed = (rows || []).map((r) => {
       const out = { ...r };
       try {
         if (typeof out.grapes_json === "string" && out.grapes_json) {
           out.grapes_json = JSON.parse(out.grapes_json);
+        }
+      } catch (e) {
+        // leave as-is on parse failure
+      }
+      try {
+        if (typeof out.meta === "string" && out.meta) {
+          out.meta = JSON.parse(out.meta);
         }
       } catch (e) {
         // leave as-is on parse failure

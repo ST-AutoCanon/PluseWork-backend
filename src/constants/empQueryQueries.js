@@ -103,6 +103,7 @@ ORDER BY t.updated_at DESC;
     JOIN employees e ON ep.employee_id = e.employee_id
     WHERE ep.role = 'Admin'
       AND e.org_id = ?
+      AND e.status = 'Active';
   `,
 
   GET_HR: `
@@ -117,6 +118,7 @@ ORDER BY t.updated_at DESC;
         LIMIT 1
       )
       AND e.org_id = ?
+      AND e.status = 'Active';
   `,
 
   GET_MANAGER_BY_DEPARTMENT: `
@@ -126,6 +128,7 @@ ORDER BY t.updated_at DESC;
     WHERE ep.role = 'Manager'
       AND ep.department_id = ?
       AND e.org_id = ?
+      AND e.status = 'Active';
   `,
 
   FETCH_THREADS: `

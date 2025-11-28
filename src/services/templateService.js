@@ -519,6 +519,7 @@ const saveTemplate = async (orgId, userId, payload) => {
     const html = payload.html || null;
     const css = payload.css || null;
     const thumbnail_url = payload.thumbnail_url || null;
+    const meta = payload.meta || null;
 
     const [result] = await db.query(INSERT_TEMPLATE, [
       orgId,
@@ -528,6 +529,7 @@ const saveTemplate = async (orgId, userId, payload) => {
       html,
       css,
       thumbnail_url,
+      meta,
       1,
       userId || null,
     ]);

@@ -16,6 +16,7 @@ router.post(
     { name: "header", maxCount: 1 },
     { name: "body", maxCount: 1 },
     { name: "footer", maxCount: 1 },
+    { name: "watermark", maxCount: 1 },
   ]),
   handler.uploadScanHandler
 );

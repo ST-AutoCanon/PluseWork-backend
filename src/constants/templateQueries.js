@@ -1,9 +1,9 @@
 module.exports = {
   INSERT_TEMPLATE: `INSERT INTO templates
-    (organization_id, name, template_type, grapes_json, html, css, thumbnail_url, version, created_by)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+    (organization_id, name, template_type, grapes_json, html, css, thumbnail_url, meta, version, created_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
 
-  UPDATE_TEMPLATE: `UPDATE templates SET grapes_json = ?, html = ?, css = ?, version = version + 1, updated_at = NOW() WHERE id = ? AND organization_id = ?;`,
+  UPDATE_TEMPLATE: `UPDATE templates SET grapes_json = ?, html = ?, css = ?, meta = ?, version = version + 1, updated_at = NOW() WHERE id = ? AND organization_id = ?;`,
 
   GET_TEMPLATES_BY_ORG: `SELECT * FROM templates WHERE organization_id = ? ORDER BY created_at DESC;`,
 
