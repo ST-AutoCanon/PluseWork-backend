@@ -2,10 +2,8 @@
 const taskService = require("../services/taskEmployeesService");
 
 const getTasksByEmployee1 = async (req, res) => {
-  // console.log('hi'); 
   try {
     const { employeeId } = req.params;
-    console.log("Fetching tasks for employeeId:", employeeId);
 
     const tasks = await taskService.getTasksByEmployee1(employeeId);
 

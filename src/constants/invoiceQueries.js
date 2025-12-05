@@ -1,8 +1,28 @@
 module.exports = {
   GET_INVOICES_BY_PROJECT: `
 SELECT 
-  i.*,
-  -- also pull the project’s payment_type for convenience
+  i.id,
+  i.projectId,
+  i.invoiceType,
+  DATE_FORMAT(i.invoiceDate,'%Y-%m-%d') AS invoiceDate,
+  i.invoiceNo,
+  i.referenceId,
+  DATE_FORMAT(i.referenceDate,'%Y-%m-%d') AS referenceDate,
+  i.workDescription,
+  i.subTotal,
+  i.advance,
+  i.totalExcludingTax,
+  i.totalIncludingTax,
+  i.terms,
+  i.lineItems,
+  i.gst,
+  i.gstAmount,
+  i.totalAmount,
+  i.createdAt,
+  i.updatedAt,
+  i.gstPayment,
+  i.milestoneId,
+  i.status,
   p.payment_type,
 
   COALESCE((
@@ -51,7 +71,28 @@ ORDER BY i.createdAt DESC;
 
   GET_INVOICE_BY_ID: `
 SELECT 
-  i.*,
+  i.id,
+  i.projectId,
+  i.invoiceType,
+  DATE_FORMAT(i.invoiceDate,'%Y-%m-%d') AS invoiceDate,
+  i.invoiceNo,
+  i.referenceId,
+  DATE_FORMAT(i.referenceDate,'%Y-%m-%d') AS referenceDate,
+  i.workDescription,
+  i.subTotal,
+  i.advance,
+  i.totalExcludingTax,
+  i.totalIncludingTax,
+  i.terms,
+  i.lineItems,
+  i.gst,
+  i.gstAmount,
+  i.totalAmount,
+  i.createdAt,
+  i.updatedAt,
+  i.gstPayment,
+  i.milestoneId,
+  i.status,
   p.payment_type,
 
   (
@@ -185,8 +226,8 @@ WHERE i.id = ?;
     contact,
     company_gst          AS companyGst,
     state,
-    invoice_date         AS invoiceDate,
-    reference_date       AS referenceDate,
+    DATE_FORMAT(invoice_date,'%Y-%m-%d') AS invoiceDate,
+    DATE_FORMAT(reference_date,'%Y-%m-%d') AS referenceDate,
     reference_id         AS referenceId,
     place_of_supply      AS placeOfSupply,
     with_seal            AS withSeal,

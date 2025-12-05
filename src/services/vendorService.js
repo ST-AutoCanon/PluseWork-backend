@@ -22,6 +22,16 @@ const getVendorsByOrgId = async (orgId) => {
   }
 };
 
+const getVendorById = async (vendor_id, orgId) => {
+  try {
+    const [rows] = await db.query(queries.GET_VENDOR_BY_ID, [vendor_id, orgId]);
+    return rows && rows.length ? rows[0] : null;
+  } catch (error) {
+    console.error("Error fetching vendor by id:", error);
+    throw new Error("Error fetching vendor");
+  }
+};
+
 const updateVendorById = async (vendorData, vendor_id, orgId) => {
   try {
     const params = [...vendorData, vendor_id, orgId];
@@ -36,5 +46,6 @@ const updateVendorById = async (vendorData, vendor_id, orgId) => {
 module.exports = {
   insertVendor,
   getVendorsByOrgId,
+  getVendorById,
   updateVendorById,
 };

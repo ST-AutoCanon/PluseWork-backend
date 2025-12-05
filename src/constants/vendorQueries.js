@@ -31,8 +31,13 @@ const GET_VENDORS_BY_ORGID = `
   SELECT * FROM vendors WHERE org_id = ?;
 `;
 
+const GET_VENDOR_BY_ID = `
+  SELECT * FROM vendors WHERE vendor_id = ? AND org_id = ? LIMIT 1;
+`;
+
 module.exports = {
   INSERT_VENDOR,
   UPDATE_VENDOR_BY_ID,
   GET_VENDORS_BY_ORGID,
+  GET_VENDOR_BY_ID,
 };

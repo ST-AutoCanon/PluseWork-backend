@@ -315,13 +315,6 @@ const updateInvoiceExtra = async (id, invoiceData) => {
     id,
   ]);
 
-  console.log(
-    invoiceData.gstPayment,
-    invoiceData.milestoneId,
-    invoiceData.status,
-    id
-  );
-
   await db.execute(invoiceQueries.UPDATE_INVOICE_EXTRA, [
     invoiceData.gstPayment,
     invoiceData.milestoneId,

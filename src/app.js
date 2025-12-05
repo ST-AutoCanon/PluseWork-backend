@@ -9,8 +9,6 @@ const { Server } = require("socket.io");
 const webpush = require("web-push");
 const cron = require("node-cron");
 
-// const planRoutes = require("./routes/planRoute");
-
 const supervisorEmployeesRoutes = require("./routes/supervisorEmployeesRoutes");
 const supervisorRoutes = require("./routes/supervisorRoutes");
 const taskEmployeesRoutes = require("./routes/taskEmployeesRoutes");
@@ -81,6 +79,7 @@ const sidebarRoutes = require("./routes/sidebarRoutes");
 const policyNotificationService = require("./services/policyNotificationService");
 const { scheduleJob } = require("./jobs/profileMissingNotifier");
 const organizationTableRoutes = require("./routes/organizationTableRoutes");
+
 const app = express();
 const server = http.createServer(app);
 
@@ -134,22 +133,22 @@ app.use((req, res, next) => {
     const store = await createSessionStore();
     app.set("trust proxy", 1);
 
-    app.use(
-      session({
-        name: "sid",
-        store,
-        secret: process.env.SESSION_SECRET || "keyboard-cat",
-        resave: false,
-        saveUninitialized: false,
-        cookie: {
-          httpOnly: true,
-          secure: process.env.NODE_ENV === "production",
-          sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-          maxAge: 24 * 60 * 60 * 1000,
-          path: "/",
-        },
-      })
-    );
+    const sessionMiddleware = session({
+      name: "sid",
+      store,
+      secret: process.env.SESSION_SECRET || "keyboard-cat",
+      resave: false,
+      saveUninitialized: false,
+      cookie: {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+        maxAge: 24 * 60 * 60 * 1000,
+        path: "/",
+      },
+    });
+
+    app.use(sessionMiddleware);
 
     app.use(
       "/uploads",
@@ -164,7 +163,6 @@ app.use((req, res, next) => {
     app.use(apiKeyMiddleware);
 
     app.use("/", contact);
-
     app.use(idleTimeout);
 
     app.use(express.json({ limit: "50mb" }));
@@ -247,7 +245,6 @@ app.use((req, res, next) => {
 
     (async function initProfileNotifier() {
       if (process.env.ENABLE_PROFILE_NOTIFIER !== "true") {
-        console.log("[startup] profileMissingNotifier disabled");
         return;
       }
       const db = require("./config");
@@ -318,7 +315,6 @@ app.use((req, res, next) => {
     app.use("/api", organizationTableRoutes);
     app.use("/", vendorRoutes);
     app.use("/", oldEmployeeRoutes);
-    app.use("/", oldEmployeeRoutes);
     app.use("/api", letterRoutes);
     app.use("/api", letterheadRoutes);
     app.use("/api", letterheadTemplateRoutes);
@@ -330,18 +326,17 @@ app.use((req, res, next) => {
     app.use("/api", employeeProjectsRoute);
     app.use("/api/lop", lossofPayCalculationRoutes);
     app.use("/api/leave-policies", leavePolicy);
-    //  app.use("/api", configRoutes);
-    /////////////
+
     app.use("/api/weekly_task_supervisor", weeklyTaskSupervisorRoutes);
     app.use("/api/week_tasks", weekTaskRoutes);
     app.use("/api/tasks", taskRoutes);
     app.use("/api/messages", taskMessagesRoutes);
     app.use("/api/supervisor", supervisorRoutes);
-    // app.use("/api/plans", planRoutes);
     app.use("/api/supervisor", supervisorEmployeesRoutes);
     app.use("/api", configRoutes);
     app.use("/api/task-emp-emp", taskEmployeesRoutes);
     app.use("/api/employee-tasks", employeeTaskRoutes);
+
     app.get("/", (req, res) => res.send("Employee Face Recognition API"));
 
     const io = new Server(server, {
@@ -351,35 +346,64 @@ app.use((req, res, next) => {
     app.set("io", io);
 
     io.use((socket, next) => {
-      const apiKey =
-        socket.handshake.auth?.apiKey ||
-        socket.handshake.query?.apiKey ||
-        socket.handshake.headers?.["x-api-key"];
-
-      if (!apiKey || apiKey !== process.env.X_API_KEY) {
-        return next(new Error("Forbidden: invalid api key"));
-      }
-
-      const queryUser = socket.handshake.query?.userId || null;
-      const authUser = socket.handshake.auth?.userId || null;
-      const headerUser = socket.handshake.headers?.["x-employee-id"] || null;
-      const userId = queryUser || authUser || headerUser || null;
-
-      socket.userId = userId ? String(userId) : null;
-
-      if (!userId) {
-        console.warn(
-          "[socket] no userId in handshake; allowing connection but functionality may be limited"
-        );
-        socket.userId = null;
+      sessionMiddleware(socket.request, {}, (err) => {
+        if (err) {
+          console.error("[socket] session middleware error:", err);
+        }
         return next();
-      }
+      });
+    });
 
-      socket.userId = String(userId);
-      return next();
+    io.use((socket, next) => {
+      try {
+        const session = socket.request.session;
+        if (session && session.user) {
+          socket.userId =
+            session.user.employeeId ||
+            session.user.id ||
+            (session.user && session.user.employeeId) ||
+            null;
+          socket.authenticatedBy = "session";
+          return next();
+        }
+
+        const apiKey =
+          socket.handshake.auth?.apiKey ||
+          socket.handshake.query?.apiKey ||
+          socket.handshake.headers?.["x-api-key"];
+
+        if (apiKey && apiKey === process.env.X_API_KEY) {
+          const queryUser = socket.handshake.query?.userId || null;
+          const authUser = socket.handshake.auth?.userId || null;
+          const headerUser =
+            socket.handshake.headers?.["x-employee-id"] || null;
+          const userId = queryUser || authUser || headerUser || null;
+          socket.userId = userId ? String(userId) : null;
+          socket.authenticatedBy = "api-key";
+          return next();
+        }
+
+        const queryUser = socket.handshake.query?.userId || null;
+        const authUser = socket.handshake.auth?.userId || null;
+        const headerUser = socket.handshake.headers?.["x-employee-id"] || null;
+        const userId = queryUser || authUser || headerUser || null;
+        socket.userId = userId ? String(userId) : null;
+        socket.authenticatedBy = socket.userId
+          ? "handshake-userid"
+          : "anonymous";
+
+        return next();
+      } catch (err) {
+        console.error("[socket] auth error:", err);
+        return next(err);
+      }
     });
 
     io.on("connection", (socket) => {
+      console.log(
+        `[socket] connected ${socket.id} userId=${socket.userId} via=${socket.authenticatedBy}`
+      );
+
       if (socket.userId) {
         chatService
           .getUserRooms(socket.userId)
@@ -397,7 +421,7 @@ app.use((req, res, next) => {
           );
       } else {
         console.log(
-          `[socket:${socket.id}] connected without userId — will require payload senderId for message saves.`
+          `[socket:${socket.id}] connected without userId — limited functionality`
         );
       }
 
@@ -524,7 +548,6 @@ app.use((req, res, next) => {
           };
 
           io.to(String(roomId)).emit("new_message", emitted);
-
           if (typeof ack === "function")
             ack({ success: true, message: emitted });
         } catch (err) {
@@ -551,27 +574,18 @@ app.use((req, res, next) => {
               socket.userId,
               members
             );
-
             socket.join(String(roomId));
-
             const [room] = await chatService.getUserRooms(socket.userId);
-
             socket.emit("room_created", room);
-
-            if (typeof callback === "function") {
+            if (typeof callback === "function")
               callback({ success: true, room });
-            }
           } catch (err) {
-            console.error(
-              "[socket] create_room error:",
-              err && err.message ? err.message : err
-            );
-            if (typeof callback === "function") {
+            console.error("[socket] create_room error:", err);
+            if (typeof callback === "function")
               callback({
                 success: false,
                 error: err.message || "create_room failed",
               });
-            }
           }
         }
       );

@@ -105,8 +105,6 @@ async function convertWithSofficeWithRetries(docxPath, outDir, options = {}) {
 
 // main conversion: try soffice first, fallback to libre.convert
 exports.convertDocxToPdf = async (docxPath, claim = {}, attachments = []) => {
-  console.log("Converting DOCX to PDF (soffice-first):", docxPath);
-
   if (!docxPath) throw new Error("docxPath required");
   const absDocx = path.resolve(docxPath);
   const outDir = path.dirname(absDocx);
@@ -125,7 +123,6 @@ exports.convertDocxToPdf = async (docxPath, claim = {}, attachments = []) => {
         maxRetries: 4,
         timeoutMs: 120000,
       });
-      console.log("PDF conversion successful (soffice):", convertedPdfPath);
     } catch (soErr) {
       console.warn(
         "soffice conversion attempt failed:",
@@ -163,7 +160,6 @@ exports.convertDocxToPdf = async (docxPath, claim = {}, attachments = []) => {
 
       await fsp.writeFile(pdfPath, pdfBuffer);
       convertedPdfPath = pdfPath;
-      console.log("PDF conversion successful (libreoffice-convert):", pdfPath);
     } catch (libErr) {
       console.error(
         "libreoffice-convert fallback failed:",
