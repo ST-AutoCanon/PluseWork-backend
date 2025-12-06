@@ -1,4 +1,3 @@
-// controllers/leaveHandler.js
 const LeaveService = require("../services/leaveService");
 const ErrorHandler = require("../utils/errorHandler");
 
@@ -14,9 +13,6 @@ const parseBoolFlexible = (v) => {
 };
 
 class LeaveHandler {
-  /**
-   * Fetch leave queries with optional filtering, search, and date range.
-   */
   static async getLeaveQueries(req, res) {
     try {
       const {
@@ -26,7 +22,6 @@ class LeaveHandler {
         to_date = "",
       } = req.query;
 
-      // Read org_id from headers (accept multiple common header names)
       const org_id =
         req.headers["org_id"] ||
         req.headers["org-id"] ||
@@ -78,14 +73,9 @@ class LeaveHandler {
     }
   }
 
-  /**
-   * Update (approve/reject) a leave request.
-   * - Accepts is_defaulted in various forms in the request body (or header fallback).
-   */
   static async updateLeaveRequest(req, res) {
     try {
       const { leaveId } = req.params;
-      // accept both snake and camel case incoming fields
       const {
         status,
         comments,
@@ -126,8 +116,6 @@ class LeaveHandler {
       if (status === "Rejected") {
       }
 
-      // actor/admin id for audit
-      // Check several common places: body.actorId / body.actor / req.user.* / header x-employee-id
       const actorIdFromBody =
         (req.body && (req.body.actorId ?? req.body.actor)) ?? null;
       const actorIdFromUser =
@@ -138,9 +126,6 @@ class LeaveHandler {
       const actorId =
         actorIdFromBody || actorIdFromUser || actorIdFromHeader || null;
 
-      // parse is_defaulted from body or headers. Accept many forms:
-      // - req.body.is_defaulted, req.body.isDefaulted, req.body.is_default, req.body.defaulted
-      // - header x-is-defaulted (string '1'/'true' also supported)
       const rawIsDefault =
         (req.body &&
           (req.body.is_defaulted ??
@@ -153,7 +138,6 @@ class LeaveHandler {
 
       const is_defaulted = parseBoolFlexible(rawIsDefault);
 
-      // build payload to send to service
       const payload = {
         leaveId,
         status,
@@ -164,7 +148,6 @@ class LeaveHandler {
         preserved_leave_days:
           preserved_leave_days === null ? null : Number(preserved_leave_days),
         actorId,
-        // pass through is_defaulted flag so service can act accordingly
         is_defaulted,
       };
 
@@ -180,7 +163,6 @@ class LeaveHandler {
     } catch (err) {
       console.error("[LeaveHandler.updateLeaveRequest] Caught error:", err);
 
-      // Controlled client errors from service (isBadRequest)
       if (err && err.isBadRequest) {
         console.warn(
           "[LeaveHandler.updateLeaveRequest] Returning 400 due to controlled error:",
@@ -202,9 +184,6 @@ class LeaveHandler {
     }
   }
 
-  /**
-   * Submit a leave request.
-   */
   static async submitLeaveRequestHandler(req, res) {
     try {
       const orgId =
@@ -216,7 +195,6 @@ class LeaveHandler {
       const { employeeId, reason, leavetype, h_f_day, startDate, endDate } =
         req.body;
 
-      // Required Field Checks
       if (
         !employeeId ||
         !startDate ||
@@ -232,7 +210,6 @@ class LeaveHandler {
           );
       }
 
-      // Date Range Validation
       const start = new Date(startDate);
       const end = new Date(endDate);
       if (end < start) {
@@ -246,7 +223,6 @@ class LeaveHandler {
           );
       }
 
-      // Advance Notice for Casual/Vacation Leaves
       if (leavetype === "Casual" || leavetype === "Vacation") {
         const today = new Date();
         const minStart = new Date();
@@ -263,7 +239,6 @@ class LeaveHandler {
         }
       }
 
-      // Overlapping Request Check
       const existingLeaves = await LeaveService.getLeaveRequests(employeeId);
       const newStart = new Date(startDate);
       const newEnd = new Date(endDate);
@@ -279,10 +254,8 @@ class LeaveHandler {
         const existingEndStr = existingEnd.toISOString().split("T")[0];
 
         if (isSingleOrHalf) {
-          // Conflict if an existing leave falls on the same day
           return existingStartStr === newDayStr || existingEndStr === newDayStr;
         } else {
-          // For multi-day full-day requests: standard range overlap check
           return (
             (newStart >= existingStart && newStart <= existingEnd) ||
             (newEnd >= existingStart && newEnd <= existingEnd) ||
@@ -336,9 +309,6 @@ class LeaveHandler {
     }
   }
 
-  /**
-   * Retrieve leave requests for an employee using route parameters and optional date filters.
-   */
   static async getLeaveRequestsHandler(req, res) {
     try {
       const { employeeId } = req.params;
@@ -380,9 +350,6 @@ class LeaveHandler {
     }
   }
 
-  /**
-   * Edit a pending leave request.
-   */
   static async editLeaveRequestHandler(req, res) {
     try {
       const { leaveId } = req.params;
@@ -390,7 +357,6 @@ class LeaveHandler {
       const { employeeId, startDate, endDate, h_f_day, reason, leavetype } =
         req.body;
 
-      // Required Field Checks
       if (
         !leaveId ||
         !employeeId ||
@@ -407,7 +373,6 @@ class LeaveHandler {
           );
       }
 
-      // Date Range Validation
       const start = new Date(startDate);
       const end = new Date(endDate);
       if (end < start) {
@@ -421,7 +386,6 @@ class LeaveHandler {
           );
       }
 
-      // Advance Notice for Casual/Vacation Leaves
       if (leavetype === "Casual" || leavetype === "Vacation") {
         const today = new Date();
         const minStart = new Date();
@@ -438,7 +402,6 @@ class LeaveHandler {
         }
       }
 
-      // Overlapping Request Check (exclude current leave)
       const existingLeaves = await LeaveService.getLeaveRequests(employeeId);
       const newStart = new Date(startDate);
       const newEnd = new Date(endDate);
@@ -448,7 +411,6 @@ class LeaveHandler {
         h_f_day === "Half Day";
 
       const hasOverlap = existingLeaves.some((leave) => {
-        // Skip the current leave request being edited
         if (leave.id == leaveId) return false;
         const existingStart = new Date(leave.start_date);
         const existingEnd = new Date(leave.end_date);
@@ -504,9 +466,6 @@ class LeaveHandler {
     }
   }
 
-  /**
-   * Cancel a pending leave request.
-   */
   static async cancelLeaveRequestHandler(req, res) {
     try {
       const { leaveId, employeeId } = req.params;
@@ -538,9 +497,6 @@ class LeaveHandler {
     }
   }
 
-  /**
-   * Retrieve leave queries for a team lead's department.
-   */
   static async getLeaveRequestsForTeamLeadHandler(req, res) {
     try {
       const { teamLeadId } = req.params;

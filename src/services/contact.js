@@ -1,4 +1,3 @@
-// services/contact.js
 const db = require("../config");
 const {
   INSERT_CONTACT_REQUEST,

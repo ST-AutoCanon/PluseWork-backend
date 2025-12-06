@@ -20,18 +20,15 @@ const storage = multer.diskStorage({
       orgId
     );
 
-    // if it doesn't exist, create it (and any missing parents):
     try {
       fs.mkdirSync(uploadDir, { recursive: true });
     } catch (err) {
       return cb(err);
     }
 
-    // finally, tell multer to save files here:
     cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
-    // use a timestamp + original extension
     cb(null, Date.now() + path.extname(file.originalname));
   },
 });
@@ -71,7 +68,6 @@ module.exports = {
       const { roomId } = req.params;
       await chatService.markMessagesRead(roomId, req.user.id);
       const msgs = await chatService.getMessagesWithRead(roomId, req.user.id);
-      // each row now has .latitude, .longitude, but getMessagesWithRead needs to select `address` too!
       const shaped = msgs.map((m) => ({
         ...m,
         location:
@@ -139,16 +135,12 @@ module.exports = {
         return res.status(404).json({ error: "File not found" });
       }
 
-      // set headers to force download
       res.setHeader("Content-Length", stats.size);
       res.setHeader(
         "Content-Disposition",
         `attachment; filename="${filename}"`
       );
-      // (optional) detect mime-type if you care:
-      // res.setHeader("Content-Type", mime.lookup(filePath) || "application/octet-stream");
 
-      // stream the file
       fs.createReadStream(filePath).pipe(res);
     });
   },
@@ -201,7 +193,7 @@ module.exports = {
   deleteMessage: async (req, res) => {
     try {
       const { roomId, messageId } = req.params;
-      const userId = req.user.id; // from simpleAuth
+      const userId = req.user.id;
       await chatService.deleteMessage(messageId, roomId, userId);
       res.sendStatus(204);
     } catch (err) {

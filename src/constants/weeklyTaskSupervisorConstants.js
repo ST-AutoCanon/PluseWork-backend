@@ -1,7 +1,4 @@
-
-
 module.exports = {
-  // ── EMPLOYEES ─────────────────────
   GET_EMPLOYEES_BY_SUPERVISOR: `
     SELECT 
       e.employee_id,
@@ -28,7 +25,6 @@ module.exports = {
     ORDER BY e.first_name, e.last_name;
   `,
 
-  // ── TASKS ─────────────────────────
   GET_TASKS_BY_SUPERVISOR: `
     SELECT 
       t.task_id,
@@ -85,7 +81,6 @@ module.exports = {
     ORDER BY t.task_date DESC, t.task_id ASC;
   `,
 
-  // ── MUTATIONS ─────────────────────
   UPDATE_TASK_BY_ID: `
     UPDATE weekly_tasks
     SET sup_status = ?,
@@ -106,7 +101,6 @@ module.exports = {
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
   `,
 
-  // ── CONFIG ────────────────────────
   GET_CONFIG: `
     SELECT \`key\`, \`value\`
     FROM config
@@ -120,7 +114,6 @@ module.exports = {
       AND (org_id IS NULL OR org_id = ?);
   `,
 
-  // ── HOLIDAYS ──────────────────────
   GET_HOLIDAYS: `
     SELECT id, date, occasion, type
     FROM holidays

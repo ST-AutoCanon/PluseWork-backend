@@ -5,9 +5,6 @@ const {
   SELECT_MEETINGS_BY_USER,
 } = require("../constants/meetingQueries");
 
-/**
- * Insert a new meeting note and return the inserted row.
- */
 async function createMeeting({
   client_company,
   contact_name,
@@ -43,9 +40,6 @@ async function createMeeting({
   }
 }
 
-/**
- * Fetch a meeting by its ID. Returns null if not found.
- */
 async function getMeetingById(meetingId) {
   try {
     const [rows] = await db.execute(SELECT_MEETING_BY_ID, [meetingId]);
@@ -56,9 +50,6 @@ async function getMeetingById(meetingId) {
   }
 }
 
-/**
- * Fetch all meetings created by the given user (alphanumeric ID).
- */
 async function getMeetingsByCreator(created_by) {
   try {
     const [rows] = await db.execute(SELECT_MEETINGS_BY_USER, [

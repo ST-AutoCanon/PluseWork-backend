@@ -1,17 +1,15 @@
-const db = require("../config"); // Ensure correct DB connection
+const db = require("../config");
 const payrollQueries = require("../constants/payrollQueries");
 
-// Function to find the correct salary table based on month name
 const findSalaryTable = async (month, year) => {
   try {
     const monthName = new Date(year, month - 1)
       .toLocaleString("default", { month: "short" })
-      .toLowerCase(); // e.g., "mar" for March
+      .toLowerCase();
 
     const query = `SHOW TABLES`;
-    const [rows] = await db.execute(query); // Get all tables
+    const [rows] = await db.execute(query);
 
-    // Find the first table containing the month abbreviation (case insensitive)
     const matchedTable = rows.find((row) => {
       const tableName = Object.values(row)[0].toLowerCase();
       return tableName.includes(monthName);
@@ -29,7 +27,6 @@ const findSalaryTable = async (month, year) => {
   }
 };
 
-// Function to get salary slip from the correct table
 const getSalarySlip = async (employee_id, month, year) => {
   try {
     const tableName = await findSalaryTable(month, year);
@@ -37,11 +34,9 @@ const getSalarySlip = async (employee_id, month, year) => {
       return null;
     }
 
-    // Fetch all data to check if the employee exists
     const queryAll = `SELECT * FROM ${tableName}`;
     const [allRows] = await db.execute(queryAll);
 
-    // Fetch salary data for the specific employee
     const queryEmployee = `SELECT * FROM ${tableName} WHERE employee_id = ?`;
     const [rows] = await db.execute(queryEmployee, [employee_id]);
 
@@ -49,7 +44,7 @@ const getSalarySlip = async (employee_id, month, year) => {
       return null;
     }
 
-    return rows[0]; // Return first row
+    return rows[0];
   } catch (error) {
     console.error("Database query failed:", error);
     throw error;
@@ -58,7 +53,6 @@ const getSalarySlip = async (employee_id, month, year) => {
 
 const getEmployeeBankDetails = async (employee_id) => {
   try {
-    // Execute the query to fetch bank details
     const [rows] = await db.execute(
       payrollQueries.GETEMPLOYEEBANKDETAILSQUERY,
       [employee_id]
@@ -68,7 +62,7 @@ const getEmployeeBankDetails = async (employee_id) => {
       return null;
     }
 
-    return rows[0]; // Return the first row (assuming one bank account per employee)
+    return rows[0];
   } catch (error) {
     console.error("Database query failed:", error);
     throw error;

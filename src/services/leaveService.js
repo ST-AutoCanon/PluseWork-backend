@@ -1,9 +1,7 @@
-// src/services/leaveService.js
 const db = require("../config");
 const queries = require("../constants/leaveQueries");
 const LeavePolicyService = require("./leavePolicyService");
 
-/* ---------- helpers ---------- */
 const toLocalDateString = (dateInput) => {
   if (!dateInput) return "";
   const d = new Date(dateInput);
@@ -45,7 +43,6 @@ const computeInclusiveDays = (startDateStr, endDateStr, h_f_day = "") => {
   return dayCount;
 };
 
-/* ---------- read helpers ---------- */
 const getLeaveQueries = async (filters = {}) => {
   const { status, search, from_date, to_date, org_id } = filters;
 
@@ -58,9 +55,8 @@ const getLeaveQueries = async (filters = {}) => {
     const params = [];
     const whereConditions = [];
 
-    // Always filter by organization
     query += ` AND lq.org_id = ?`;
-    params.push(org_id); // first param corresponds to the org_id placeholder
+    params.push(org_id);
 
     if (status) {
       whereConditions.push("lq.status = ?");
@@ -99,7 +95,6 @@ const getLeaveQueries = async (filters = {}) => {
   }
 };
 
-/* ---------- updateLeaveRequest (transactional) ---------- */
 const updateLeaveRequest = async (payload) => {
   const {
     leaveId,
@@ -111,7 +106,6 @@ const updateLeaveRequest = async (payload) => {
     preserved_leave_days = null,
     actorId = null,
     total_days = null,
-    // new flag — expected from frontend when using default fallback
     is_defaulted = false,
   } = payload;
 
@@ -139,7 +133,6 @@ const updateLeaveRequest = async (payload) => {
       throw err;
     }
 
-    // validate totals
     const computedTotalDays = computeInclusiveDays(
       leave.start_date,
       leave.end_date,
@@ -164,7 +157,6 @@ const updateLeaveRequest = async (payload) => {
       totalDays = computedTotalDays;
     }
 
-    // read remaining balance (non-transactional)
     let remaining = 0;
     try {
       const [balRows] = await db.execute(
@@ -181,7 +173,6 @@ const updateLeaveRequest = async (payload) => {
       }
     }
 
-    // Approved branch: do all writes in a transaction
     if (status === "Approved") {
       const c = Number(compensated_days) || 0;
       const d = Number(deducted_days) || 0;
@@ -195,13 +186,11 @@ const updateLeaveRequest = async (payload) => {
         throw err;
       }
 
-      // acquire a dedicated connection for transaction
       conn = await db.getConnection();
       try {
         await conn.beginTransaction();
         transactionStarted = true;
       } catch (e) {
-        // if beginTransaction fails, release connection and rethrow
         try {
           conn.release();
         } catch (_) {}
@@ -209,10 +198,8 @@ const updateLeaveRequest = async (payload) => {
       }
 
       try {
-        // prepare write values
         const c_write = Number(c.toFixed(2));
         const d_write = Number(d.toFixed(2));
-        // if is_defaulted -> do NOT write the LoP into leavequeries.loss_of_pay_days (write zero)
         const l_write = Number(l.toFixed(2));
         const preserved_write =
           preserved_leave_days === null
@@ -220,13 +207,11 @@ const updateLeaveRequest = async (payload) => {
             : Number(Number(preserved_leave_days).toFixed(2));
         const isDefaultFlagNum = is_defaulted ? 1 : 0;
 
-        // UPDATE leave row (order must match query)
         const paramsUpdateLeave = [
           bind(status),
           bind(comments),
           bind(c_write),
           bind(d_write),
-          // if is_defaulted -> write zero to loss_of_pay_days; otherwise write actual l_write
           bind(isDefaultFlagNum ? 0 : l_write),
           bind(preserved_write),
           bind(isDefaultFlagNum),
@@ -238,7 +223,6 @@ const updateLeaveRequest = async (payload) => {
           paramsUpdateLeave
         );
 
-        // adjust leave balance if there are deducted days
         if (d_write > EPS) {
           try {
             await conn.execute(queries.ADJUST_LEAVE_BALANCE, [
@@ -257,7 +241,6 @@ const updateLeaveRequest = async (payload) => {
           }
         }
 
-        // Insert LoP record — only if actual LoP > 0 AND not defaulted.
         if (!isDefaultFlagNum && l_write > EPS) {
           await conn.execute(queries.INSERT_LOP_RECORD, [
             leave.employee_id,
@@ -268,7 +251,6 @@ const updateLeaveRequest = async (payload) => {
         } else {
         }
 
-        // Insert audit. If audit table missing -> non-fatal warning.
         try {
           const auditPayload = {
             compensated_days: c_write,
@@ -289,7 +271,6 @@ const updateLeaveRequest = async (payload) => {
           if (auditErr && auditErr.code === "ER_NO_SUCH_TABLE") {
             console.warn("leave_audit missing — skipping audit insert.");
           } else {
-            // Unexpected audit failure should cause rollback
             console.error(
               "[updateLeaveRequest] audit insert failed (fatal):",
               auditErr && auditErr.message ? auditErr.message : auditErr
@@ -298,7 +279,6 @@ const updateLeaveRequest = async (payload) => {
           }
         }
 
-        // commit
         await conn.commit();
       } catch (txErr) {
         console.error(
@@ -331,7 +311,6 @@ const updateLeaveRequest = async (payload) => {
         }
       }
 
-      // recompute monthly LOP outside transaction (best-effort)
       try {
         const leaveStart = parseDateOnly(leave.start_date);
         const leaveEnd = parseDateOnly(leave.end_date);
@@ -379,18 +358,15 @@ const updateLeaveRequest = async (payload) => {
 
       return;
     } else {
-      // Rejection or other non-Approved: update non-transactionally
-      // Use the incoming is_defaulted flag so DB accurately reflects what frontend sent.
       const isDefaultFlagNum = is_defaulted ? 1 : 0;
 
       const paramsReject = [
         bind(status),
         bind(comments),
-        bind(0), // compensated
-        bind(0), // deducted
-        bind(0), // loss_of_pay - rejected path sets 0
+        bind(0),
+        bind(0),
+        bind(0),
         bind(preserved_leave_days),
-        // is_defaulted as provided by caller (was previously hardcoded to 0)
         bind(isDefaultFlagNum),
         bind(leaveId),
       ];
@@ -405,31 +381,21 @@ const updateLeaveRequest = async (payload) => {
     );
     throw err;
   } finally {
-    // final defensive release if something left open
     try {
       if (conn) {
-        // if transaction still open try to rollback
         try {
           if (transactionStarted) {
             await conn.rollback();
             transactionStarted = false;
           }
-        } catch (rb) {
-          // ignore
-        }
+        } catch (rb) {}
         try {
           conn.release();
-        } catch (releaseErr) {
-          // ignore
-        }
+        } catch (releaseErr) {}
       }
-    } catch (e) {
-      // ignore final release failures
-    }
+    } catch (e) {}
   }
 };
-
-/* ---------- remaining functions (unchanged) ---------- */
 
 const submitLeaveRequest = async ({
   employeeId,

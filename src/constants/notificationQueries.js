@@ -32,7 +32,6 @@ const SELECT_UNREAD_NOTIFICATIONS = `
   ORDER BY triggered_at DESC;
 `;
 
-/* New helper queries used by the policy-alert job */
 const SELECT_POLICIES_ENDING_IN_DAYS = `
   SELECT
     id,
@@ -43,15 +42,12 @@ const SELECT_POLICIES_ENDING_IN_DAYS = `
   WHERE DATE(year_end) = DATE_ADD(CURDATE(), INTERVAL ? DAY)
 `;
 
-/* Choose recipients logic — default: admins/hr/managers.
-   Adjust roles if your DB uses different role names. */
 const SELECT_NOTIFICATION_RECIPIENTS = `
   SELECT employee_id
   FROM employee_professional
   WHERE LOWER(role) IN ('admin', 'hr', 'manager')
 `;
 
-/* Avoid duplicate notifications for same user+policy+message */
 const CHECK_NOTIFICATION_EXISTS = `
   SELECT id
   FROM notifications

@@ -1,10 +1,9 @@
 const attendanceService = require("../services/empSessionService");
 
 const attendanceHandler = {
-  // Handler to get today's punch records for an employee
   getTodayPunchRecords: async (req, res) => {
     try {
-      const { employeeId } = req.params; // Get employeeId from request parameters
+      const { employeeId } = req.params;
 
       if (!employeeId) {
         return res.status(400).json({ message: "Employee ID is required" });
@@ -23,7 +22,7 @@ const attendanceHandler = {
         message: "Internal server error",
       });
     }
-  }
+  },
 };
 
 module.exports = attendanceHandler;

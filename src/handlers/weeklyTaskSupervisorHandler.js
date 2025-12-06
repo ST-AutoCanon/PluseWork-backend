@@ -1,5 +1,3 @@
-
-
 const {
   fetchEmployeesBySupervisor,
   fetchAllEmployees,
@@ -12,16 +10,15 @@ const {
   fetchHolidays,
 } = require("../services/weekly_task_supervisor_service");
 
-// ── Helper: get supervisorId from header (fallback to param) ──
 const getSupervisorId = (req) => {
   return req.headers["x-employee-id"] || req.params.supervisorId;
 };
 
-// ── Employees ─────────────────────
 const getEmployees = async (req, res) => {
   try {
     const supervisorId = getSupervisorId(req);
-    if (!supervisorId) return res.status(400).json({ error: "Supervisor ID required" });
+    if (!supervisorId)
+      return res.status(400).json({ error: "Supervisor ID required" });
 
     const employees = await fetchEmployeesBySupervisor(supervisorId);
     res.json({ success: true, employees });
@@ -34,7 +31,8 @@ const getEmployees = async (req, res) => {
 const getAllEmployees = async (req, res) => {
   try {
     const supervisorId = getSupervisorId(req);
-    if (!supervisorId) return res.status(400).json({ error: "Supervisor ID required" });
+    if (!supervisorId)
+      return res.status(400).json({ error: "Supervisor ID required" });
 
     const employees = await fetchAllEmployees(supervisorId);
     res.json({ success: true, employees });
@@ -44,7 +42,6 @@ const getAllEmployees = async (req, res) => {
   }
 };
 
-// ── Tasks ─────────────────────────
 const getTasks = async (req, res) => {
   try {
     const supervisorId = req.params.supervisorId;
@@ -59,7 +56,8 @@ const getTasks = async (req, res) => {
 const getAllTasks = async (req, res) => {
   try {
     const supervisorId = getSupervisorId(req);
-    if (!supervisorId) return res.status(400).json({ error: "Supervisor ID required" });
+    if (!supervisorId)
+      return res.status(400).json({ error: "Supervisor ID required" });
 
     const tasks = await fetchAllTasks(supervisorId);
     res.json({ success: true, data: tasks });
@@ -69,7 +67,6 @@ const getAllTasks = async (req, res) => {
   }
 };
 
-// ── Task mutations ─────────────────
 const updateTask = async (req, res) => {
   try {
     const taskId = req.params.taskId;
@@ -89,14 +86,15 @@ const createTask = async (req, res) => {
   try {
     const taskData = req.body;
     const newTask = await insertNewTask(taskData);
-    res.status(201).json({ success: true, message: "Task created successfully", newTask });
+    res
+      .status(201)
+      .json({ success: true, message: "Task created successfully", newTask });
   } catch (err) {
     console.error("Error creating task:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 };
 
-// ── Config ────────────────────────
 const getConfig = async (req, res) => {
   try {
     const supervisorId = getSupervisorId(req);
@@ -126,11 +124,11 @@ const updateConfigValue = async (req, res) => {
   }
 };
 
-// ── Holidays ───────────────────────
 const getHolidays = async (req, res) => {
   try {
     const supervisorId = getSupervisorId(req);
-    if (!supervisorId) return res.status(400).json({ error: "Supervisor ID required" });
+    if (!supervisorId)
+      return res.status(400).json({ error: "Supervisor ID required" });
 
     const holidays = await fetchHolidays(supervisorId);
     res.json({ success: true, holidays });

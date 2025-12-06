@@ -1,23 +1,21 @@
 const db = require("../config");
 const queries = require("../constants/letterheadQuery");
 
-// Helper function to generate the next letterhead code
 const generateLetterheadCode = async (connection) => {
   try {
-    // Lock the table to prevent concurrent reads
     await connection.query("LOCK TABLES letterhead READ");
 
     const [rows] = await connection.query(
       "SELECT letterhead_code FROM letterhead WHERE letterhead_code LIKE 'LHT-%' ORDER BY CAST(SUBSTRING(letterhead_code, 5) AS UNSIGNED) DESC LIMIT 1"
     );
 
-    let nextCode = "LHT-00001"; // Default first code
+    let nextCode = "LHT-00001";
 
     if (rows.length > 0 && rows[0].letterhead_code) {
-      const lastCode = rows[0].letterhead_code; // e.g., "LHT-00036"
-      const numberPart = parseInt(lastCode.split("-")[1], 10); // Extract the number (e.g., 36)
+      const lastCode = rows[0].letterhead_code;
+      const numberPart = parseInt(lastCode.split("-")[1], 10);
       const nextNumber = numberPart + 1;
-      nextCode = `LHT-${nextNumber.toString().padStart(5, "0")}`; // Format as LHT-00037
+      nextCode = `LHT-${nextNumber.toString().padStart(5, "0")}`;
     }
 
     return nextCode;
@@ -25,7 +23,6 @@ const generateLetterheadCode = async (connection) => {
     console.error("Error generating letterhead code:", error);
     throw new Error("Error generating letterhead code: " + error.message);
   } finally {
-    // Unlock the table
     await connection.query("UNLOCK TABLES");
   }
 };
@@ -33,7 +30,6 @@ const generateLetterheadCode = async (connection) => {
 const insertLetterhead = async (letterheadData, retries = 3) => {
   let connection;
   try {
-    // Start a transaction
     connection = await db.getConnection();
     await connection.beginTransaction();
 
@@ -58,7 +54,6 @@ const insertLetterhead = async (letterheadData, retries = 3) => {
       place,
     } = letterheadData;
 
-    // Generate letterhead code within the transaction
     const letterhead_code = await generateLetterheadCode(connection);
 
     const values = [
@@ -85,7 +80,6 @@ const insertLetterhead = async (letterheadData, retries = 3) => {
 
     const [result] = await connection.query(queries.INSERT_LETTERHEAD, values);
 
-    // Commit the transaction
     await connection.commit();
     return result;
   } catch (error) {

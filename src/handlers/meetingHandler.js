@@ -9,7 +9,6 @@ const notificationService = require("../services/notificationService");
 const employeeService = require("../services/employeeService");
 const { rewriteText, extractMeetingFields } = require("../services/aiService");
 
-// Helper to format Date to MySQL DATETIME string
 function toMySQLDateTime(date) {
   const pad = (n) => n.toString().padStart(2, "0");
   return (
@@ -20,9 +19,6 @@ function toMySQLDateTime(date) {
   );
 }
 
-/**
- * POST /api/meetings/voice-dialog (Unchanged)
- */
 async function handleVoiceDialog(req, res) {
   try {
     const step = parseInt(req.body.step, 10);
@@ -66,9 +62,6 @@ async function handleVoiceDialog(req, res) {
   }
 }
 
-/**
- * POST /api/meetings/voice-final
- */
 async function handleVoiceFinal(req, res) {
   try {
     const {
@@ -97,7 +90,6 @@ async function handleVoiceFinal(req, res) {
         .json({ success: false, message: "Missing required fields." });
     }
 
-    // Parse and normalize follow_up_date as local date
     let jsDate = new Date(follow_up_date + "T00:00:00");
     if (isNaN(jsDate)) {
       const chronoDate = chrono.parseDate(follow_up_date);
@@ -111,7 +103,6 @@ async function handleVoiceFinal(req, res) {
 
     const mysqlDateTime = toMySQLDateTime(jsDate);
 
-    // Resolve spoken assignee
     const matches = await employeeService.searchEmployees(spokenAssignee);
     if (!matches.length) {
       return res.status(400).json({
@@ -121,7 +112,6 @@ async function handleVoiceFinal(req, res) {
     }
     const assigned_to = matches[0].employee_id;
 
-    // Prepare meeting data with proper MySQL datetime
     const meetingData = {
       client_company,
       contact_name: contact_person,
@@ -130,10 +120,9 @@ async function handleVoiceFinal(req, res) {
       action_points,
       assigned_to,
       key_points: purpose_key_points,
-      follow_up_date: mysqlDateTime, // use formatted string
+      follow_up_date: mysqlDateTime,
     };
 
-    // Insert into DB
     let record;
     try {
       record = await meetingService.createMeeting({
@@ -147,7 +136,6 @@ async function handleVoiceFinal(req, res) {
         .json({ success: false, message: "Database insertion failed." });
     }
 
-    // Notify assignment
     try {
       await notificationService.sendAssignmentNotification(record);
     } catch (notifErr) {
@@ -157,7 +145,6 @@ async function handleVoiceFinal(req, res) {
       );
     }
 
-    // Schedule follow-up reminder
     try {
       reminderService.scheduleReminder(record);
     } catch (schedErr) {
@@ -171,9 +158,6 @@ async function handleVoiceFinal(req, res) {
   }
 }
 
-/**
- * GET /api/meetings
- */
 async function handleGetMeetingsByCreator(req, res) {
   const created_by = (req.headers["x-employee-id"] || "").trim();
   if (!created_by) {
@@ -192,10 +176,6 @@ async function handleGetMeetingsByCreator(req, res) {
   }
 }
 
-/**
- * POST /api/meetings/scan-final
- * Body: { ocr_text: string }
- */
 async function handleScanFinal(req, res) {
   try {
     const { ocr_text } = req.body;
@@ -206,7 +186,6 @@ async function handleScanFinal(req, res) {
         .json({ success: false, message: "Missing fields" });
     }
 
-    // 1) Extract structured fields:
     let fields;
     try {
       fields = await extractMeetingFields(ocr_text);
@@ -215,7 +194,6 @@ async function handleScanFinal(req, res) {
       return res.status(500).json({ success: false, message: err.message });
     }
 
-    // 2) Parse & normalize follow_up_date
     let jsDate = new Date(fields.follow_up_date + "T00:00:00");
     if (isNaN(jsDate)) {
       const chronoDate = chrono.parseDate(fields.follow_up_date);
@@ -228,7 +206,6 @@ async function handleScanFinal(req, res) {
     }
     const mysqlDateTime = toMySQLDateTime(jsDate);
 
-    // 3) Resolve assignee
     const matches = await employeeService.searchEmployees(fields.assigned_to);
     if (!matches.length) {
       return res.status(400).json({
@@ -238,7 +215,6 @@ async function handleScanFinal(req, res) {
     }
     const assigned_to = matches[0].employee_id;
 
-    // 4) Prepare & insert
     const meetingData = {
       client_company: fields.client_company,
       contact_name: fields.contact_person,
@@ -255,7 +231,6 @@ async function handleScanFinal(req, res) {
       created_by,
     });
 
-    // 5) Notify & schedule
     notificationService
       .sendAssignmentNotification(record)
       .catch((e) => console.error("[handleScanFinal] notification error", e));

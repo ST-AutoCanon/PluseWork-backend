@@ -2,7 +2,6 @@ const db = require("../config");
 const Q = require("../constants/chatQueries");
 
 async function createRoom(name, isGroup, creatorId, memberIds = []) {
-  // If this is a 1-on-1 (private) with exactly one other member, check first:
   if (!isGroup && memberIds.length === 1) {
     const otherId = memberIds[0];
     const [existing] = await db.execute(Q.FIND_PRIVATE_ROOM, [
@@ -10,11 +9,10 @@ async function createRoom(name, isGroup, creatorId, memberIds = []) {
       otherId,
     ]);
     if (existing.length) {
-      return existing[0].room_id; // reuse
+      return existing[0].room_id;
     }
   }
 
-  // otherwise, make a new room:
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
@@ -25,7 +23,6 @@ async function createRoom(name, isGroup, creatorId, memberIds = []) {
     ]);
     const roomId = res.insertId;
 
-    // add both creator and members
     const all = [creatorId, ...memberIds];
     for (let id of all) {
       await conn.execute(Q.ADD_MEMBER, [roomId, id]);
@@ -42,7 +39,6 @@ async function createRoom(name, isGroup, creatorId, memberIds = []) {
 }
 
 async function getUserRooms(userId) {
-  // exactly two bindings for the two '?' above
   const [rows] = await db.execute(Q.GET_ROOMS_FOR_USER, [userId, userId]);
   return rows;
 }
@@ -95,7 +91,6 @@ async function removeMemberFromRoom(roomId, employeeId) {
 }
 
 async function deleteRoom(roomId) {
-  // cascades should remove room_members and messages if you set FK ON DELETE CASCADE
   await db.execute("DELETE FROM chat_rooms WHERE room_id = ?", [roomId]);
 }
 
@@ -112,9 +107,7 @@ async function deleteMessage(messageId, roomId, userId) {
   }
 }
 
-// services/chatService.js
 async function markMessagesRead(roomId, userId) {
-  // userId passes in for both reader_id and sender<>userId
   await db.execute(Q.MARK_MESSAGES_READ, [userId, roomId, userId, userId]);
 }
 
@@ -123,14 +116,11 @@ async function getMessagesWithRead(roomId, userId) {
     userId,
     roomId,
   ]);
-  // rows now each have a `readAt` column (null if unread by *this* user)
   return rows;
 }
 
 async function getRoomsWithUnreadCounts(userId) {
-  // 1) fetch basic room info
   const [rooms] = await db.execute(Q.GET_ROOMS_FOR_USER, [userId, userId]);
-  // 2) fetch unread counts map
   const [counts] = await db.execute(Q.GET_UNREAD_COUNTS_FOR_USER, [
     userId,
     userId,
@@ -140,7 +130,6 @@ async function getRoomsWithUnreadCounts(userId) {
     acc[room_id] = unreadCount;
     return acc;
   }, {});
-  // 3) merge
   return rooms.map((r) => ({
     ...r,
     unreadCount: byRoom[r.id] || 0,

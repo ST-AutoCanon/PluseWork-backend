@@ -74,14 +74,12 @@ const uploadHolidays = async (req, res) => {
       return res.status(400).json({ message: "Uploaded file has no sheets." });
     }
 
-    // --- new robust parsing for dates (drop-in) ---
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
 
-    // ask SheetJS to format date cells as strings "yyyy-mm-dd"
     const rows = XLSX.utils.sheet_to_json(sheet, {
       defval: "",
       raw: false,
-      dateNF: "yyyy-mm-dd", // instruct formatting for date cells
+      dateNF: "yyyy-mm-dd",
     });
 
     if (!rows || rows.length === 0) {
@@ -112,31 +110,22 @@ const uploadHolidays = async (req, res) => {
     const invalidRows = [];
     const normalized = [];
 
-    /**
-     * Normalize a date-string or Excel serial into YYYY-MM-DD (string).
-     * Prefer the already formatted string from sheet_to_json (dateNF).
-     */
     const normalizeDateToYMD = (raw) => {
-      // If it's already a YYYY-MM-DD string, accept it
       if (typeof raw === "string" && /^\d{4}-\d{2}-\d{2}$/.test(raw.trim())) {
         return raw.trim();
       }
 
-      // If it's string like DD/MM/YYYY or MM/DD/YYYY -> try DD/MM/YYYY first
       if (typeof raw === "string") {
         const s = raw.trim();
-        // dd/mm/yyyy or d/m/yyyy
         const dmy = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
         if (dmy) {
           const dd = String(dmy[1]).padStart(2, "0");
           const mm = String(dmy[2]).padStart(2, "0");
           const yyyy = dmy[3];
-          // Heuristic: if mm > 12 then it's dd/mm; otherwise ambiguous — assume dd/mm (common)
-          // But we assume user uses dd/mm in many locales. If you prefer mm/dd, adjust here.
+
           return `${yyyy}-${mm}-${dd}`;
         }
 
-        // ISO-like string: try Date parsing but construct local YYYY-MM-DD from that Date
         const attempt = new Date(s);
         if (!isNaN(attempt.getTime())) {
           const Y = attempt.getFullYear();
@@ -146,7 +135,6 @@ const uploadHolidays = async (req, res) => {
         }
       }
 
-      // If it's a number (Excel serial) - parse with SheetJS helper
       if (typeof raw === "number") {
         try {
           const parsed = XLSX.SSF.parse_date_code(raw);
@@ -156,12 +144,9 @@ const uploadHolidays = async (req, res) => {
             const D = String(parsed.d).padStart(2, "0");
             return `${Y}-${M}-${D}`;
           }
-        } catch (e) {
-          // fall through
-        }
+        } catch (e) {}
       }
 
-      // if it's a native Date object (rare because we asked raw:false, but just in case)
       if (raw instanceof Date && !isNaN(raw.getTime())) {
         const Y = raw.getFullYear();
         const M = String(raw.getMonth() + 1).padStart(2, "0");
@@ -172,9 +157,7 @@ const uploadHolidays = async (req, res) => {
       return null;
     };
 
-    // iterate rows and validate
     rows.forEach((rawRow, idx) => {
-      // map keys to lowercase
       const row = {};
       Object.entries(rawRow).forEach(([k, v]) => {
         row[String(k).trim().toLowerCase()] = v;
@@ -197,7 +180,7 @@ const uploadHolidays = async (req, res) => {
         invalidRows.push({ rowNumber: idx + 2, errors: rowErrors, raw: row });
       } else {
         normalized.push({
-          date: normalizedDate, // already YYYY-MM-DD string, no timezone math
+          date: normalizedDate,
           occasion: occasionVal,
           type: typeRaw === "company" ? "Company" : "Optional",
         });
@@ -215,7 +198,6 @@ const uploadHolidays = async (req, res) => {
       });
     }
 
-    // proceed to insert normalized (strings YYYY-MM-DD)
     const insertedCount = await holidayService.insertHolidays(
       normalized,
       orgId

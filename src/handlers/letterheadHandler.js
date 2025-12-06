@@ -24,7 +24,6 @@ const addLetterheadHandler = async (req, res) => {
       place,
     } = req.body;
 
-    // Validate required fields
     if (!letter_type || !body) {
       return res
         .status(400)
@@ -34,7 +33,7 @@ const addLetterheadHandler = async (req, res) => {
     const files = req.files || {};
     let attachment = null;
     if (files.letterhead_file) {
-      attachment = files.letterhead_file[0].filename; // Use filename from multer
+      attachment = files.letterhead_file[0].filename;
     }
 
     const letterheadData = {
@@ -106,7 +105,6 @@ const updateLetterheadHandler = async (req, res) => {
       place,
     } = req.body;
 
-    // Validate required fields
     if (!letter_type || !body) {
       return res
         .status(400)
@@ -116,15 +114,13 @@ const updateLetterheadHandler = async (req, res) => {
     const files = req.files || {};
     let attachment = null;
 
-    // Get existing letterhead to check for old attachment
     const existingLetterhead = await letterheadService.getLetterheadById(id);
     if (!existingLetterhead) {
       return res.status(404).json({ error: "Letterhead not found" });
     }
 
     if (files.letterhead_file) {
-      attachment = files.letterhead_file[0].filename; // Use filename from multer
-      // Delete old file if it exists
+      attachment = files.letterhead_file[0].filename;
       if (existingLetterhead.attachment) {
         const oldFilePath = path.join(
           __dirname,
@@ -138,7 +134,7 @@ const updateLetterheadHandler = async (req, res) => {
         }
       }
     } else {
-      attachment = existingLetterhead.attachment; // Retain existing filename
+      attachment = existingLetterhead.attachment;
     }
 
     const letterheadData = {

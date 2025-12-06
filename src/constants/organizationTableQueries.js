@@ -1,4 +1,3 @@
-// constants/organizationTableQueries.js
 const GET_ALL_ORGANIZATIONS = `
 SELECT 
   o.id,

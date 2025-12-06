@@ -4,7 +4,6 @@ const {
   getEmployeeDetails,
 } = require("../services/payrollService");
 
-// payrollHandler.js
 const fetchEmployeeDetails = async (req, res) => {
   try {
     const { employee_id } = req.params;
@@ -23,8 +22,6 @@ const fetchEmployeeDetails = async (req, res) => {
     });
   }
 };
-
-// Make sure you export it here
 
 const getSalarySlipHandler = async (req, res) => {
   try {
@@ -56,7 +53,7 @@ const getSalarySlipHandler = async (req, res) => {
 
 const handleGetEmployeeBankDetails = async (req, res) => {
   try {
-    const { employee_id } = req.params; // Get employee ID from request
+    const { employee_id } = req.params;
 
     const bankDetails = await getEmployeeBankDetails(employee_id);
     if (!bankDetails) {

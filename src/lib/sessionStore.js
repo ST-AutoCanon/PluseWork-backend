@@ -1,15 +1,13 @@
-// ./src/lib/sessionStore.js
 const session = require("express-session");
 const Redis = require("ioredis");
 const connectRedis = require("connect-redis");
 
-const RedisStore = connectRedis(session); // works with connect-redis@6
+const RedisStore = connectRedis(session);
 
-// ioredis common options - limit retries and add retry strategy
 const commonIoredisOptions = {
   maxRetriesPerRequest: 5,
   retryStrategy(times) {
-    return Math.min(50 * Math.pow(2, times), 2000); // backoff
+    return Math.min(50 * Math.pow(2, times), 2000);
   },
   enableOfflineQueue: true,
 };
@@ -26,10 +24,8 @@ async function initSessionStore() {
     try {
       if (!redisUrl) throw new Error("REDIS_URL not set");
 
-      // create ioredis client
       redisClient = new Redis(redisUrl, commonIoredisOptions);
 
-      // error handler to avoid unhandled exceptions
       redisClient.on("error", (err) =>
         console.error(
           "[ioredis] error:",
@@ -40,7 +36,6 @@ async function initSessionStore() {
       redisClient.on("ready", () => console.info("[ioredis] ready"));
       redisClient.on("end", () => console.warn("[ioredis] connection closed"));
 
-      // quick ping to ensure reachable
       await Promise.race([
         redisClient.ping(),
         new Promise((_, rej) =>
@@ -48,7 +43,6 @@ async function initSessionStore() {
         ),
       ]);
 
-      // create store
       storeInstance = new RedisStore({ client: redisClient });
       return { store: storeInstance, redisClient, usingRedis: true };
     } catch (err) {
@@ -56,7 +50,6 @@ async function initSessionStore() {
         "[sessionStore] Redis init failed:",
         err && err.message ? err.message : err
       );
-      // if redis fails, bubble up the error so caller can fallback or stop
       throw err;
     }
   })();
@@ -64,7 +57,6 @@ async function initSessionStore() {
 }
 
 function createSessionStore() {
-  // return a promise that resolves to the store
   return initSessionStore().then((r) => r.store);
 }
 

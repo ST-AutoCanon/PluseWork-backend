@@ -1,8 +1,5 @@
 const EMP_ATTENDANCE_QUERIES = {
-
-  
-    // Get all attendance records for a specific employee
-    GET_EMPLOYEE_ATTENDANCE: `
+  GET_EMPLOYEE_ATTENDANCE: `
       SELECT 
         punch_id, 
         employee_id, 
@@ -18,17 +15,13 @@ const EMP_ATTENDANCE_QUERIES = {
       WHERE employee_id = ?
       ORDER BY punchin_time DESC
     `,
-  
-    // Insert a new Punch In record
-    ADD_PUNCH_IN: `
+
+  ADD_PUNCH_IN: `
   INSERT INTO emp_attendence 
   (employee_id, punch_status, punchin_time, punchin_device, punchin_location, punchmode) 
   VALUES (?, 'Punch In', NOW(), ?, ?, ?)
-`
-,
-  
-    // Update the latest Punch In record with Punch Out details
-    UPDATE_PUNCH_OUT: `
+`,
+  UPDATE_PUNCH_OUT: `
   UPDATE emp_attendence 
   SET 
     punch_status = 'Punch Out',
@@ -39,11 +32,8 @@ const EMP_ATTENDANCE_QUERIES = {
   WHERE employee_id = ? AND punch_status = 'Punch In'
   ORDER BY punchin_time DESC
   LIMIT 1
-`
-,
-  
-    // Get today's attendance for all employees
-    GET_TODAY_ATTENDANCE: `
+`,
+  GET_TODAY_ATTENDANCE: `
       SELECT 
         employee_id, 
         COUNT(*) AS total_punches,
@@ -53,9 +43,8 @@ const EMP_ATTENDANCE_QUERIES = {
       WHERE DATE(punchin_time) = CURDATE()
       GROUP BY employee_id
     `,
-  
-    // Check if the employee's last punch was Punch In (for toggling)
-    GET_LAST_PUNCH_STATUS: `
+
+  GET_LAST_PUNCH_STATUS: `
       SELECT punch_status 
       FROM emp_attendence 
       WHERE employee_id = ? 
@@ -63,31 +52,27 @@ const EMP_ATTENDANCE_QUERIES = {
       LIMIT 1
     `,
 
-  GET_LATEST_PUNCH_IN : `
+  GET_LATEST_PUNCH_IN: `
   SELECT * FROM emp_attendence
   WHERE employee_id = ? AND punchout_time IS NULL
   ORDER BY punchin_time DESC
   LIMIT 1;
 `,
 
-// Get latest Punch Out record
- GET_LATEST_PUNCH_OUT : `
+  GET_LATEST_PUNCH_OUT: `
   SELECT * FROM emp_attendence
   WHERE employee_id = ? AND punchout_time IS NOT NULL
   ORDER BY punchout_time DESC
   LIMIT 1;
-`
-,
-
-GET_TODAY_PUNCH_RECORDS : `
+`,
+  GET_TODAY_PUNCH_RECORDS: `
   SELECT punch_status, punchin_time, punchout_time
   FROM emp_attendence
   WHERE employee_id = ? 
   AND DATE(punchin_time) = CURDATE();
-`
+`,
 
-,
- GET_ATTENDANCE_STATS : `
+  GET_ATTENDANCE_STATS: `
 WITH RECURSIVE month_days AS (
     SELECT DATE(CONCAT(YEAR(NOW()), '-', MONTH(NOW()), '-01')) AS work_date
     UNION ALL
@@ -170,22 +155,14 @@ SELECT
     (SELECT COUNT(*) FROM past_working_days 
         WHERE work_date NOT IN (SELECT punch_date FROM present_days)  
         AND work_date NOT IN (SELECT leave_date FROM leave_days)) AS absent_count;
-`
+`,
 
-
-
-
-
-,
-
- WORK_HOURS_QUERY1 : `
+  WORK_HOURS_QUERY1: `
     SELECT view, data 
     FROM emp_work_hours 
     WHERE employee_id = ?
-`
-,
-
-workHourSummaryQuery : `
+`,
+  workHourSummaryQuery: `
 
 
 WITH RECURSIVE Days AS (
@@ -283,11 +260,7 @@ SELECT 'Monthly' AS view, JSON_OBJECT(
     'values', (SELECT JSON_ARRAYAGG(total_hours) FROM FinalMonthlyData)
 ) AS data;
 
-`
+`,
+};
 
-
-
-  };
-  
-  module.exports = EMP_ATTENDANCE_QUERIES;
-  
+module.exports = EMP_ATTENDANCE_QUERIES;

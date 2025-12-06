@@ -1,18 +1,19 @@
-
-
 const db = require("../config");
 const queries = require("../constants/supervisorQueries");
 
 const getEmployeesUnderSupervisor = async (supervisorId) => {
-  const [rows] = await db.query(queries.GET_EMPLOYEES_UNDER_SUPERVISOR, [supervisorId]);
+  const [rows] = await db.query(queries.GET_EMPLOYEES_UNDER_SUPERVISOR, [
+    supervisorId,
+  ]);
   return rows;
 };
 
 const getEmployeeInteractions = async (employeeId) => {
-  const [rows] = await db.query(queries.GET_EMPLOYEE_INTERACTIONS, [employeeId]);
+  const [rows] = await db.query(queries.GET_EMPLOYEE_INTERACTIONS, [
+    employeeId,
+  ]);
   return rows;
 };
-
 
 const updateSupervisorReplyById = async (interactionId, replyText) => {
   const [result] = await db.query(
@@ -25,13 +26,15 @@ const updateSupervisorReplyById = async (interactionId, replyText) => {
   return result;
 };
 
-// Insert new supervisor comment
 const insertSupervisorComment = async (employeeId, weekId, messageText) => {
-  const [result] = await db.query(queries.INSERT_SUPERVISOR_COMMENT, [employeeId, weekId, messageText]);
+  const [result] = await db.query(queries.INSERT_SUPERVISOR_COMMENT, [
+    employeeId,
+    weekId,
+    messageText,
+  ]);
   return result;
 };
 
-// Update supervisor reply for an existing interaction
 const replyToEmployeeInteraction = async (interactionId, replyText) => {
   const [result] = await db.query(
     `UPDATE task_interactions
@@ -42,10 +45,9 @@ const replyToEmployeeInteraction = async (interactionId, replyText) => {
   return result;
 };
 
-
 module.exports = {
   getEmployeesUnderSupervisor,
   getEmployeeInteractions,
- updateSupervisorReplyById,
-  insertSupervisorComment
+  updateSupervisorReplyById,
+  insertSupervisorComment,
 };

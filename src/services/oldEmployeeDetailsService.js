@@ -29,7 +29,6 @@ const insertOldEmployeeDetails = async (data, orgId) => {
     year,
   } = data;
 
-  // Validate required fields
   if (
     !orgId ||
     !employee_name ||
@@ -43,7 +42,6 @@ const insertOldEmployeeDetails = async (data, orgId) => {
     );
   }
 
-  // Validate data formats
   if (!["Male", "Female", "Other"].includes(gender)) {
     throw new Error("Gender must be Male, Female, or Other");
   }
@@ -57,7 +55,6 @@ const insertOldEmployeeDetails = async (data, orgId) => {
     throw new Error("Year must be between 1900 and the current year");
   }
 
-  // Ensure correct types and handle nulls
   const values = [
     orgId || null,
     employee_name || null,
@@ -72,7 +69,7 @@ const insertOldEmployeeDetails = async (data, orgId) => {
     pan_number || null,
     esi_number || null,
     pf_number || null,
-    Number(basic) ? parseFloat(Number(basic).toFixed(2)) : 0, // Ensure DECIMAL(10,2)
+    Number(basic) ? parseFloat(Number(basic).toFixed(2)) : 0,
     Number(hra) ? parseFloat(Number(hra).toFixed(2)) : 0,
     Number(other_allowance)
       ? parseFloat(Number(other_allowance).toFixed(2))
@@ -227,7 +224,6 @@ const fetchEmployeeDetails = async (orgId) => {
 
   try {
     const [rows] = await pool.execute(queries.GET_EMPLOYEES, [orgId]);
-    // rows will be an array (empty if none)
     return rows;
   } catch (error) {
     console.error("❌ Error fetching employees from database:", error);

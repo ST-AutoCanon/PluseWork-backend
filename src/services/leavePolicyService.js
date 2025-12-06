@@ -1,11 +1,7 @@
-// src/services/leavePolicyService.js
 const db = require("../config");
 const queries = require("../constants/leavePolicyQueries");
 const dayjs = require("dayjs");
 
-/**
- * Safely parse JSON leave_settings column into Array.
- */
 function safeParseSettings(raw) {
   if (!raw) return [];
   if (typeof raw === "string") {
@@ -18,11 +14,6 @@ function safeParseSettings(raw) {
   return Array.isArray(raw) ? raw : [];
 }
 
-/**
- * Parse a date-like value into a local Date at midnight (no timezone shift).
- * Accepts Date, ISO strings, or 'YYYY-MM-DD' strings.
- * Returns null if invalid.
- */
 function parseLocalDate(dateInput) {
   if (!dateInput && dateInput !== 0) return null;
   if (dateInput instanceof Date && !isNaN(dateInput.getTime())) {
@@ -33,7 +24,6 @@ function parseLocalDate(dateInput) {
     );
   }
   const s = String(dateInput).trim();
-  // YYYY-MM-DD common case
   const parts = s.split("-");
   if (parts.length === 3 && /^[0-9]{4}$/.test(parts[0])) {
     const [y, m, d] = parts;
@@ -44,15 +34,12 @@ function parseLocalDate(dateInput) {
       return new Date(Y, M, D);
     }
   }
-  // fallback to Date constructor (may parse ISO)
   const parsed = new Date(s);
   if (!isNaN(parsed.getTime())) {
     return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
   }
   return null;
 }
-
-/* ------------------ helpers for leave balances / LOP (unchanged logic) ------------------ */
 
 async function getEmployeeCarryForwards(employeeId, year) {
   if (!employeeId) return {};
@@ -120,8 +107,6 @@ const deletePolicy = async (id, orgId) => {
   await db.execute(queries.remove, [id, orgId]);
 };
 
-/* ------------------ LOP / monthly helpers (kept same as your working code) ------------------ */
-
 async function getWorkedDays(employeeId, periodStart, periodEnd) {
   const [rows] = await db.execute(queries.GET_WORKED_DAYS, [
     employeeId,
@@ -186,7 +171,6 @@ async function computeAndStoreMonthlyLOP(employeeId, month, year, orgId) {
     lastDay
   ).padStart(2, "0")}`;
 
-  // explicit LOP
   const [lopRows] = await db.execute(
     `SELECT SUM(loss_of_pay_days) AS total_lop_days FROM leavequeries WHERE employee_id = ? AND status = 'Approved' AND start_date <= ? AND end_date >= ?`,
     [employeeId, periodEnd, periodStart]
@@ -202,7 +186,6 @@ async function computeAndStoreMonthlyLOP(employeeId, month, year, orgId) {
     return { month: m, year: y, total_lop: explicitLOP };
   }
 
-  // fallback compute
   const policies = await getAllPolicies(orgId).catch((e) => {
     console.warn("getAllPolicies failed:", e);
     return [];
@@ -382,15 +365,6 @@ const getLeaveBalance = async (employeeId, orgId) => {
   });
 };
 
-/* ------------------ AUTO-EXTEND: primary function you need ------------------ */
-
-/**
- * Auto-extend recently ended policies by adding `extensionDays` to year_end.
- * - extensionDays: days to add (default 90)
- * - actorId: to record in leave_audit actor_id
- *
- * Returns array of updated policy rows.
- */
 async function autoExtendRecentPolicies(
   extensionDays = 90,
   actorId = "system",
@@ -416,8 +390,7 @@ async function autoExtendRecentPolicies(
       );
       continue;
     }
-    // Accept policies that ended on or before today, but not older than cutoff
-    // (i.e. year_end <= today && year_end >= cutoff)
+
     const endedOnOrBeforeToday = end <= today;
     const newerThanCutoff = end >= cutoff;
 
@@ -446,13 +419,11 @@ async function autoExtendRecentPolicies(
         newEnd.getMonth() + 1
       ).padStart(2, "0")}-${String(newEnd.getDate()).padStart(2, "0")}`;
 
-      // Update in-place
       await conn.execute(`UPDATE leave_policy SET year_end = ? WHERE id = ?`, [
         newEndStr,
         p.id,
       ]);
 
-      // Prepare audit details
       const detailsObj = {
         action: "auto_extend_policy",
         extensionDays: Number(extensionDays || 90),
@@ -464,8 +435,6 @@ async function autoExtendRecentPolicies(
       };
       const details = JSON.stringify(detailsObj);
 
-      // Insert audit row. leave_id is policy-level, so pass NULL.
-      // But if DB disallows NULL for leave_id, fallback to 0.
       try {
         await conn.execute(queries.INSERT_LEAVE_AUDIT, [
           null,
@@ -490,11 +459,9 @@ async function autoExtendRecentPolicies(
             "[autoExtendRecentPolicies] failed to insert audit fallback (0):",
             auditErr2
           );
-          // continue — do not abort entire operation for audit insertion failure
         }
       }
 
-      // reload updated policy row
       const [rows] = await conn.execute(
         `SELECT id, period, DATE_FORMAT(year_start, '%Y-%m-%d') AS year_start, DATE_FORMAT(year_end, '%Y-%m-%d') AS year_end, leave_settings FROM leave_policy WHERE id = ?`,
         [p.id]

@@ -8,7 +8,6 @@ async function checkEmployeeAssignment(employeeId) {
       JSON.stringify(employeeId),
     ]);
     if (result.length > 0) {
-      // Assuming assigned_data contains compensation_plan_name
       const planName = result[0].compensation_plan_name || "Unknown Plan";
       return {
         hasAssignment: true,
@@ -45,7 +44,6 @@ async function assignCompensation({
     const directEmployeeSet = new Set(employeeId);
     const deptEmployeeSet = new Set();
 
-    // Fetch employees from selected departments
     if (departmentIds.length > 0) {
       for (const deptId of departmentIds) {
         const [emps] = await conn.query(
@@ -58,7 +56,6 @@ async function assignCompensation({
       }
     }
 
-    // Combine both sets
     const allEmployeeSet = new Set([...directEmployeeSet, ...deptEmployeeSet]);
 
     if (allEmployeeSet.size === 0) {
@@ -67,7 +64,6 @@ async function assignCompensation({
 
     const allEmployeeIds = [...allEmployeeSet];
 
-    // Check for existing assignments
     const existingAssignments = [];
     for (const empId of allEmployeeIds) {
       const [result] = await conn.query(queries.CHECK_EMPLOYEE_ASSIGNMENT, [
@@ -86,7 +82,6 @@ async function assignCompensation({
       );
     }
 
-    // Fetch employee names
     const [rows] = await conn.query(
       `SELECT employee_id, CONCAT(first_name, ' ', last_name) AS employee_name
        FROM employees
@@ -99,7 +94,6 @@ async function assignCompensation({
       return map;
     }, {});
 
-    // Create assignedData array
     for (const empId of allEmployeeIds) {
       assignedData.push({
         type: directEmployeeSet.has(empId) ? "individual" : "department",
@@ -108,7 +102,6 @@ async function assignCompensation({
       });
     }
 
-    // Insert assigned data
     await conn.query(queries.ADD_ASSIGNED_COMPENSATION, [
       compensationPlanName,
       JSON.stringify(assignedData),
@@ -179,7 +172,6 @@ async function addEmployeeBonusBulk({
   try {
     await conn.beginTransaction();
 
-    // Fetch skipped employees (those with invalid CTC)
     const [skipped] = await conn.query(
       `SELECT CONCAT(e.first_name, ' ', e.last_name) AS full_name
 FROM employees e
@@ -189,7 +181,6 @@ WHERE e.status = 'Active' AND (ep.salary IS NULL OR ep.salary <= 0)
     );
     const skippedEmployees = skipped.map((row) => row.full_name);
 
-    // Insert bonuses for all active employees with valid CTC
     const [result] = await conn.query(queries.ADD_EMPLOYEE_BONUS_BULK, [
       percentageCtc,
       percentageMonthlySalary,
@@ -231,7 +222,6 @@ async function addEmployeeAdvance({
   try {
     await conn.beginTransaction();
 
-    // Verify employee exists and is active
     const [employee] = await conn.query(
       `SELECT employee_id 
        FROM employees 

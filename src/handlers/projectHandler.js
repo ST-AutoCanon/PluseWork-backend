@@ -2,7 +2,6 @@ const projectService = require("../services/projectService");
 
 exports.createProject = async (req, res) => {
   try {
-    // derive org id from header (preferred) or body fallback
     const orgId = req.headers["x-org-id"] || req.body.org_id || null;
 
     const {
@@ -42,7 +41,6 @@ exports.createProject = async (req, res) => {
         ? req.files.map((file) => file.filename)
         : [];
 
-    // NOTE: orgId is passed as last param
     const projectId = await projectService.addProject([
       country,
       state,
@@ -62,7 +60,7 @@ exports.createProject = async (req, res) => {
       payment_type,
       description,
       JSON.stringify(attachments),
-      orgId, // <-- NEW
+      orgId,
     ]);
 
     await projectService.addSTSOwner([
@@ -195,10 +193,8 @@ exports.createProject = async (req, res) => {
 
 exports.getProjects = async (req, res) => {
   try {
-    // prefer header then query param
     const orgId = req.headers["x-org-id"] || req.query.orgId || null;
 
-    // allow optional employeeId filter (existing behavior)
     const { employeeId } = req.query;
     let projects;
     if (employeeId) {
@@ -237,7 +233,6 @@ exports.searchEmployees = async (req, res) => {
   try {
     const search = String(req.query.search || "").trim();
 
-    // prefer header; fallback to query param
     const orgId = req.headers["x-org-id"] || req.query.orgId || null;
 
     if (!orgId) {

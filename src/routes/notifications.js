@@ -1,5 +1,3 @@
-// backend/routes/notifications.js
-
 const express = require("express");
 const {
   getNotifications,

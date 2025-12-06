@@ -1,5 +1,4 @@
 module.exports = {
-  /* forgot-password queries*/
   GET_EMPLOYEE_BY_EMAIL: `SELECT *
   FROM employees
   WHERE email = ?

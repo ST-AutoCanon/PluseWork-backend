@@ -11,7 +11,6 @@ const {
 
 const router = express.Router();
 
-// Define routes using the destructured handlers
 router.post("/employee/leave", submitLeaveRequestHandler);
 router.get("/employee/leave/:employeeId", getLeaveRequestsHandler);
 router.get("/admin/leave", getLeaveQueries);

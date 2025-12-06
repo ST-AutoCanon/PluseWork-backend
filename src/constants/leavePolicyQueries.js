@@ -1,5 +1,4 @@
 module.exports = {
-  // 1) Fetch all policies
   getAll: `
     SELECT
       id,
@@ -12,7 +11,6 @@ module.exports = {
     ORDER BY year_start DESC, period
   `,
 
-  // 2) Fetch a single policy by ID
   getById: `
     SELECT
       id,
@@ -24,14 +22,12 @@ module.exports = {
     WHERE id = ?
   `,
 
-  // 3) Insert a new policy (JSON string)
   create: `
     INSERT INTO leave_policy
       (org_id, period, year_start, year_end, leave_settings)
     VALUES (?, ?, ?, ?, ?)
   `,
 
-  // 4) Update an existing policy
   update: `
     UPDATE leave_policy
     SET
@@ -42,13 +38,11 @@ module.exports = {
     WHERE id = ? AND org_id = ?
   `,
 
-  // 5) Delete a policy
   remove: `
     DELETE FROM leave_policy
     WHERE id = ? AND org_id = ?
   `,
 
-  // LeaveQueries / leave request queries (kept for compatibility)
   GET_LEAVE_BY_ID: `
     SELECT
       lq.*,
@@ -66,12 +60,6 @@ module.exports = {
     ) VALUES (?, ?, ?, ?, ?, ?);
   `,
 
-  // ------------------------------------------------------------------
-  // New queries for attendance + monthly LOP persistence
-  // ------------------------------------------------------------------
-
-  // Count worked days where both punchin_time and punchout_time exist between a date range
-  // Params: [employeeId, startDate, endDate]
   GET_WORKED_DAYS: `
     SELECT COUNT(DISTINCT DATE(punchin_time)) AS worked_days
     FROM emp_attendence
@@ -105,8 +93,6 @@ GROUP BY leave_type;
 
 `,
 
-  // Upsert into employee_monthly_lop
-  // Params: [employeeId, month, year, lop]
   UPSERT_EMPLOYEE_MONTHLY_LOP: `
     INSERT INTO employee_monthly_lop (employee_id, month, year, lop)
     VALUES (?, ?, ?, ?)
@@ -115,21 +101,17 @@ GROUP BY leave_type;
       computed_at = CURRENT_TIMESTAMP;
   `,
 
-  // Fetch stored monthly lop if present
-  // Params: [employeeId, month, year]
   GET_EMPLOYEE_MONTHLY_LOP: `
     SELECT lop, DATE_FORMAT(computed_at, '%Y-%m-%d %H:%i:%s') AS computed_at
     FROM employee_monthly_lop
     WHERE employee_id = ? AND month = ? AND year = ?;
   `,
 
-  // new query: get per-employee carry forward for a policy year
   GET_EMPLOYEE_CARRY_FORWARD: `
     SELECT leave_type, amount
     FROM employee_leave_carry_forward
     WHERE employee_id = ? AND year = ?
   `,
-  // Insert audit record for traceability
   INSERT_LEAVE_AUDIT: `
     INSERT INTO leave_audit (
       leave_id,

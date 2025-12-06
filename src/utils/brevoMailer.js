@@ -1,4 +1,3 @@
-// brevoMailer.js
 const axios = require("axios");
 const { v4: uuidv4 } = require("uuid");
 
@@ -31,7 +30,6 @@ async function sendWithRetries(payload, retries = MAX_RETRIES) {
     try {
       attempt++;
       const resp = await axios.post(url, payload, { headers, timeout: 10000 });
-      // success
       return resp.data;
     } catch (err) {
       lastErr = err;
@@ -52,7 +50,6 @@ async function sendWithRetries(payload, retries = MAX_RETRIES) {
     }
   }
 
-  // enrich error message
   if (lastErr && lastErr.response && lastErr.response.data) {
     const info = JSON.stringify(lastErr.response.data);
     lastErr.message = `${lastErr.message} | brevo response: ${info}`;

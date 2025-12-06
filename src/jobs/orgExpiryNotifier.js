@@ -1,4 +1,3 @@
-// services/orgExpiryNotifier.js
 const cron = require("node-cron");
 const db = require("../config");
 const {
@@ -12,10 +11,6 @@ const {
 
 const TZ = "Asia/Kolkata";
 
-/**
- * Formats a JS Date (or date-string) to DD-MM-YYYY
- * (keeps things simple and explicit)
- */
 function formatDateToDDMMYYYY(d) {
   if (!d) return "";
   const dt = new Date(d);
@@ -25,13 +20,6 @@ function formatDateToDDMMYYYY(d) {
   return `${dd}-${mm}-${yyyy}`;
 }
 
-/**
- * Runs the notification check:
- * - finds organizations whose end_date is exactly `daysBefore` days from today
- * - for each: tries to find the admin employee (by admin_email + org id)
- * - checks for a recent similar notification (dedupeDays)
- * - inserts notification if none exists
- */
 async function runOrgExpiryNotifications({
   daysBefore = 5,
   dedupeDays = 7,
@@ -56,7 +44,6 @@ async function runOrgExpiryNotifications({
           continue;
         }
 
-        // find employee id for admin email & org
         const [empRows] = await db.execute(SELECT_EMPLOYEE_ID_BY_EMAIL, [
           adminEmail,
           orgId,
@@ -72,24 +59,21 @@ async function runOrgExpiryNotifications({
         const formattedDate = formatDateToDDMMYYYY(endDate);
         const message = `Your subscription to Pulsework is ending on ${formattedDate} kindly contact the Pulsework Administrator to renew your subscription`;
 
-        // Use a short unique substring to dedupe (we check last dedupeDays days)
         const likeParam = `%Pulsework is ending on%`;
         const [existRows] = await db.execute(
           CHECK_RECENT_SIMILAR_NOTIFICATION,
           [employeeId, likeParam, dedupeDays]
         );
         if (existRows && existRows.length > 0) {
-          // Already notified recently
           continue;
         }
 
-        // Insert notification (triggered_at set to now or pass the DB param as desired)
         await db.execute(INSERT_NOTIFICATION, [
           employeeId,
-          null, // meeting_id
-          null, // policy_id
+          null,
+          null,
           message,
-          new Date(), // triggered_at
+          new Date(),
         ]);
       } catch (innerErr) {
         console.error(
@@ -103,9 +87,6 @@ async function runOrgExpiryNotifications({
   }
 }
 
-/**
- * Schedules the job to run each day at 09:00 IST (Asia/Kolkata)
- */
 function scheduleJob() {
   cron.schedule(
     "22 14 * * *",

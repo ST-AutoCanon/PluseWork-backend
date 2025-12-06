@@ -1,5 +1,4 @@
 module.exports = {
-  // Fetch leave request by ID and employee ID to verify ownership
   GET_LEAVE_BY_ID: `
     SELECT
       lq.*,
@@ -10,7 +9,6 @@ module.exports = {
     WHERE lq.id = ? AND lq.employee_id = ?
   `,
 
-  // Update leave request if still pending
   UPDATE_LEAVE_REQUEST: `
     UPDATE leavequeries
     SET start_date = ?,
@@ -21,13 +19,11 @@ module.exports = {
     WHERE id = ? AND employee_id = ?
   `,
 
-  // Delete leave request (cancel) if still pending
   DELETE_LEAVE_REQUEST: `
     DELETE FROM leavequeries
     WHERE id = ? AND employee_id = ?
   `,
 
-  // Insert new leave request
   INSERT_LEAVE_REQUEST: `
     INSERT INTO leavequeries (
       employee_id, start_date, end_date,
@@ -35,7 +31,6 @@ module.exports = {
     ) VALUES (?, ?, ?, ?, ?, ?, ?)
   `,
 
-  // Select all leave requests for a given employee (include is_defaulted)
   SELECT_LEAVE_REQUESTS: `
     SELECT
       lq.*,
@@ -100,7 +95,6 @@ module.exports = {
   )
 `,
 
-  // Query to update the status of a leave request (kept for compatibility)
   UPDATE_LEAVE_STATUS: `
     UPDATE leavequeries
     SET status   = ?,
@@ -108,12 +102,10 @@ module.exports = {
     WHERE id = ?
   `,
 
-  // Team lead helper: fetch employee details
   GET_EMPLOYEE_BY_ID: `
     SELECT * FROM employees WHERE employee_id = ?
   `,
 
-  // Team lead helper: fetch employee list for department
   GET_EMPLOYEES_BY_DEPARTMENT: `
     SELECT e.employee_id
     FROM employees e
@@ -122,7 +114,6 @@ module.exports = {
     WHERE pr.department_id = ?
   `,
 
-  // Team lead view: leave queries for team (include is_defaulted)
   GET_LEAVE_QUERIES_FOR_TEAM: `
     SELECT
       lq.id AS leave_id,
@@ -148,14 +139,12 @@ module.exports = {
     WHERE 1=1
   `,
 
-  // NEW: fetch by leave id only
   GET_LEAVE_BY_LEAVEID: `
     SELECT *
     FROM leavequeries
     WHERE id = ?
   `,
 
-  // Updated: store the split fields into leavequeries + is_defaulted
   UPDATE_LEAVE_STATUS_EXTENDED: `
     UPDATE leavequeries
     SET status = ?,
@@ -169,14 +158,12 @@ module.exports = {
     WHERE id = ?
   `,
 
-  // Adjust leave balance (deduct days)
   ADJUST_LEAVE_BALANCE: `
     UPDATE employee_leave_balances
     SET remaining = GREATEST(0, remaining - ?)
     WHERE employee_id = ? AND leave_type = ?
   `,
 
-  // Insert audit record for traceability
   INSERT_LEAVE_AUDIT: `
     INSERT INTO leave_audit (
       leave_id,
@@ -187,7 +174,6 @@ module.exports = {
     ) VALUES (?, ?, ?, ?, NOW())
   `,
 
-  // Insert LoP record for payroll (basic)
   INSERT_LOP_RECORD: `
     INSERT INTO lop_records (
       employee_id,

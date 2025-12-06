@@ -39,13 +39,6 @@ const formatColumnName = (name) => {
     .replace(/[^a-zA-Z0-9_]/g, "");
 };
 
-/**
- * Generate table name using orgId (from headers) and filename (month_year inside filename)
- * Final format: <orgId>_<month>_<year>
- *
- * @param {string} orgId - organization id from headers (required)
- * @param {string} fileName - filename (without extension), expected to contain month_year like "mar_2025"
- */
 const generateTableName = (orgId, fileName) => {
   if (!orgId) {
     throw new Error(
@@ -53,7 +46,6 @@ const generateTableName = (orgId, fileName) => {
     );
   }
 
-  // normalize orgId: lowercase, replace spaces with underscore, remove invalid chars
   const normalizedOrgId = String(orgId)
     .toLowerCase()
     .trim()
@@ -84,12 +76,11 @@ const generateTableName = (orgId, fileName) => {
 
 const uploadSalaryData = async (req, res) => {
   try {
-    // orgId is required and must come from headers (node lowercases header keys)
     const orgId =
       req.headers.orgid ||
       req.headers["x-org-id"] ||
       req.headers["orgId"] ||
-      req.headers["org-id"]; // fallback checks
+      req.headers["org-id"];
 
     if (!orgId) {
       return res

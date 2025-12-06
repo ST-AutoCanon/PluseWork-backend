@@ -18,7 +18,7 @@ const getLeaveQueriesHandler = async (req, res) => {
       return res.status(200).json({
         status: "success",
         message: "No leave queries found for the given employee ID.",
-        leaveQueries: [], // Returning an empty array instead of an error
+        leaveQueries: [],
       });
     }
 

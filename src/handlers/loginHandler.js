@@ -56,39 +56,6 @@ class LoginHandler {
         console.error("Org expiry check failed:", orgErr);
       }
 
-      const dashboardFunction =
-        {
-          Admin: LoginService.fetchAdminDashboard,
-          Employee: LoginService.fetchEmployeeDashboard,
-        }[user.role] || LoginService.fetchEmployeeDashboard;
-
-      let dashboard;
-      try {
-        dashboard = await dashboardFunction(user.employee_id);
-      } catch (dashErr) {
-        console.warn(
-          "Dashboard fetch failed, returning safe default:",
-          dashErr?.message || dashErr
-        );
-        dashboard = {};
-      }
-
-      const sidebarMenu =
-        (await LoginService.fetchSidebarMenu(user.role, user.Org_id)) || [];
-
-      const orgId = user.Org_id;
-
-      const attendanceCount = await LoginService.getAttendanceStatusCount(
-        orgId
-      );
-      const loginDataCount = await LoginService.fetchEmployeeLoginDataCount(
-        orgId
-      );
-      const employeeCountByDepartment =
-        (await LoginService.getEmployeeCountByDepartment(orgId)) || [];
-
-      const salaryRanges = await LoginService.fetchSalaryRanges(orgId);
-
       req.session.lastActive = Date.now();
       req.session.userRole = user.role;
 
@@ -98,8 +65,6 @@ class LoginHandler {
         orgId: user.Org_id,
         name: user.name,
         gender: user.gender,
-        dashboard,
-        sidebarMenu,
         email: user.email || null,
         employeeId: user.employee_id || null,
       };
@@ -134,12 +99,7 @@ class LoginHandler {
             name: user.name,
             org_id: user.Org_id,
             gender: user.gender,
-            dashboard,
-            sidebarMenu,
-            attendanceCount,
-            loginDataCount: loginDataCount || [],
-            employeeCountByDepartment: employeeCountByDepartment || [],
-            salaryRanges: salaryRanges || { labels: [], datasets: [] },
+            employeeId: user.employee_id,
           },
         });
       });
@@ -194,6 +154,99 @@ class LoginHandler {
         code: 500,
         message: "Internal server error",
       });
+    }
+  }
+
+  static async getSidebar(req, res) {
+    try {
+      const role = req.session?.user?.role;
+      const orgId = req.session?.user?.orgId;
+
+      if (!role || !orgId) {
+        return res
+          .status(401)
+          .json(ErrorHandler.generateErrorResponse(401, "Unauthorized"));
+      }
+
+      const cacheKey = `sidebar:${role}:${orgId}`;
+      try {
+        if (redisClient && typeof redisClient.get === "function") {
+          const cached = await redisClient.get(cacheKey);
+          if (cached) {
+            return res.status(200).json({
+              status: "success",
+              code: 200,
+              message: JSON.parse(cached),
+              cached: true,
+            });
+          }
+        }
+      } catch (cacheErr) {
+        console.warn("Sidebar cache read failed:", cacheErr);
+      }
+
+      const sidebarMenu =
+        (await LoginService.fetchSidebarMenu(role, orgId)) || [];
+
+      try {
+        if (redisClient && typeof redisClient.set === "function") {
+          await redisClient.set(
+            cacheKey,
+            JSON.stringify(sidebarMenu),
+            "EX",
+            300
+          );
+        }
+      } catch (cacheErr) {
+        console.warn("Sidebar cache write failed:", cacheErr);
+      }
+
+      return res.status(200).json({
+        status: "success",
+        code: 200,
+        message: sidebarMenu,
+      });
+    } catch (err) {
+      console.error("getSidebar error:", err);
+      return res
+        .status(500)
+        .json(ErrorHandler.generateErrorResponse(500, "Internal server error"));
+    }
+  }
+
+  static async getDashboard(req, res) {
+    try {
+      const user = req.session?.user;
+      if (!user || !user.employeeId) {
+        return res
+          .status(401)
+          .json(ErrorHandler.generateErrorResponse(401, "Unauthorized"));
+      }
+
+      let dashboard = {};
+      try {
+        if ((user.role || "").toLowerCase() === "admin") {
+          dashboard = await LoginService.fetchAdminDashboard(user.employeeId);
+        } else {
+          dashboard = await LoginService.fetchEmployeeDashboard(
+            user.employeeId
+          );
+        }
+      } catch (dashErr) {
+        console.warn("Dashboard fetch failed:", dashErr?.message || dashErr);
+        dashboard = {};
+      }
+
+      return res.status(200).json({
+        status: "success",
+        code: 200,
+        message: dashboard,
+      });
+    } catch (err) {
+      console.error("getDashboard error:", err);
+      return res
+        .status(500)
+        .json(ErrorHandler.generateErrorResponse(500, "Internal server error"));
     }
   }
 

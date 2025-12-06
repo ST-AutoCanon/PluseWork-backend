@@ -117,10 +117,8 @@ exports.createFullEmployee = async (req, res) => {
     const data = { ...req.body };
     const raw = req.body || {};
 
-    // Resolve orgId from header/body/query and normalize onto data
     const orgId = resolveOrgIdFromReq(req);
     if (orgId) {
-      // normalize to your preferred key; using org_id
       data.org_id = data.org_id || data.orgId || orgId;
       data.orgId = data.orgId || data.org_id || orgId;
     } else {
@@ -334,7 +332,6 @@ exports.updateFullEmployee = async (req, res) => {
     const raw = req.body || {};
     const data = { employee_id: req.params.employeeId, ...raw };
 
-    // resolve orgId and normalize onto data
     const orgId = resolveOrgIdFromReq(req);
     if (orgId) {
       data.org_id = data.org_id || data.orgId || orgId;

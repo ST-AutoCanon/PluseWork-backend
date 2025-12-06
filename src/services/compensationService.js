@@ -65,7 +65,7 @@ const updateCompensation = async (compensation_id, updateData) => {
       JSON.stringify(formData),
       compensation_id,
     ];
-    const [result] = await db.execute(UPDATE_COMPENSATION_PLAN, values); // Error here
+    const [result] = await db.execute(UPDATE_COMPENSATION_PLAN, values);
     return { affectedRows: result.affectedRows };
   } catch (error) {
     console.error("❌ Error updating compensation:", error);
@@ -83,7 +83,6 @@ const deleteCompensation = async (compensation_id) => {
   }
 };
 
-// Fetch all employee full names
 const getAllEmployeeNames = async () => {
   try {
     const [rows] = await db.execute(GET_ALL_EMPLOYEE_FULL_NAMES);

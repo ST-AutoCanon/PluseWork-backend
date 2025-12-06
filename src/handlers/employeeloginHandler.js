@@ -2,7 +2,7 @@ const attendanceService = require("../services/employeeloginService");
 
 const getTodayAndYesterdayPunchData = async (req, res) => {
   try {
-    const { org_id } = req.query; // Extract org_id from query parameters
+    const { org_id } = req.query;
     if (!org_id) {
       return res
         .status(400)

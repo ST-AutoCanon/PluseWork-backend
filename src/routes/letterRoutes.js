@@ -9,14 +9,12 @@ const {
   getLatestLetterIdHandler,
 } = require("../handlers/letterHandler");
 
-// Configure multer storage
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, "uploads/letters/"),
   filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
 });
 const upload = multer({ storage });
 
-// Routes
 router.post("/letters", upload.single("pdf"), addLetterHandler);
 router.put("/letters/:id", upload.single("pdf"), updateLetterHandler);
 router.get("/letters", getAllLettersHandler);

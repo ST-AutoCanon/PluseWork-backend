@@ -15,35 +15,6 @@ const {
   getEmployeeLopDetailsForCurrentPeriod,
 } = require("../services/assign_compensations");
 
-// async function checkEmployeeAssignmentHandler(req, res) {
-//   try {
-//     const { employeeId } = req.body;
-
-//     if (!employeeId) {
-//       return res.status(400).json({
-//         success: false,
-//         error: "Missing required field: employeeId"
-//       });
-//     }
-
-//     const result = await checkEmployeeAssignment(employeeId);
-
-//     res.status(200).json({
-//       success: true,
-//       message: result.hasAssignment
-//         ? `Employee ${employeeId} has existing assignments`
-//         : `No assignments found for employee ${employeeId}`,
-//       data: result
-//     });
-//   } catch (error) {
-//     console.error("❌ Error checking employee assignment:", error);
-//     res.status(500).json({
-//       success: false,
-//       error: "Failed to check employee assignment",
-//       details: error.message
-//     });
-//   }
-// }
 async function checkEmployeeAssignmentHandler(req, res) {
   try {
     const { employeeId } = req.body;
@@ -186,7 +157,6 @@ const addEmployeeBonusBulkHandler = async (req, res) => {
       applicableMonth,
     } = req.body;
 
-    // Require applicableMonth
     if (!applicableMonth) {
       return res.status(400).json({
         success: false,
@@ -194,7 +164,6 @@ const addEmployeeBonusBulkHandler = async (req, res) => {
       });
     }
 
-    // At least one bonus type should be provided
     if (
       percentageCtc === null &&
       percentageMonthlySalary === null &&
@@ -207,7 +176,6 @@ const addEmployeeBonusBulkHandler = async (req, res) => {
       });
     }
 
-    // Validate percentage ranges if provided
     if (percentageCtc !== null && (percentageCtc < 0 || percentageCtc > 100)) {
       return res.status(400).json({
         success: false,
@@ -267,14 +235,10 @@ const getEmployeeBonusDetailsHandler = async (req, res) => {
 
 const addEmployeeAdvanceHandler = async (req, res) => {
   try {
-    const {
-      employeeId,
-      advanceAmount,
-      recoveryMonths,
-      applicableMonth, // Accept from frontend
-    } = req.body;
+    const { employeeId, advanceAmount, recoveryMonths, applicableMonth } =
+      req.body;
 
-    const applicableMonths = applicableMonth; // Map it internally
+    const applicableMonths = applicableMonth;
 
     if (
       !employeeId ||
@@ -295,7 +259,7 @@ const addEmployeeAdvanceHandler = async (req, res) => {
       employeeId,
       advanceAmount,
       recoveryMonths,
-      applicableMonths, // Use mapped value
+      applicableMonths,
     });
 
     res.status(201).json({
@@ -361,7 +325,7 @@ const fetchEmployeeExtraHours = async (req, res) => {
 
 const handleAddOvertimeDetailsBulk = async (req, res) => {
   try {
-    const dataArray = req.body.data; // expects an array of overtime records
+    const dataArray = req.body.data;
     const result = await addOvertimeDetailsBulk(dataArray);
     res.status(200).json({
       success: true,
@@ -380,7 +344,7 @@ const handleAddOvertimeDetailsBulk = async (req, res) => {
 
 const handleApproveOvertimeRow = async (req, res) => {
   try {
-    const row = req.body; // expects a single overtime row object
+    const row = req.body;
     const result = await approveOvertimeRow(row);
     res.status(200).json({
       success: true,
@@ -399,7 +363,7 @@ const handleApproveOvertimeRow = async (req, res) => {
 
 const handleRejectOvertimeRow = async (req, res) => {
   try {
-    const row = req.body; // expects a single overtime row object
+    const row = req.body;
     const result = await rejectOvertimeRow(row);
     res.status(200).json({
       success: true,

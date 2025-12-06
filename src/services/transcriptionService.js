@@ -1,4 +1,3 @@
-// backend/services/transcriptionService.js
 const { spawn } = require("child_process");
 const util = require("util");
 const fs = require("fs");

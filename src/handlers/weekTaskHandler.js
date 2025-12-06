@@ -1,6 +1,5 @@
 const weekTaskService = require("../services/weekTaskService");
 
-// Create week task
 exports.createWeekTask = async (req, res) => {
   try {
     const taskId = await weekTaskService.createWeekTask(req.body);
@@ -11,7 +10,6 @@ exports.createWeekTask = async (req, res) => {
   }
 };
 
-// Get tasks by week
 exports.getWeekTasksByWeek = async (req, res) => {
   try {
     const week_id = req.params.week_id;
@@ -23,7 +21,6 @@ exports.getWeekTasksByWeek = async (req, res) => {
   }
 };
 
-// Get tasks by employee_id
 exports.getWeekTasksByEmployee = async (req, res) => {
   try {
     const employee_id = req.params.employee_id;
@@ -35,7 +32,6 @@ exports.getWeekTasksByEmployee = async (req, res) => {
   }
 };
 
-// Update week task
 exports.updateWeekTask = async (req, res) => {
   try {
     const task_id = req.params.id;
@@ -48,7 +44,6 @@ exports.updateWeekTask = async (req, res) => {
   }
 };
 
-// Delete week task
 exports.deleteWeekTask = async (req, res) => {
   try {
     const task_id = req.params.id;

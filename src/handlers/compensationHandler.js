@@ -9,8 +9,6 @@ const {
   getEmployeesByDepartmentId,
 } = require("../services/compensationService");
 
-// Add compensation record
-
 const addCompensationHandler = async (req, res) => {
   try {
     const { compensationPlanName, formData } = req.body;
@@ -36,7 +34,6 @@ const addCompensationHandler = async (req, res) => {
     });
   }
 };
-// Get all compensation records
 const getAllCompensationsHandler = async (req, res) => {
   try {
     const compensations = await getAllCompensations();
@@ -49,10 +46,9 @@ const getAllCompensationsHandler = async (req, res) => {
   }
 };
 
-// Get compensation by employee ID
 const getCompensationByEmployeeIdHandler = async (req, res) => {
   try {
-    const { id } = req.params; // Changed from employeeId to id
+    const { id } = req.params;
 
     if (!id) {
       return res.status(400).json({ error: "Missing ID" });
@@ -70,8 +66,6 @@ const getCompensationByEmployeeIdHandler = async (req, res) => {
   }
 };
 
-// Update compensation
-// handlers/compensationHandler.js
 const updateCompensationHandler = async (req, res) => {
   try {
     const { id } = req.params;
@@ -105,7 +99,6 @@ const updateCompensationHandler = async (req, res) => {
   }
 };
 
-// Delete compensation
 const deleteCompensationHandler = async (req, res) => {
   try {
     const { employeeId } = req.params;

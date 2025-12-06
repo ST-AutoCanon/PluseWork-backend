@@ -349,7 +349,7 @@ async function makeCleanedComposite({
     .map((w) => {
       if (!w || !w.bbox) return "";
       const b = w.bbox;
-      const pad = 2; // px
+      const pad = 2;
       const x = Math.max(0, (b.x0 || 0) - pad);
       const y = Math.max(0, (b.y0 || 0) - pad);
       const width = Math.min(W - x, Math.max(1, b.x1 - b.x0 + pad * 2));

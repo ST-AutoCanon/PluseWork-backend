@@ -14,7 +14,7 @@ exports.createWeekTask = async (taskData) => {
     taskData.sup_comment || null,
     taskData.sup_review_status || "pending",
     taskData.employee_id || null,
-    taskData.star_rating || null
+    taskData.star_rating || null,
   ]);
   return result.insertId;
 };
@@ -24,9 +24,10 @@ exports.getWeekTasksByWeek = async (week_id) => {
   return rows;
 };
 
-// Fetch tasks by employee_id
 exports.getWeekTasksByEmployee = async (employee_id) => {
-  const [rows] = await db.query(queries.GET_WEEK_TASKS_BY_EMPLOYEE, [employee_id]);
+  const [rows] = await db.query(queries.GET_WEEK_TASKS_BY_EMPLOYEE, [
+    employee_id,
+  ]);
   return rows;
 };
 
@@ -42,7 +43,7 @@ exports.updateWeekTask = async (task_id, taskData) => {
     taskData.sup_review_status,
     taskData.employee_id || null,
     taskData.star_rating || null,
-    task_id
+    task_id,
   ]);
   return result.affectedRows;
 };

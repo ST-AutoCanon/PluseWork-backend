@@ -4,7 +4,6 @@ const {
   GETEMPLOYEEBANKDETAILSQUERY,
 } = require("../constants/adminSalaryStatement");
 
-// Normalize and validate month input to 3-letter lowercase (jan..dec)
 const normalizeMonth = (month) => {
   if (!month) throw new Error("Missing month");
   const months = [
@@ -23,13 +22,11 @@ const normalizeMonth = (month) => {
   ];
   let m = String(month).toLowerCase().trim();
 
-  // If numeric (1..12 or 01..12)
   if (/^\d{1,2}$/.test(m)) {
     const idx = parseInt(m, 10);
     if (idx >= 1 && idx <= 12) return months[idx - 1];
   }
 
-  // Accept full month names or abbreviations - check first 3 letters
   m = m.slice(0, 3);
   if (months.includes(m)) return m;
 
@@ -38,7 +35,6 @@ const normalizeMonth = (month) => {
   );
 };
 
-// Normalize and validate year (YYYY)
 const normalizeYear = (year) => {
   if (!year) throw new Error("Missing year");
   const y = String(year).trim();
@@ -48,7 +44,6 @@ const normalizeYear = (year) => {
   return y;
 };
 
-// Normalize orgId to safe identifier (lowercase, underscores, alphanum)
 const normalizeOrgId = (orgId) => {
   if (!orgId) throw new Error("Missing orgId");
   const normalized = String(orgId)
@@ -60,16 +55,13 @@ const normalizeOrgId = (orgId) => {
   return normalized;
 };
 
-// check whether a table exists in current DB
 const tableExists = async (tableName) => {
   const sql = `SELECT COUNT(*) AS count FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?`;
   const [rows] = await pool.query(sql, [tableName]);
-  // rows might be an array; pick first row's count
   const count = rows && rows[0] ? rows[0].count : rows.count || 0;
   return Number(count) > 0;
 };
 
-// Function to fetch salary statement data based on selected month, year and orgId
 const getSalaryStatement = async (orgId, month, year) => {
   try {
     const normalizedOrgId = normalizeOrgId(orgId);
@@ -80,7 +72,6 @@ const getSalaryStatement = async (orgId, month, year) => {
 
     const exists = await tableExists(tableName);
     if (!exists) {
-      // Table doesn't exist yet -> return empty array (caller can decide how to handle)
       console.warn(`Table ${tableName} does not exist.`);
       return [];
     }
@@ -93,7 +84,6 @@ const getSalaryStatement = async (orgId, month, year) => {
   }
 };
 
-// Function to fetch employee bank details (unchanged)
 const getEmployeeBankDetails = async (employeeId) => {
   try {
     const [rows] = await pool.query(GETEMPLOYEEBANKDETAILSQUERY, [employeeId]);

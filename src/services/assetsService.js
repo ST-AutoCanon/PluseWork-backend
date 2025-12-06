@@ -61,11 +61,9 @@ const getOrganizationPrefix = async (orgId) => {
 
 const getLastAssetId = async (combinedPrefix) => {
   try {
-    // combinedPrefix example: "ACME-SYS-LPT"
     const likePattern = `${combinedPrefix}-%`;
     const [rows] = await db.execute(GET_LAST_ASSET_ID, [likePattern]);
     if (rows.length === 0) return `${combinedPrefix}-001`;
-    // grab numeric part after last '-'
     const lastNumber = parseInt(rows[0].asset_id.split("-").pop(), 10);
     return `${combinedPrefix}-${String(lastNumber + 1).padStart(3, "0")}`;
   } catch (error) {
@@ -116,10 +114,8 @@ const addAsset = async (orgId, assetData) => {
       document_path,
     } = assetData;
 
-    // derive orgPrefix (this function already exists)
-    const orgPrefix = await getOrganizationPrefix(orgId); // e.g. "ACME" or "STS"
+    const orgPrefix = await getOrganizationPrefix(orgId);
 
-    // category -> prefix map (unchanged)
     const categoryPrefixes = {
       Laptop: "SYS-LPT",
       Desktop: "SYS-DEC",
@@ -135,13 +131,10 @@ const addAsset = async (orgId, assetData) => {
 
     const categoryPrefix = categoryPrefixes[sub_category] || "OTHR";
 
-    // combinedPrefix will make asset_id global, e.g. "ACME-SYS-LPT"
     const combinedPrefix = `${orgPrefix}-${categoryPrefix}`;
 
-    // generate globally-unique asset_id
     const asset_id = await getLastAssetId(combinedPrefix);
 
-    // asset_code (human readable org-scoped code) — keep as org-specific
     const asset_code = await getLastAssetCode(orgId);
 
     const values = [

@@ -31,7 +31,6 @@ const updateConfig = async (req, res) => {
         .json({ success: false, message: "key and value required" });
     }
 
-    // ADD AWAIT HERE
     await saveConfig(key, value, orgId);
 
     res.json({ success: true, message: "Config updated" });

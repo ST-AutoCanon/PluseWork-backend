@@ -1,4 +1,3 @@
-// constants/reg_faceConstants.js
 const CHECK_FACE_REGISTERED = `
   SELECT id 
   FROM face_data 
@@ -6,4 +5,3 @@ const CHECK_FACE_REGISTERED = `
 `;
 
 module.exports = { CHECK_FACE_REGISTERED };
-

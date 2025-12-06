@@ -9,7 +9,6 @@ const {
 const TZ = "Asia/Kolkata";
 
 const REQUIRED_KEYS = [
-  // personal
   "first_name",
   "last_name",
   "phone_number",
@@ -18,12 +17,10 @@ const REQUIRED_KEYS = [
   "gender",
   "emergency_name",
   "emergency_number",
-  // government
   "aadhaar_number",
   "aadhaar_doc_url",
   "pan_number",
   "pan_doc_url",
-  // education (only main ones - expand as you prefer)
   "tenth_institution",
   "tenth_year",
   "tenth_board",
@@ -34,14 +31,11 @@ const REQUIRED_KEYS = [
   "twelfth_board",
   "twelfth_score",
   "twelfth_cert_url",
-  // professional
   "resume_url",
-  // bank
   "bank_name",
   "account_number",
   "ifsc_code",
   "branch_name",
-  // family
   "marital_status",
 ];
 
@@ -61,7 +55,6 @@ function labelForKey(key) {
 
 async function runCheckForMissingProfiles({ dedupeDays = 7 } = {}) {
   try {
-    // Use 'status' column per your table schema (enum 'Active'|'Inactive')
     const [empRows] = await db.execute(`
   SELECT e.employee_id
   FROM employees e

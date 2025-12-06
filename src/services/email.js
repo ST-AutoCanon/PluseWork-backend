@@ -1,10 +1,9 @@
-// services/email.js
 const nodemailer = require("nodemailer");
 
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
   port: parseInt(process.env.SMTP_PORT || "587", 10),
-  secure: process.env.SMTP_SECURE === "true", // true for 465
+  secure: process.env.SMTP_SECURE === "true",
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
@@ -16,7 +15,6 @@ const transporter = nodemailer.createTransport({
   debug: process.env.LOG_SMTP === "true",
 });
 
-// Verify transporter on startup so issues are visible in logs immediately.
 transporter.verify((err, success) => {
   if (err) {
     console.error(
@@ -75,7 +73,6 @@ const sendNotificationEmail = async (createdOrPayload) => {
     html: bodyHtml,
   };
 
-  // Log safe mail metadata (do NOT log html content or secrets)
   console.info("[Email] Prepared mail", {
     from: mailOptions.from,
     to: mailOptions.to,
@@ -98,7 +95,6 @@ const sendNotificationEmail = async (createdOrPayload) => {
     }
     return info;
   } catch (err) {
-    // create a richer error and attach original
     const enriched = new Error(
       `Failed to send notification email: ${
         err && err.message ? err.message : err
@@ -106,7 +102,6 @@ const sendNotificationEmail = async (createdOrPayload) => {
     );
     enriched.original = err;
 
-    // Log key nodemailer fields to help debugging (do NOT print auth or envs)
     console.error("[Email] sendMail failed", {
       message: err && err.message,
       code: err && err.code,
@@ -116,7 +111,6 @@ const sendNotificationEmail = async (createdOrPayload) => {
     });
 
     if (process.env.NODE_ENV !== "production") {
-      // In non-prod, log full stack
       console.error(err);
     }
 

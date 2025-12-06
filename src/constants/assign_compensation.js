@@ -1,4 +1,3 @@
-
 module.exports = {
   ADD_COMPENSATION_ASSIGNMENT: `
     INSERT INTO assigned_compensations (
@@ -48,8 +47,7 @@ module.exports = {
       )
   `,
 
- // In ../constants/assign_compensation.js
-GET_ASSIGNED_COMPENSATION_DETAILS: `
+  GET_ASSIGNED_COMPENSATION_DETAILS: `
 SELECT 
     ac.id,
     ac.compensation_plan_name,
@@ -79,7 +77,7 @@ LIMIT 0, 1000;
     VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
   `,
 
- ADD_EMPLOYEE_BONUS_BULK: `
+  ADD_EMPLOYEE_BONUS_BULK: `
     INSERT INTO employee_bonus_details (
       percentage_ctc,
       percentage_monthly_salary,
@@ -102,7 +100,6 @@ LIMIT 0, 1000;
     ORDER BY applicable_month DESC, id ASC
     LIMIT 0, 1000
   `,
-// Advance queries
   ADD_EMPLOYEE_ADVANCE: `
   INSERT INTO employee_advance_details (
     employee_id,
@@ -114,7 +111,7 @@ LIMIT 0, 1000;
   VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
 `,
 
- GET_EMPLOYEE_ADVANCE_DETAILS: `
+  GET_EMPLOYEE_ADVANCE_DETAILS: `
   SELECT 
     ead.id,
     ead.employee_id,
@@ -161,57 +158,7 @@ LIMIT 0, 1000;
       AND ea.punchin_time <= ?
   `,
 
- 
-//     GET_EMPLOYEE_EXTRA_HOURS : `
-//   SELECT 
-//     punch_id,
-//     employee_id,
-//     DATE(punchin_time) AS work_date,
-//     punch_status,
-//     punchin_time,
-//     punchin_device,
-//     punchin_location,
-//     punchout_time,
-//     punchout_device,
-//     punchout_location,
-//     punchmode,
-//     ROUND(TIMESTAMPDIFF(MINUTE, punchin_time, punchout_time) / 60.0, 2) AS hours_worked,
-//     ROUND(TIMESTAMPDIFF(MINUTE, punchin_time, punchout_time) / 60.0 - 10, 2) AS extra_hours
-//   FROM emp_attendence
-//   WHERE 
-//     punchin_time IS NOT NULL
-//     AND punchout_time IS NOT NULL
-//     AND TIMESTAMPDIFF(HOUR, punchin_time, punchout_time) > 10
-//     AND punchin_time >= DATE_FORMAT(CURDATE() - INTERVAL 1 MONTH, '%Y-%m-25')
-//     AND punchin_time <= DATE_FORMAT(CURDATE(), '%Y-%m-25');
-// `
-
-//  GET_EMPLOYEE_EXTRA_HOURS: `
-//   SELECT 
-//     punch_id,
-//     employee_id,
-//     DATE(punchin_time) AS work_date,
-//     punch_status,
-//     punchin_time,
-//     punchin_device,
-//     punchin_location,
-//     punchout_time,
-//     punchout_device,
-//     punchout_location,
-//     punchmode,
-//     ROUND(TIMESTAMPDIFF(MINUTE, punchin_time, punchout_time) / 60.0, 2) AS hours_worked,
-//     ROUND(TIMESTAMPDIFF(MINUTE, punchin_time, punchout_time) / 60.0 - 10, 2) AS extra_hours
-//   FROM emp_attendence
-//   WHERE 
-//     punchin_time IS NOT NULL
-//     AND punchout_time IS NOT NULL
-//     AND TIMESTAMPDIFF(HOUR, punchin_time, punchout_time) > 10
-//     AND punchin_time >= ?
-//     AND punchin_time <= ?
-// ` ,
-
-// Insert bulk overtime records with default status "Pending"
-ADD_OVERTIME_DETAILS_BULK: `
+  ADD_OVERTIME_DETAILS_BULK: `
   INSERT INTO overtime_details (
     punch_id,
     work_date,
@@ -228,8 +175,7 @@ ADD_OVERTIME_DETAILS_BULK: `
   VALUES ?
 `,
 
-// Insert a single row as "Approved"
-ADD_OVERTIME_DETAILS_APPROVED: `
+  ADD_OVERTIME_DETAILS_APPROVED: `
   INSERT INTO overtime_details (
     punch_id,
     work_date,
@@ -246,8 +192,7 @@ ADD_OVERTIME_DETAILS_APPROVED: `
   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Approved', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 `,
 
-// Insert a single row as "Rejected"
-ADD_OVERTIME_DETAILS_REJECTED: `
+  ADD_OVERTIME_DETAILS_REJECTED: `
   INSERT INTO overtime_details (
     punch_id,
     work_date,
@@ -263,7 +208,7 @@ ADD_OVERTIME_DETAILS_REJECTED: `
   )
   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Rejected', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 `,
- GET_ALL_OVERTIME_DETAILS :`
+  GET_ALL_OVERTIME_DETAILS: `
   SELECT 
     punch_id,
     work_date,
@@ -279,7 +224,7 @@ ADD_OVERTIME_DETAILS_REJECTED: `
   FROM overtime_details
   ORDER BY work_date DESC
 `,
- GET_EMPLOYEE_LOP_DAYS_FOR_CURRENT_PERIOD: `
+  GET_EMPLOYEE_LOP_DAYS_FOR_CURRENT_PERIOD: `
  SELECT 
     lq.employee_id,
     SUM(lp.emp_lop) AS emp_lop
@@ -289,10 +234,9 @@ WHERE lq.status = 'Approved'
     AND lq.start_date >= DATE_FORMAT(CURDATE() - INTERVAL 1 MONTH, '%Y-%m-25')
     AND lq.start_date < DATE_FORMAT(CURDATE(), '%Y-%m-26')
 GROUP BY lq.employee_id;
-  `
+  `,
 
-  ,
-CHECK_EMPLOYEE_ASSIGNMENT: `
+  CHECK_EMPLOYEE_ASSIGNMENT: `
     SELECT id, compensation_plan_name
 FROM assigned_compensations
 WHERE JSON_CONTAINS(assigned_data, ?, '$.employee_id')
@@ -305,6 +249,5 @@ WHERE JSON_CONTAINS(assigned_data, ?, '$.employee_id')
       assigned_date
     )
     VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-  `
+  `,
 };
-

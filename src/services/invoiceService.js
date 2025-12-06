@@ -117,9 +117,6 @@ const getInvoiceById = async (id) => {
   }
 };
 
-// at top: ensure invoiceQueries is required as you already have
-// const invoiceQueries = require("../constants/invoiceQueries");
-
 const generateTemplateInvoiceNo = async (invoiceType, orgId = null) => {
   const today = new Date();
   const financialYear = getFinancialYear(today);
@@ -164,7 +161,6 @@ const generateInvoiceNo = async (invoiceDate, invoiceType, orgId) => {
     const orgName = await getOrgName(connection, orgId);
     const acronym = makeOrgAcronym(orgName);
 
-    // read existing row for this org/type/fy
     const [rows] = await connection.execute(invoiceQueries.GET_NEXT_SEQUENCE, [
       invoiceType,
       financialYear,
@@ -173,19 +169,16 @@ const generateInvoiceNo = async (invoiceDate, invoiceType, orgId) => {
 
     let sequenceForInvoice;
     if (!rows || rows.length === 0) {
-      // No row exists yet: use 1 for this invoice, and insert a row with sequence = 2 (next will be 2)
       sequenceForInvoice = 1;
       await connection.execute(invoiceQueries.INSERT_INITIAL_SEQUENCE, [
         invoiceType,
         financialYear,
         orgId,
-        2, // next available sequence after we return 1
+        2,
       ]);
     } else {
-      // row exists and holds the next sequence to use
       const currentSeq = Number(rows[0].sequence) || 1;
       sequenceForInvoice = currentSeq;
-      // update to next sequence
       await connection.execute(invoiceQueries.UPDATE_SEQUENCE, [
         currentSeq + 1,
         invoiceType,
@@ -488,7 +481,6 @@ async function recordDownloadDetails(
         }
       }
     } else {
-      // no orgId or couldn't parse sequence — we won't touch invoice_numbers
     }
 
     await connection.commit();

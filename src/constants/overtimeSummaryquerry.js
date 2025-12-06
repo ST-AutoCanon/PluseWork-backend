@@ -1,5 +1,3 @@
-// constants/overtimeSummaryQuery.js
-
 const OVERTIME_SUMMARY_QUERY = `
 SELECT 
     sup.employee_id AS supervisor_id,

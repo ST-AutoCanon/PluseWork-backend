@@ -4,7 +4,7 @@ const {
   updateOrganization,
   getSidebarAccessByOrg,
   getSidebarMenu,
-  deleteOrganization: deleteOrganizationService, // Renamed to avoid conflict
+  deleteOrganization: deleteOrganizationService,
 } = require("../services/organizationTableService");
 
 const fetchAllOrganizations = async (req, res) => {
@@ -75,7 +75,6 @@ const fetchSidebarMenu = async (req, res) => {
 
 const deleteOrganization = async (req, res) => {
   try {
-    // Validate request and parameters
     if (!req || !req.params) {
       throw new Error("Invalid request: Missing request parameters");
     }
@@ -85,15 +84,12 @@ const deleteOrganization = async (req, res) => {
       throw new Error("Organization ID is required");
     }
 
-    // Validate orgId format (assuming it’s numeric)
     if (!orgId.match(/^\d+$/)) {
       throw new Error("Invalid organization ID format");
     }
 
-    // Call the service function to perform deletion
     await deleteOrganizationService(orgId);
 
-    // Validate response object
     if (!res || typeof res.status !== "function") {
       throw new Error("Invalid response object");
     }

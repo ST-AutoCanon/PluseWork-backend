@@ -1,10 +1,8 @@
 const adminSalaryStatementService = require("../services/adminSalaryStatementService");
 
 const adminSalaryStatementHandler = {
-  // Fetch salary statement
   fetchSalaryStatement: async (req, res) => {
     try {
-      // Read orgId from headers (accept common variants)
       const orgId =
         req.headers.orgid ||
         req.headers["x-org-id"] ||
@@ -35,7 +33,6 @@ const adminSalaryStatementHandler = {
     }
   },
 
-  // Fetch employee bank details (unchanged)
   fetchEmployeeBankDetails: async (req, res) => {
     try {
       const { employeeId } = req.params;

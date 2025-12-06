@@ -129,7 +129,6 @@ exports.getAllReimbursements = async (
   orgId = null
 ) => {
   try {
-    // query updated SQL expects the last two params to be orgId twice (see queries below)
     const [rawRows] = await db.query(queries.GET_ALL_REIMBURSEMENTS, [
       submittedFrom,
       submittedFromForBetween,
@@ -160,7 +159,6 @@ exports.getAllReimbursements = async (
     attachments.forEach((att) => {
       const key = att.reimbursement_id;
       if (!attachmentMap[key]) attachmentMap[key] = [];
-      // att may or may not have org_id column depending on schema — prefer att.org_id if present
       const orgSeg = att.org_id
         ? att.org_id
         : att.employee_org_id

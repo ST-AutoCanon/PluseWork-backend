@@ -1,9 +1,8 @@
 const service = require("../services/taskMessagesService");
 
-
 const sendMessage = async (req, res) => {
   try {
-    const { taskId, type, text, sender } = req.body; // sender = "employee" or "supervisor" (or employeeId)
+    const { taskId, type, text, sender } = req.body;
 
     const messageObj = {
       type,
@@ -33,13 +32,20 @@ const getMessages = async (req, res) => {
     const messages = await service.getTaskMessages(taskId);
 
     if (!messages) {
-      return res.status(404).json({ success: false, message: "No messages found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "No messages found" });
     }
 
-    const parsed = typeof messages === "string" ? JSON.parse(messages) : messages;
+    const parsed =
+      typeof messages === "string" ? JSON.parse(messages) : messages;
 
-    const progressMessages = parsed.messages.filter(m => m.type === "Progress");
-    const clarificationMessages = parsed.messages.filter(m => m.type === "Clarification");
+    const progressMessages = parsed.messages.filter(
+      (m) => m.type === "Progress"
+    );
+    const clarificationMessages = parsed.messages.filter(
+      (m) => m.type === "Clarification"
+    );
 
     res.status(200).json({
       success: true,
@@ -53,5 +59,4 @@ const getMessages = async (req, res) => {
   }
 };
 
-
-module.exports = { sendMessage, getMessages};
+module.exports = { sendMessage, getMessages };

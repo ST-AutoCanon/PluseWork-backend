@@ -1,5 +1,3 @@
-// backend/constants/meetingQueries.js
-
 const INSERT_MEETING = `
   INSERT INTO meeting_notes
     (client_company,

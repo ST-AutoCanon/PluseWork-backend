@@ -1,8 +1,11 @@
 const express = require("express");
 const router = express.Router();
 const LoginHandler = require("../handlers/loginHandler");
+
 router.post("/login", LoginHandler.login);
 router.post("/logout", LoginHandler.logout);
+router.get("/sidebar", LoginHandler.getSidebar);
+router.get("/dashboard", LoginHandler.getDashboard);
 router.get("/salary-ranges", LoginHandler.getSalaryRanges);
 router.get("/attendance-status", LoginHandler.getAttendanceStatusCount);
 router.get("/login-data-count", LoginHandler.getEmployeeLoginDataCount);

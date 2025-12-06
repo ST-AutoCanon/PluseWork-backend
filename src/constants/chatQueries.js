@@ -1,5 +1,4 @@
 module.exports = {
-  // — Rooms —
   CREATE_ROOM: `
     INSERT INTO chat_rooms (room_name, is_group, created_by)
     VALUES (?, ?, ?);
@@ -53,7 +52,6 @@ module.exports = {
     VALUES (?, ?);
   `,
 
-  // — Messages —
   SAVE_MESSAGE: `
     INSERT INTO messages
       (room_id, sender_id, message_text, type, file_url, latitude, longitude, address)

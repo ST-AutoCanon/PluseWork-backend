@@ -22,10 +22,9 @@ async function moveFileToUploads(tmpPath, originalName) {
   await fs.ensureDir(path.dirname(destPath));
   await fs.move(tmpPath, destPath, { overwrite: true });
 
-  return destName; // store filename, front-end will build full URL when rendering
+  return destName;
 }
 
-// Helper: build minimal grapes_json + html to show header, footer, and watermark images
 function buildSimpleTemplateHtml(
   orgId,
   headerName,
@@ -39,7 +38,6 @@ function buildSimpleTemplateHtml(
   const footerUrl = footerName
     ? `/api/orgs/${orgId}/uploads/${footerName}`
     : null;
-  // watermarkUrl may be a full URL (passed through) or null
 
   const grapesJson = {
     id: `scan-${Date.now()}`,
@@ -71,7 +69,6 @@ function buildSimpleTemplateHtml(
                 },
               ]
             : []),
-          // body placeholder
           {
             tagName: "div",
             attributes: { class: "template-body" },
@@ -142,7 +139,6 @@ async function uploadScanHandler(req, res) {
   }
 
   try {
-    // move each uploaded file to public/uploads and get the filenames
     const headerName = headerFile
       ? await moveFileToUploads(headerFile.path, headerFile.originalname)
       : null;
@@ -156,7 +152,6 @@ async function uploadScanHandler(req, res) {
       ? await moveFileToUploads(watermarkFile.path, watermarkFile.originalname)
       : null;
 
-    // Parse meta JSON if provided
     let watermarkPlacement = null;
     let bodyType = "letter";
     let incomingWatermarkFlag = false;
@@ -167,18 +162,14 @@ async function uploadScanHandler(req, res) {
         bodyType = meta.bodyType || "letter";
         incomingWatermarkFlag = !!meta.watermark;
       }
-    } catch (e) {
-      // ignore parse errors, use defaults
-    }
+    } catch (e) {}
 
-    // Get existing watermark URL if being re-saved without new file
     const existingWatermarkUrl =
       (req.body && req.body.existingWatermarkUrl) || null;
     const watermarkUrlForGrapes = watermarkName
       ? `/api/orgs/${orgId}/uploads/${watermarkName}`
       : existingWatermarkUrl;
 
-    // Build a minimal template that references the saved uploads (no OCR / no processing)
     const { grapesJson, html, thumbnailName } = buildSimpleTemplateHtml(
       orgId,
       headerName,
@@ -187,17 +178,16 @@ async function uploadScanHandler(req, res) {
       watermarkPlacement
     );
 
-    // Save in DB: template_type 'scan' and thumbnail_url = filename (so frontend can build URL)
     const nameFromClient =
       (req.body && req.body.name) ||
       `Uploaded template ${new Date().toISOString()}`;
     const savePayload = {
       name: nameFromClient,
       template_type: "scan",
-      grapes_json: grapesJson, // templateService.saveTemplate will stringify if needed
+      grapes_json: grapesJson,
       html,
       css: null,
-      thumbnail_url: thumbnailName, // store filename only
+      thumbnail_url: thumbnailName,
       meta: JSON.stringify({
         bodyType,
         watermark: !!watermarkName || incomingWatermarkFlag,
@@ -211,7 +201,6 @@ async function uploadScanHandler(req, res) {
       savePayload
     );
 
-    // Return minimal success — frontend will re-fetch templates list and build image URLs
     return res.json({ success: true, id: saved.id || saved.insertId || null });
   } catch (err) {
     console.error("uploadScanHandler", err);
@@ -240,11 +229,9 @@ async function uploadImageHandler(req, res) {
       .replace(/\s/g, "_")}`;
     const destPath = path.join(publicUploads, destName);
 
-    // ensure parent exists then move
     await fs.ensureDir(path.dirname(destPath));
     await fs.move(file.path, destPath, { overwrite: true });
 
-    // return simple minimal response (filename) — front-end can build URLs when needed
     return res.json({ success: true, filename: destName });
   } catch (err) {
     console.error("uploadImageHandler", err);
@@ -270,23 +257,18 @@ async function listTemplatesHandler(req, res) {
   try {
     const rows = await templateService.getTemplates(orgId);
 
-    // Parse grapes_json and meta columns if they're stored as strings
     const parsed = (rows || []).map((r) => {
       const out = { ...r };
       try {
         if (typeof out.grapes_json === "string" && out.grapes_json) {
           out.grapes_json = JSON.parse(out.grapes_json);
         }
-      } catch (e) {
-        // leave as-is on parse failure
-      }
+      } catch (e) {}
       try {
         if (typeof out.meta === "string" && out.meta) {
           out.meta = JSON.parse(out.meta);
         }
-      } catch (e) {
-        // leave as-is on parse failure
-      }
+      } catch (e) {}
       return out;
     });
 

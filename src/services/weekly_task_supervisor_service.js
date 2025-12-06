@@ -1,5 +1,3 @@
-
-
 const db = require("../config");
 const {
   GET_EMPLOYEES_BY_SUPERVISOR,
@@ -13,9 +11,11 @@ const {
   GET_HOLIDAYS,
 } = require("../constants/weeklyTaskSupervisorConstants");
 
-// ── Employees ─────────────────────
 const fetchEmployeesBySupervisor = async (supervisorId) => {
-  const [rows] = await db.query(GET_EMPLOYEES_BY_SUPERVISOR, [supervisorId, supervisorId]);
+  const [rows] = await db.query(GET_EMPLOYEES_BY_SUPERVISOR, [
+    supervisorId,
+    supervisorId,
+  ]);
   return rows;
 };
 
@@ -24,9 +24,11 @@ const fetchAllEmployees = async (supervisorId) => {
   return rows;
 };
 
-// ── Tasks ─────────────────────────
 const fetchTasksBySupervisor = async (supervisorId) => {
-  const [rows] = await db.query(GET_TASKS_BY_SUPERVISOR, [supervisorId, supervisorId]);
+  const [rows] = await db.query(GET_TASKS_BY_SUPERVISOR, [
+    supervisorId,
+    supervisorId,
+  ]);
   return rows;
 };
 
@@ -35,7 +37,6 @@ const fetchAllTasks = async (supervisorId) => {
   return rows;
 };
 
-// ── Task mutations ─────────────────
 const updateTaskById = async (taskId, updateData) => {
   const {
     sup_status,
@@ -112,7 +113,6 @@ const insertNewTask = async (taskData) => {
   };
 };
 
-// ── Config ────────────────────────
 const fetchConfig = async (supervisorId) => {
   const [rows] = await db.query(GET_CONFIG, [supervisorId]);
   return rows;
@@ -122,7 +122,6 @@ const updateConfig = async (key, value, supervisorId) => {
   await db.query(UPDATE_CONFIG, [value, key, supervisorId]);
 };
 
-// ── Holidays ───────────────────────
 const fetchHolidays = async (supervisorId) => {
   const [rows] = await db.query(GET_HOLIDAYS, [supervisorId]);
   return rows;

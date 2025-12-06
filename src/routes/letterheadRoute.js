@@ -12,15 +12,12 @@ const {
 
 const router = express.Router();
 
-// 📁 Define upload directory for letterheads
 const letterheadDir = path.join(__dirname, "..", "letterheadfiles");
 
-// 📁 Ensure the directory exists
 if (!fs.existsSync(letterheadDir)) {
   fs.mkdirSync(letterheadDir, { recursive: true });
 }
 
-// 📥 Multer configuration
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, letterheadDir);
@@ -33,10 +30,8 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
-// 📑 Fields allowed for upload
 const uploadFields = upload.fields([{ name: "letterhead_file", maxCount: 1 }]);
 
-// 📑 Field configurations for letter types
 const fieldConfigs = {
   Letter: [
     {
@@ -249,13 +244,11 @@ const fieldConfigs = {
   ],
 };
 
-// ✅ Routes
 router.post("/letterheads/add", uploadFields, addLetterheadHandler);
 router.get("/letterheads/list", getAllLetterheadsHandler);
 router.put("/letterheads/update/:id", uploadFields, updateLetterheadHandler);
 router.get("/letterheads/:id", getLetterheadByIdHandler);
 
-// 📤 Download letterhead file
 router.get("/letterheads/download/:filename", (req, res) => {
   const filename = req.params.filename;
   const filePath = path.join(letterheadDir, path.basename(filename));
@@ -267,7 +260,6 @@ router.get("/letterheads/download/:filename", (req, res) => {
   }
 });
 
-// 👁️ View letterhead file inline
 router.get("/letterheads/view/:filename", (req, res) => {
   const apiKey = req.headers["x-api-key"];
   if (apiKey !== process.env.API_KEY) {
@@ -286,7 +278,6 @@ router.get("/letterheads/view/:filename", (req, res) => {
   }
 });
 
-// 📋 Get field configurations for letter types
 router.get("/templates/fields", (req, res) => {
   const apiKey = req.headers["x-api-key"];
   if (apiKey !== process.env.API_KEY) {

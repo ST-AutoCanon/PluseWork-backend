@@ -150,7 +150,6 @@ ORDER BY t.updated_at DESC;
     ANY_VALUE(DATE_FORMAT(t.updated_at, '%Y-%m-%d %H:%i:%s')) AS updated_at,
     ANY_VALUE(t.status)                 AS status,
     ANY_VALUE(t.latest_message)         AS latest_message,
-    /* real aggregation for unread count */
     COUNT(CASE WHEN mrs.is_read = 0 THEN 1 END) AS unread_message_count
 
   FROM threads t

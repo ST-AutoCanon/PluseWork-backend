@@ -9,7 +9,6 @@ const fetchLastMonthSalary = async (req, res) => {
 
     const result = await getLastMonthTotalSalary(orgId);
 
-    // Handle case when no data found
     if (result === null) {
       return res.status(200).json({
         message: "No data found for the previous month",

@@ -1,5 +1,3 @@
-// backend/handlers/notificationHandler.js
-
 const db = require("../config");
 const {
   SELECT_UNREAD_NOTIFICATIONS,

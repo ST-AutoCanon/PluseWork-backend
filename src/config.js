@@ -1,8 +1,3 @@
-/**
- * Database configuration using MySQL connection pool.
- *
- * @module config
- */
 require("dotenv").config();
 const mysql = require("mysql2");
 

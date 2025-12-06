@@ -91,7 +91,6 @@ function validateAttachments(files) {
 exports.generateReimbursementPDF = async (req, res) => {
   try {
     const { claimId } = req.params;
-    // read orgId from header / query / body / user
     const orgId =
       req.headers["x-org-id"] ||
       req.query?.orgId ||
@@ -99,7 +98,6 @@ exports.generateReimbursementPDF = async (req, res) => {
       (req.user && req.user.orgId) ||
       null;
 
-    // GET_CLAIM_DETAILS query updated to accept org filter (see queries below)
     const claimResult = await db.query(queries.GET_CLAIM_DETAILS, [
       claimId,
       orgId,
@@ -116,7 +114,6 @@ exports.generateReimbursementPDF = async (req, res) => {
       return res.status(404).json({ error: "Claim not found" });
     }
 
-    // Ensure employee belongs to org (optional guard): get employee details by employee id
     const employeeResult = await db.query(queries.GET_EMPLOYEE_DETAILS, [
       claim.employee_id,
     ]);

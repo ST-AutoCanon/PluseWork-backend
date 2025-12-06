@@ -1,19 +1,15 @@
-
-
-
 const db = require("../config");
 const { GET_CONFIG_QUERY } = require("../constants/configQueries");
 
 const fetchConfig = async (orgId) => {
   const [rows] = await db.query(GET_CONFIG_QUERY, [orgId]);
   const config = {};
-  rows.forEach(r => {
+  rows.forEach((r) => {
     config[r.key] = r.value;
   });
   return config;
 };
 
-// NEW: Save or update config
 const saveConfig = async (key, value, orgId) => {
   const UPSERT = `
     INSERT INTO config (\`key\`, value, org_id)

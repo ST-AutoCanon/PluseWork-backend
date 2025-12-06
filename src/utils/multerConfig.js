@@ -1,4 +1,3 @@
-// utils/multerConfig.js
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
@@ -31,19 +30,12 @@ function ensureDirSync(dir) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 
-/**
- * Extract orgId from possible sources:
- * - req.body.org_id
- * - req.body.orgId
- * - x-org-id header (case-insensitive)
- */
 function extractOrgId(req) {
   if (!req) return null;
   const body = req.body || {};
   const maybe =
     body.org_id || body.orgId || body.organization_id || body.organizationId;
   if (maybe) return String(maybe).trim();
-  // check header (express normalizes headers to lowercase)
   const headerVal =
     req.get &&
     (req.get("x-org-id") || req.get("x-orgid") || req.get("x-orgId"));
@@ -53,7 +45,6 @@ function extractOrgId(req) {
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    // require email and orgId to be present (email already required earlier)
     const email =
       (req.body &&
         (req.body.email || req.body.email_address || req.body.emailAddress)) ||
@@ -75,10 +66,8 @@ const storage = multer.diskStorage({
       );
     }
 
-    // sanitize email for folder name (basic)
     const safeEmail = String(email).replace(/[/\\?%*:|"<> ]+/g, "_");
 
-    // handle bracketed fields like experience[0][doc] or additional_certs[1][file]
     const bracketMatch = file.fieldname.match(
       /^(experience|additional_certs)\[(\d+)\]\[(doc|file)\]$/
     );
@@ -89,15 +78,12 @@ const storage = multer.diskStorage({
       if (type === "experience") {
         subfolder = path.join("exp", `exp_${idx}`);
       } else {
-        // additional_certs
         subfolder = path.join("edu", "additional", `cert_${idx}`);
       }
     } else {
-      // fallback to simple mapping
       subfolder = FIELD_FOLDERS[file.fieldname] || "misc";
     }
 
-    // final path: BASE_UPLOADS/<orgId>/<safeEmail>/<subfolder>
     const uploadDir = path.join(
       BASE_UPLOADS,
       String(orgId),
@@ -120,7 +106,6 @@ const fileFilter = (_req, file, cb) => {
     "image/png",
     "image/gif",
     "application/pdf",
-    // add more if you want (e.g. doc/docx)
   ]);
   cb(null, allowed.has(file.mimetype));
 };

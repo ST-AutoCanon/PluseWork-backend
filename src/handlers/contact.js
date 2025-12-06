@@ -1,4 +1,3 @@
-// handlers/contactRequest.js  (or wherever your handler lives)
 const {
   createContactRequestService,
   getContactRequestsService,
@@ -48,13 +47,11 @@ const contactRequestHandler = async (req, res) => {
 
     const created = await createContactRequestService(payloadToSave);
 
-    // Log DB insert result (insertId / affectedRows)
     console.info("[Contact] Contact request saved", {
       insertId: created.insertId,
       affectedRows: created.affectedRows,
     });
 
-    // Try sending notification email; log detailed outcome
     try {
       console.info("[Contact] Sending notification email (start)", {
         to: process.env.COMPANY_NOTIFY_EMAIL,
@@ -65,13 +62,11 @@ const contactRequestHandler = async (req, res) => {
         payload: payloadToSave,
       });
 
-      // mailInfo is what nodemailer returns (messageId, response, etc.)
       console.info("[Contact] Notification email sent", {
         messageId: mailInfo && mailInfo.messageId,
         response: mailInfo && mailInfo.response,
       });
     } catch (mailErr) {
-      // Log full mail error details (but do NOT log secrets)
       console.error("[Contact] Failed to send notification email:", {
         message: mailErr && mailErr.message,
         code: mailErr && mailErr.original && mailErr.original.code,
@@ -81,7 +76,6 @@ const contactRequestHandler = async (req, res) => {
         command: mailErr && mailErr.original && mailErr.original.command,
       });
 
-      // In development, also print stack for more context
       if (process.env.NODE_ENV !== "production") {
         console.error(mailErr);
       }

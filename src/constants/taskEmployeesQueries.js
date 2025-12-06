@@ -1,4 +1,3 @@
-// constants/taskQueries.js
 const GET_TASKS_BY_EMPLOYEE1 = `
   SELECT 
     task_id,

@@ -19,7 +19,6 @@ class LoginService {
       employee_id,
     ]);
 
-    // If admin details are missing, return a safe default dashboard object
     if (!adminDetails || adminDetails.length === 0) {
       return {
         name: null,
@@ -142,7 +141,6 @@ class LoginService {
         employeeId,
       ]);
 
-      // If no rows, return a safe default instead of throwing
       if (!rows || rows.length === 0) {
         return {
           name: null,
@@ -184,7 +182,6 @@ class LoginService {
       };
     } catch (err) {
       console.error("Error in fetchEmployeeDashboard:", err.message);
-      // return safe default on unexpected DB error
       return {
         name: null,
         employeeId: employeeId || null,
@@ -314,7 +311,6 @@ class LoginService {
     try {
       const [rows] = await db.execute(queries.GET_EMPLOYEE_PAYROLL, [orgId]);
 
-      // return safe defaults when no rows
       return {
         total_previous_month_credit:
           rows?.[0]?.total_previous_month_credit || 0,

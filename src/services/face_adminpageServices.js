@@ -1,9 +1,6 @@
-
-
-const pool = require("../config"); // DB connection
+const pool = require("../config");
 const queries = require("../constants/face_adminpageQueries");
 
-// Get all face data for face recognition comparison
 async function getAllFaces() {
   try {
     const [rows] = await pool.execute(queries.GET_ALL_FACES);
@@ -14,7 +11,6 @@ async function getAllFaces() {
   }
 }
 
-// Get the last punch record for a specific employee
 async function getLastPunchRecordByEmpId(employeeId) {
   try {
     const [rows] = await pool.execute(queries.GET_LAST_PUNCH, [employeeId]);
@@ -25,8 +21,12 @@ async function getLastPunchRecordByEmpId(employeeId) {
   }
 }
 
-// Insert a Punch In record for an employee
-async function insertPunchIn(employeeId, punchinTime, punchinDevice, punchinLocation) {
+async function insertPunchIn(
+  employeeId,
+  punchinTime,
+  punchinDevice,
+  punchinLocation
+) {
   try {
     const [result] = await pool.execute(queries.INSERT_PUNCH_IN, [
       employeeId,
@@ -41,8 +41,12 @@ async function insertPunchIn(employeeId, punchinTime, punchinDevice, punchinLoca
   }
 }
 
-// Update a Punch Out record for an employee
-async function updatePunchOut(punchId, punchoutTime, punchoutDevice, punchoutLocation) {
+async function updatePunchOut(
+  punchId,
+  punchoutTime,
+  punchoutDevice,
+  punchoutLocation
+) {
   try {
     const [result] = await pool.execute(queries.UPDATE_PUNCH_OUT, [
       punchoutTime,
