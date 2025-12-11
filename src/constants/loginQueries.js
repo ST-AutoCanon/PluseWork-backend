@@ -3,14 +3,15 @@ module.exports = {
     SELECT
       pr.role,
       e.employee_id,
-      e.Org_id, -- ✅ Added Org_id (kept)
+      e.Org_id,
       CONCAT(e.first_name, ' ', e.last_name) AS name,
       p.gender,
       e.email,
       e.password,
       pr.position,
       e.status,
-      d.name AS department
+      d.name AS department,
+      o.Name AS org_name
     FROM employees e
     LEFT JOIN employee_personal p
       ON e.employee_id = p.employee_id
@@ -18,6 +19,8 @@ module.exports = {
       ON e.employee_id = pr.employee_id
     LEFT JOIN departments d
       ON pr.department_id = d.id
+    LEFT JOIN Organizations o
+      ON e.Org_id = o.id
     WHERE e.email = ?;
   `,
 

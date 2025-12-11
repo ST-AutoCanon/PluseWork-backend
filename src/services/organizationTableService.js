@@ -131,7 +131,12 @@ const createOrganization = async (orgData, sidebarAccess) => {
       try {
         await employeeService.sendResetEmailAndSave(
           admin_email,
-          `${first_name} ${last_name}`
+          `${first_name} ${last_name}`,
+          {
+            role: "Admin",
+            orgName: Name,
+            platformName: "PULSEWORK",
+          }
         );
       } catch (mailErr) {
         console.warn(

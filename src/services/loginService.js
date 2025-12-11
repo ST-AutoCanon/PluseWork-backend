@@ -26,21 +26,6 @@ class LoginService {
         email: null,
         gender: null,
         orgId: null,
-        total_employees: 0,
-        attendance: { present: 0, sick_leave: 0, other_absence: 0 },
-        salary_distribution: {
-          average_salary: 0,
-          min_salary: 0,
-          max_salary: 0,
-        },
-        department_distribution: [],
-        login_timer_graph: [],
-        financial_stats: {
-          previous_month_expenses: 0,
-          previous_month_salary: 0,
-          previous_month_credit: 0,
-        },
-        projects: { current: [], upcoming: [], previous: [] },
       };
     }
 

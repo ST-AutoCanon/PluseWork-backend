@@ -93,10 +93,10 @@ const allowedOrigins = [
   "capacitor://localhost",
   "https://sukalpatechsolutions.com",
   "https://sts-test.site",
-  "http://localhost:3000",
-  "http://127.0.0.1:3000",
+  "http://localhost:3001",
+  "http://127.0.0.1:3001",
   "http://192.168.1.2:3001",
-  "http://122.166.77.12:3000",
+  "http://122.166.77.12:3001",
 ].filter(Boolean);
 
 app.use((req, res, next) => {

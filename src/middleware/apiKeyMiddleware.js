@@ -3,6 +3,7 @@ const ErrorHandler = require("../utils/errorHandler");
 const PUBLIC_PATHS = [
   "/login",
   "/forgot-password",
+  "/password-reset",
   "/vapidPublicKey",
   "/subscribe",
   "/check-subscription",

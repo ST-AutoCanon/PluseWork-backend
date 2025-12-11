@@ -376,20 +376,26 @@ exports.addFullEmployee = async (data, options = {}) => {
     try {
       const mailRes = await sendResetEmail(
         data.email,
-        `${data.first_name} ${data.last_name}`
+        `${data.first_name} ${data.last_name}`,
+        {
+          inviterName: `${data.inviterName}` || null,
+          orgName: `${data.orgName}` || null,
+          platformName: "PULSEWORK",
+          resetTtlHours: 72,
+        }
       );
+
       if (mailRes && mailRes.resetToken) {
-        await conn.execute(queries.SAVE_RESET_TOKEN, [
+        const conn2 = await db.getConnection();
+        await conn2.execute(queries.SAVE_RESET_TOKEN, [
           data.email,
           mailRes.resetToken,
           mailRes.tokenExpiry,
         ]);
+        conn2.release();
       }
     } catch (mailErr) {
-      console.warn(
-        "[addFullEmployee] reset-email failed (not rolled back):",
-        mailErr
-      );
+      console.warn("[addFullEmployee] reset-email failed:", mailErr);
     }
 
     return { employee_id: res.employee_id };
@@ -938,13 +944,13 @@ exports.getSupervisorHistory = async (employeeId) => {
 
 exports.addFullEmployeeUsingConnection = addFullEmployeeUsingConnection;
 
-async function sendResetEmailAndSave(email, name) {
+async function sendResetEmailAndSave(email, name, opts = {}) {
   if (!email) {
     throw new Error("email required to send reset email");
   }
 
   try {
-    const mailRes = await sendResetEmail(email, name);
+    const mailRes = await sendResetEmail(email, name, opts);
     if (mailRes && mailRes.resetToken) {
       try {
         await db.execute(queries.SAVE_RESET_TOKEN, [
