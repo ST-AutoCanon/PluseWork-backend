@@ -10,17 +10,14 @@ module.exports = {
       e.password,
       pr.position,
       e.status,
-      d.name AS department,
-      o.Name AS org_name
-    FROM employees e
+      d.name AS department
+      FROM employees e
     LEFT JOIN employee_personal p
       ON e.employee_id = p.employee_id
     LEFT JOIN employee_professional pr
       ON e.employee_id = pr.employee_id
     LEFT JOIN departments d
       ON pr.department_id = d.id
-    LEFT JOIN Organizations o
-      ON e.Org_id = o.id
     WHERE e.email = ?;
   `,
 

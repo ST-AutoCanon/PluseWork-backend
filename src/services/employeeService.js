@@ -133,6 +133,8 @@ async function addFullEmployeeUsingConnection(conn, data, options = {}) {
   const org = orgRows && orgRows[0] ? orgRows[0] : null;
   if (!org) throw new Error("Organization not found");
 
+  const orgName = org?.Name || org?.name || null;
+
   if (org.no_employees != null && !options.bypassOrgLimit) {
     const [countRows] = await conn.execute(
       queries.COUNT_ACTIVE_EMPLOYEES_BY_ORG,
@@ -341,7 +343,7 @@ async function addFullEmployeeUsingConnection(conn, data, options = {}) {
     }
   }
 
-  return { employee_id: eid, tempPassword: password };
+  return { employee_id: eid, tempPassword: password, orgName };
 }
 
 exports.addFullEmployee = async (data, options = {}) => {
@@ -379,7 +381,7 @@ exports.addFullEmployee = async (data, options = {}) => {
         `${data.first_name} ${data.last_name}`,
         {
           inviterName: `${data.inviterName}` || null,
-          orgName: `${data.orgName}` || null,
+          orgName: res.orgName || null,
           platformName: "PULSEWORK",
           resetTtlHours: 72,
         }

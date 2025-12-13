@@ -146,7 +146,6 @@ async function sendResetEmail(employeeEmail, employeeName, opts = {}) {
   const resetTtlHours = Number(
     opts.resetTtlHours || process.env.RESET_TOKEN_TTL_HOURS || 72
   );
-  // inside sendResetEmail
   const coerceOptString = (v) => {
     if (v == null) return null;
     const s = String(v).trim();
@@ -229,7 +228,7 @@ async function sendResetEmail(employeeEmail, employeeName, opts = {}) {
   let htmlContent = "";
   let textContent = "";
 
-  if (role === "admin" || orgName) {
+  if (role === "admin") {
     subject = `Welcome to ${platformName} — Set up your admin account for ${
       orgName || ""
     }`;

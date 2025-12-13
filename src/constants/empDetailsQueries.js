@@ -4,7 +4,7 @@ module.exports = {
   `,
 
   SELECT_ORG_FOR_UPDATE: `
-    SELECT id, employee_prefix, employee_counter, no_employees
+    SELECT id, employee_prefix, employee_counter, no_employees, Name
     FROM Organizations
     WHERE id = ?
     FOR UPDATE
