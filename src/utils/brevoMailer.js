@@ -1,59 +1,59 @@
-const axios = require("axios");
+const nodemailer = require("nodemailer");
 const { v4: uuidv4 } = require("uuid");
+const axios = require("axios");
 const fs = require("fs");
 const path = require("path");
 
 const MAX_RETRIES = 2;
 const RETRY_BASE_MS = 500;
 
-if (!process.env.BREVO_API_KEY) {
-  console.warn("[brevoMailer] WARNING: BREVO_API_KEY is not set.");
+if (!process.env.SMTP_HOST) {
+  console.warn("[mailer] WARNING: SMTP_HOST is not set.");
 }
-if (!process.env.BREVO_SENDER_EMAIL) {
-  console.warn("[brevoMailer] WARNING: BREVO_SENDER_EMAIL is not set.");
+if (!process.env.SMTP_USER) {
+  console.warn("[mailer] WARNING: SMTP_USER is not set.");
+}
+if (!process.env.SMTP_PASS) {
+  console.warn("[mailer] WARNING: SMTP_PASS is not set.");
 }
 
 function sleep(ms) {
   return new Promise((res) => setTimeout(res, ms));
 }
 
-async function sendWithRetries(payload, retries = MAX_RETRIES) {
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: Number(process.env.SMTP_PORT) || 587,
+  secure: false,
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+  tls: {
+    rejectUnauthorized: false,
+  },
+});
+
+async function sendWithRetries(mailOptions, retries = MAX_RETRIES) {
   let attempt = 0;
   let lastErr = null;
-
-  const url = "https://api.brevo.com/v3/smtp/email";
-  const headers = {
-    "api-key": process.env.BREVO_API_KEY,
-    "content-type": "application/json",
-    accept: "application/json",
-  };
 
   while (attempt <= retries) {
     try {
       attempt++;
-      const resp = await axios.post(url, payload, { headers, timeout: 10000 });
-      return resp.data;
+      return await transporter.sendMail(mailOptions);
     } catch (err) {
       lastErr = err;
-      const isTransient =
-        err.code === "ECONNRESET" ||
-        err.code === "ECONNREFUSED" ||
-        (err.response && err.response.status >= 500);
 
-      if (!isTransient || attempt > retries) break;
+      if (attempt > retries) break;
 
       const wait = RETRY_BASE_MS * Math.pow(2, attempt - 1);
       console.warn(
-        `[brevoMailer] transient mail error (attempt ${attempt}). retrying in ${wait}ms`,
+        `[mailer] transient mail error (attempt ${attempt}). retrying in ${wait}ms`,
         err && err.message ? err.message : err
       );
       await sleep(wait);
     }
-  }
-
-  if (lastErr && lastErr.response && lastErr.response.data) {
-    const info = JSON.stringify(lastErr.response.data);
-    lastErr.message = `${lastErr.message} | brevo response: ${info}`;
   }
 
   throw lastErr;
@@ -79,18 +79,8 @@ async function fetchLogoDataUri(rawLogoUrl, localLogoPath) {
       const ct = (r.headers["content-type"] || "").split(";")[0];
       if (ct && ct.startsWith("image/")) {
         return `data:${ct};base64,${buf.toString("base64")}`;
-      } else {
-        console.warn(
-          "[brevoMailer] remote logo fetch returned non-image content-type:",
-          ct
-        );
       }
-    } catch (e) {
-      console.warn(
-        "[brevoMailer] remote logo fetch failed:",
-        e && e.message ? e.message : e
-      );
-    }
+    } catch (_) {}
   }
 
   if (localLogoPath) {
@@ -113,32 +103,18 @@ async function fetchLogoDataUri(rawLogoUrl, localLogoPath) {
         if (mime.startsWith("image/")) {
           return `data:${mime};base64,${buf.toString("base64")}`;
         }
-      } else {
-        console.warn("[brevoMailer] local logo file does not exist:", filePath);
       }
-    } catch (e) {
-      console.warn(
-        "[brevoMailer] reading local logo failed:",
-        e && e.message ? e.message : e
-      );
-    }
+    } catch (_) {}
   }
 
   return null;
 }
 
 async function sendResetEmail(employeeEmail, employeeName, opts = {}) {
-  if (!process.env.BREVO_API_KEY) {
-    throw new Error("BREVO_API_KEY not configured");
-  }
-  if (!process.env.BREVO_SENDER_EMAIL) {
-    throw new Error("BREVO_SENDER_EMAIL not configured");
-  }
-
   const platformName =
     opts.platformName || process.env.PLATFORM_NAME || "PULSEWORK";
   const senderName =
-    process.env.BREVO_SENDER_NAME || platformName || "PULSEWORK";
+    process.env.SMTP_SENDER_NAME || platformName || "PULSEWORK";
   const frontendBase = opts.frontendUrl || process.env.FRONTEND_URL || "";
   const loginUrl = opts.loginUrl || `${frontendBase}/login`;
   const supportEmail =
@@ -146,6 +122,7 @@ async function sendResetEmail(employeeEmail, employeeName, opts = {}) {
   const resetTtlHours = Number(
     opts.resetTtlHours || process.env.RESET_TOKEN_TTL_HOURS || 72
   );
+
   const coerceOptString = (v) => {
     if (v == null) return null;
     const s = String(v).trim();
@@ -161,10 +138,10 @@ async function sendResetEmail(employeeEmail, employeeName, opts = {}) {
 
   const expiryMs = Number(resetTtlHours) * 60 * 60 * 1000;
 
-  const rawLogoUrl = (opts.logoUrl || process.env.BREVO_LOGO_URL || "")
+  const rawLogoUrl = (opts.logoUrl || process.env.MAIL_LOGO_URL || "")
     .toString()
     .trim();
-  const localLogoPath = opts.logoPath || process.env.BREVO_LOGO_PATH || null;
+  const localLogoPath = opts.logoPath || process.env.MAIL_LOGO_PATH || null;
 
   const resetToken = uuidv4();
   const resetLink = `${frontendBase.replace(
@@ -183,12 +160,7 @@ async function sendResetEmail(employeeEmail, employeeName, opts = {}) {
   try {
     const embedded = await fetchLogoDataUri(rawLogoUrl, localLogoPath);
     if (embedded) logoSrc = embedded;
-  } catch (e) {
-    console.warn(
-      "[brevoMailer] logo embedding failed:",
-      e && e.message ? e.message : e
-    );
-  }
+  } catch (_) {}
 
   const footerHtml = `
     <tr>
@@ -233,8 +205,7 @@ async function sendResetEmail(employeeEmail, employeeName, opts = {}) {
       orgName || ""
     }`;
 
-    htmlContent = `
-      <!doctype html>
+    htmlContent = `<!doctype html>
       <html>
         <head><meta charset="utf-8" /></head>
         <body style="font-family:Helvetica,Arial,sans-serif;color:#333;background:#f6f7fb;margin:0;padding:24px;">
@@ -274,8 +245,7 @@ async function sendResetEmail(employeeEmail, employeeName, opts = {}) {
             ${footerHtml}
           </table>
         </body>
-      </html>
-    `;
+      </html>`;
 
     textContent = `Hello ${employeeName},
 
@@ -291,32 +261,46 @@ If you did not expect this email, contact ${supportEmail}.
 
 — ${platformName} Team
 `;
-  } else if (inviterName) {
-    subject = `You’ve been invited to join ${
-      orgName || "your organization"
-    } on ${platformName} — Set your password`;
+  } else {
+    const orgDisplay = orgName || "the organization";
+    subject = `Welcome to ${orgDisplay} — Let’s Get You Started`;
 
-    htmlContent = `
-      <!doctype html>
+    htmlContent = `<!doctype html>
       <html>
         <head><meta charset="utf-8" /></head>
         <body style="font-family:Helvetica,Arial,sans-serif;color:#333;background:#f6f7fb;margin:0;padding:24px;">
           <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;">
             ${headerHtml(
-              `<h3 style="margin:0;">You’ve been invited to <strong>${esc(
-                orgName || ""
-              )}</strong></h3><p style="margin:6px 0 0 0;color:#666;">via ${esc(
-                platformName
-              )}</p>`
+              `<h3 style="margin:0;">Welcome to <strong>${esc(
+                orgDisplay
+              )}</strong></h3>
+               <p style="margin:6px 0 0 0;color:#666;">Your employee HR portal via ${esc(
+                 platformName
+               )}</p>`
             )}
             <tr>
               <td style="padding:20px;">
-                <p style="margin:0 0 12px 0;">Hi <strong>${esc(
-                  employeeName
-                )}</strong>,</p>
-                <p style="margin:0 0 16px 0;"><strong>${esc(
-                  inviterName
-                )}</strong> has added you to the organization's HR portal. To set your password and access your account, click below:</p>
+                <p style="margin:0 0 12px 0;">
+                  Hi <strong>${esc(employeeName)}</strong>,
+                </p>
+
+                <p style="margin:0 0 12px 0;">
+                  Welcome to <strong>${esc(
+                    orgDisplay
+                  )}</strong>! We’re glad to have you on board.
+                </p>
+
+                <p style="margin:0 0 16px 0;">
+                  The HR Team at <strong>${esc(
+                    orgDisplay
+                  )}</strong> has created your employee account on the organization’s HR portal.
+                  This portal will help you manage your profile, access company information,
+                  track attendance, and stay connected with your workplace.
+                </p>
+
+                <p style="margin:0 0 16px 0;">
+                  To get started, please set your password using the button below:
+                </p>
 
                 <p style="text-align:center;margin:24px 0;">
                   <a href="${resetLink}" style="display:inline-block;padding:12px 20px;border-radius:6px;text-decoration:none;font-weight:600;background:#2563eb;color:#fff;">
@@ -324,82 +308,163 @@ If you did not expect this email, contact ${supportEmail}.
                   </a>
                 </p>
 
-                <p style="color:#666;font-size:13px;margin-top:8px;">This link expires in <strong>${resetTtlHours} hours</strong>. After setting your password, sign in at <a href="${loginUrl}">${loginUrl}</a>.</p>
+                <p style="color:#666;font-size:13px;margin-top:8px;">
+                  This link will expire in <strong>${resetTtlHours} hours</strong>.
+                  After setting your password, you can sign in anytime at
+                  <a href="${loginUrl}">${loginUrl}</a>.
+                </p>
 
-                <p style="font-size:13px;color:#666;margin-top:10px;">If you weren't expecting this invitation, please reach out to <strong>${esc(
-                  inviterName
-                )}</strong> or contact support at <a href="mailto:${supportEmail}">${supportEmail}</a>.</p>
+                <p style="font-size:13px;color:#666;margin-top:12px;">
+                  If you have any questions during onboarding, please reach out to
+                  <strong>${esc(orgDisplay)}</strong>’s HR Team.
+                  For technical assistance, contact us at
+                  <a href="mailto:${supportEmail}">${supportEmail}</a>.
+                </p>
+
+                <p style="margin-top:18px;">
+                  We wish you a smooth onboarding experience and great success in your journey with
+                  <strong>${esc(orgDisplay)}</strong>.
+                </p>
               </td>
             </tr>
             ${footerHtml}
           </table>
         </body>
-      </html>
-    `;
+      </html>`;
 
-    textContent = `Hello ${employeeName},
+    textContent = `Hi ${employeeName},
 
-${inviterName} has added you to ${
-      orgName || "the organization"
-    } on ${platformName}.
+Welcome to ${orgDisplay}! We’re glad to have you on board.
 
-Set your password:
+The HR Team at ${orgDisplay} has created your employee account on the organization’s HR portal.
+This portal will help you manage your profile, access company information, and stay connected with your workplace.
+
+To get started, please set your password using the link below:
 ${resetLink}
 
-This link expires in ${resetTtlHours} hours.
-Login: ${loginUrl}
+This link will expire in ${resetTtlHours} hours.
+Once completed, you can log in at:
+${loginUrl}
 
-If you didn't expect this invitation, contact ${inviterName} or ${supportEmail}.
+If you have any questions during onboarding, please contact ${orgDisplay}'s HR Team.
+For technical support, reach us at ${supportEmail}.
 
-— ${platformName} Team
-`;
-  } else {
-    subject = `Set your ${platformName} password`;
-
-    htmlContent = `
-      <!doctype html><html><head><meta charset="utf-8" /></head><body style="font-family:Helvetica,Arial,sans-serif;color:#333;background:#f6f7fb;margin:0;padding:24px;">
-        <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;">
-          ${headerHtml()}
-          <tr>
-            <td style="padding:20px;text-align:center;">
-              <p style="margin:0 0 12px 0;">Hi <strong>${esc(
-                employeeName
-              )}</strong>,</p>
-              <p style="margin:0 0 16px 0;text-align:center;">
-                <a href="${resetLink}" style="display:inline-block;padding:12px 20px;border-radius:6px;text-decoration:none;font-weight:600;background:#2563eb;color:#fff;">Set your password</a>
-              </p>
-            </td>
-          </tr>
-          ${footerHtml}
-        </table>
-      </body></html>
-    `;
-
-    textContent = `Set your password: ${resetLink}
+We wish you a smooth onboarding experience and great success with ${orgDisplay}.
 
 — ${platformName} Team
 `;
   }
 
-  const payload = {
-    sender: {
-      name: senderName,
-      email: process.env.BREVO_SENDER_EMAIL,
+  const mailOptions = {
+    from: `"${senderName}" <${process.env.SMTP_USER}>`,
+    to: {
+      address: employeeEmail,
+      name: employeeName,
     },
-    to: [
-      {
-        email: employeeEmail,
-        name: employeeName,
-      },
-    ],
     subject,
-    htmlContent,
-    textContent,
+    html: htmlContent,
+    text: textContent,
   };
 
-  await sendWithRetries(payload);
+  await sendWithRetries(mailOptions);
 
   return { resetToken, tokenExpiry, resetLink };
 }
 
-module.exports = { sendResetEmail, sendWithRetries };
+async function sendForgotPasswordEmail(employeeEmail, employeeName, opts = {}) {
+  const platformName =
+    opts.platformName || process.env.PLATFORM_NAME || "PULSEWORK";
+  const senderName =
+    process.env.SMTP_SENDER_NAME || platformName || "PULSEWORK";
+  const frontendBase = opts.frontendUrl || process.env.FRONTEND_URL || "";
+  const resetTtlHours = Number(
+    opts.resetTtlHours || process.env.RESET_TOKEN_TTL_HOURS || 72
+  );
+  const supportEmail =
+    opts.supportEmail || process.env.SUPPORT_EMAIL || "info@sukalpatech.com";
+
+  const resetToken = uuidv4();
+  const resetLink = `${(frontendBase || "").replace(
+    /\/$/,
+    ""
+  )}/ResetPassword?token=${resetToken}`;
+  const tokenExpiry = new Date(
+    Date.now() + Number(resetTtlHours) * 60 * 60 * 1000
+  );
+
+  const subject = `${platformName} — Password reset request`;
+  const esc = (s) =>
+    String(s || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+
+  const textContent = `Hello ${employeeName},
+
+We received a request to reset the password for your ${platformName} account.
+
+Reset link:
+${resetLink}
+
+This link will expire in ${resetTtlHours} hours.
+If you did not request a password reset, please ignore this email or contact support at ${supportEmail}.
+
+Regards,
+${platformName} Support
+`;
+
+  const htmlContent = `
+    <!doctype html>
+    <html><head><meta charset="utf-8"/></head>
+    <body style="font-family:Helvetica,Arial,sans-serif;color:#333;background:#f6f7fb;margin:0;padding:24px;">
+      <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;">
+        <tr>
+          <td style="padding:20px;text-align:center;background:#ffffff;">
+            <h2 style="margin:0;">${esc(platformName)}</h2>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:20px;">
+            <p>Hi <strong>${esc(employeeName)}</strong>,</p>
+            <p>We received a request to reset your password. Click the button below to set a new password.</p>
+            <p style="text-align:center;margin:24px 0;">
+              <a href="${resetLink}" style="display:inline-block;padding:12px 20px;border-radius:6px;text-decoration:none;font-weight:600;background:#2563eb;color:#fff;">
+                Reset your password
+              </a>
+            </p>
+            <p style="color:#666;font-size:13px;margin-top:8px;">
+              For your security, this link expires in <strong>${resetTtlHours} hours</strong>.
+            </p>
+            <p style="font-size:13px;color:#666;margin-top:12px;">
+              If you did not request this, no action is needed — your account is secure.
+              For assistance, contact <a href="mailto:${esc(
+                supportEmail
+              )}">${esc(supportEmail)}</a>.
+            </p>
+            <p style="margin-top:18px;">Regards,<br/><strong>${esc(
+              platformName
+            )} Support</strong></p>
+          </td>
+        </tr>
+      </table>
+    </body>
+    </html>
+  `;
+
+  const mailOptions = {
+    from: `"${senderName}" <${process.env.SMTP_USER}>`,
+    to: {
+      address: employeeEmail,
+      name: employeeName,
+    },
+    subject,
+    html: htmlContent,
+    text: textContent,
+  };
+
+  await sendWithRetries(mailOptions);
+
+  return { resetToken, tokenExpiry, resetLink };
+}
+
+module.exports = { sendResetEmail, sendForgotPasswordEmail, sendWithRetries };
