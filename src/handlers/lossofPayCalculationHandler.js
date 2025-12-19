@@ -1,8 +1,4 @@
-const {
-  getCurrentMonthLOP,
-  getDeferredLOP,
-  getNextMonthLOP,
-} = require("../services/lossofPayCalculationService");
+const { getCurrentMonthLOP, getDeferredLOP, getNextMonthLOP } = require("../services/lossofPayCalculationService");
 
 const handleGetCurrentMonthLOP = async (req, res) => {
   try {
