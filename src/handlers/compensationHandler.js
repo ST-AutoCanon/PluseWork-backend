@@ -9,17 +9,57 @@ const {
   getEmployeesByDepartmentId,
 } = require("../services/compensationService");
 
+// Add compensation record
+
+// const addCompensationHandler = async (req, res) => {
+//   try {
+//     const { compensation_plan_name, plan_data, org_id } = req.body;
+
+//     if (!org_id || !compensation_plan_name || typeof plan_data !== "object") {
+//       return res.status(400).json({
+//         error: "Missing org_id, compensation_plan_name or invalid plan_data",
+//       });
+//     }
+
+//     const result = await addCompensation({
+//       compensationPlanName: compensation_plan_name,
+//       formData: plan_data,
+//       org_id,
+//     });
+
+//     res.status(201).json({
+//       success: true,
+//       message: "Compensation plan added successfully",
+//       data: result,
+//     });
+//   } catch (error) {
+//     console.error("Error adding compensation plan:", error);
+//     res.status(500).json({
+//       error: "Failed to add compensation plan",
+//       details: error.message,
+//     });
+//   }
+// };
+
 const addCompensationHandler = async (req, res) => {
   try {
-    const { compensationPlanName, formData } = req.body;
+    const {
+      compensationPlanName,
+      formData,
+      org_id
+    } = req.body;
 
-    if (!compensationPlanName || typeof formData !== "object") {
-      return res
-        .status(400)
-        .json({ error: "Missing compensationPlanName or invalid formData" });
+    if (!org_id || !compensationPlanName || typeof formData !== "object") {
+      return res.status(400).json({
+        error: "Missing org_id, compensationPlanName or invalid formData",
+      });
     }
 
-    const result = await addCompensation({ compensationPlanName, formData });
+    const result = await addCompensation({
+      compensationPlanName,
+      formData,
+      org_id,
+    });
 
     res.status(201).json({
       success: true,
@@ -34,21 +74,62 @@ const addCompensationHandler = async (req, res) => {
     });
   }
 };
+
+// Get all compensation records
+// const getAllCompensationsHandler = async (req, res) => {
+//   try {
+//     const { org_id } = req.query;
+
+//     if (!org_id) {
+//       return res.status(400).json({ error: "org_id missing" });
+//     }
+
+//     const compensations = await getAllCompensations(org_id);
+
+//     res.status(200).json({
+//       success: true,
+//       data: compensations,
+//     });
+//   } catch (error) {
+//     console.error("Error fetching compensations:", error);
+//     res.status(500).json({
+//       error: "Failed to fetch compensations",
+//       details: error.message,
+//     });
+//   }
+// };
 const getAllCompensationsHandler = async (req, res) => {
   try {
-    const compensations = await getAllCompensations();
-    res.status(200).json({ success: true, data: compensations });
+    const org_id = req.headers['x-org-id'];
+
+    if (!org_id) {
+      return res.status(400).json({
+        success: false,
+        error: "org_id missing",
+      });
+    }
+
+    const compensations = await getAllCompensations(org_id);
+
+    res.status(200).json({
+      success: true,
+      data: compensations,
+    });
   } catch (error) {
     console.error("Error fetching compensations:", error);
-    res
-      .status(500)
-      .json({ error: "Failed to fetch compensations", details: error.message });
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch compensations",
+      details: error.message,
+    });
   }
 };
 
+
+// Get compensation by employee ID
 const getCompensationByEmployeeIdHandler = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { id } = req.params; // Changed from employeeId to id
 
     if (!id) {
       return res.status(400).json({ error: "Missing ID" });
@@ -66,10 +147,12 @@ const getCompensationByEmployeeIdHandler = async (req, res) => {
   }
 };
 
+// Update compensation
+// handlers/compensationHandler.js
 const updateCompensationHandler = async (req, res) => {
   try {
     const { id } = req.params;
-    const { compensationPlanName, formData } = req.body;
+const { compensationPlanName, formData, org_id } = req.body;
 
     if (!id || !compensationPlanName || typeof formData !== "object") {
       return res.status(400).json({
@@ -99,6 +182,7 @@ const updateCompensationHandler = async (req, res) => {
   }
 };
 
+// Delete compensation
 const deleteCompensationHandler = async (req, res) => {
   try {
     const { employeeId } = req.params;
@@ -123,16 +207,23 @@ const deleteCompensationHandler = async (req, res) => {
 };
 const getAllEmployeeNamesHandler = async (req, res) => {
   try {
-    const employeeNames = await getAllEmployeeNames();
+    const orgId = req.headers['x-org-id']; // fetch from headers
+    if (!orgId) {
+      return res.status(400).json({ success: false, error: "Organization ID is missing" });
+    }
+
+    const employeeNames = await getAllEmployeeNames(orgId);
     res.status(200).json({ success: true, data: employeeNames });
   } catch (error) {
     console.error("Error fetching employee names:", error);
     res.status(500).json({
+      success: false,
       error: "Failed to fetch employee names",
       details: error.message,
     });
   }
 };
+
 const getAllDepartmentNamesHandler = async (req, res) => {
   try {
     const departmentNames = await getAllDepartmentNames();
@@ -148,13 +239,27 @@ const getAllDepartmentNamesHandler = async (req, res) => {
 
 const handleGetEmployeesByDepartmentId = async (req, res) => {
   const { departmentId } = req.params;
+  const orgId = req.headers['x-org-id'];
+
+  if (!orgId) {
+    return res.status(400).json({
+      success: false,
+      error: "org_id missing",
+    });
+  }
+
   try {
-    const employees = await getEmployeesByDepartmentId(departmentId);
-    res.status(200).json(employees);
+    const employees = await getEmployeesByDepartmentId(departmentId, orgId);
+    res.status(200).json({ success: true, data: employees });
   } catch (error) {
-    res.status(500).json({ error: "Failed to fetch employees by department" });
+    console.error("Error fetching employees by department:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch employees by department",
+    });
   }
 };
+
 module.exports = {
   addCompensationHandler,
   getAllCompensationsHandler,

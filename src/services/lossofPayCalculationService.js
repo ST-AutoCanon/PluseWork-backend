@@ -1,9 +1,5 @@
 const db = require("../config");
-const {
-  GET_CURRENT_MONTH_LOP,
-  GET_DEFERRED_LOP,
-  GET_NEXT_MONTH_LOP,
-} = require("../constants/lossofPayCalculationQueries");
+const { GET_CURRENT_MONTH_LOP, GET_DEFERRED_LOP, GET_NEXT_MONTH_LOP } = require("../constants/lossofPayCalculationQueries");
 
 const getCurrentMonthLOP = async () => {
   try {

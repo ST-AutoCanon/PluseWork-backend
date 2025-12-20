@@ -1,116 +1,114 @@
 const pool = require("../config");
 const queries = require("../constants/assign_compensation");
 
-async function checkEmployeeAssignment(employeeId) {
+
+async function checkEmployeeAssignment(orgId, employeeId) {
   const conn = await pool.getConnection();
   try {
-    const [result] = await conn.query(queries.CHECK_EMPLOYEE_ASSIGNMENT, [
-      JSON.stringify(employeeId),
-    ]);
-    if (result.length > 0) {
-      const planName = result[0].compensation_plan_name || "Unknown Plan";
+    const [rows] = await conn.query(
+      queries.CHECK_EMPLOYEE_ASSIGNMENT,
+      [orgId, employeeId]
+    );
+
+    if (rows.length > 0) {
       return {
         hasAssignment: true,
-        assignmentIds: result.map((row) => row.id),
-        compensation_plan_name: planName,
+        assignmentIds: rows.map(r => r.id),
+        compensation_plan_name: rows[0].compensation_plan_name
       };
     }
+
     return {
       hasAssignment: false,
       assignmentIds: [],
-      compensation_plan_name: null,
+      compensation_plan_name: null
     };
   } catch (err) {
-    throw new Error(
-      `Error checking assignment for employee ${employeeId}: ${err.message}`
-    );
+    throw new Error(err.message);
   } finally {
     conn.release();
   }
 }
 
+
 async function assignCompensation({
+  orgId,
   employeeId = [],
   departmentIds = [],
   compensationPlanName,
-  assignedBy,
-  assignedDate,
+  assignedBy
 }) {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
 
-    const assignedData = [];
-    const directEmployeeSet = new Set(employeeId);
-    const deptEmployeeSet = new Set();
+    const allEmployeeIds = new Set(employeeId);
 
-    if (departmentIds.length > 0) {
+    // 🔹 Fetch employees from departments
+    if (departmentIds.length) {
       for (const deptId of departmentIds) {
-        const [emps] = await conn.query(
+        const [rows] = await conn.query(
           `SELECT employee_id FROM employee_professional WHERE department_id = ?`,
           [deptId]
         );
-        for (const { employee_id } of emps) {
-          deptEmployeeSet.add(employee_id);
-        }
+        rows.forEach(r => allEmployeeIds.add(r.employee_id));
       }
     }
 
-    const allEmployeeSet = new Set([...directEmployeeSet, ...deptEmployeeSet]);
-
-    if (allEmployeeSet.size === 0) {
+    if (!allEmployeeIds.size) {
       throw new Error("No employees selected");
     }
 
-    const allEmployeeIds = [...allEmployeeSet];
+    // 🔹 CHECK EXISTING ASSIGNMENTS (ORG-WISE)
+   // 🔹 CHECK EXISTING ASSIGNMENTS (ORG-WISE)
+const alreadyAssigned = [];
+for (const empId of allEmployeeIds) {
+  const [existing] = await conn.query(
+    queries.CHECK_EMPLOYEE_ASSIGNMENT,
+    [orgId, empId]
+  );
+  if (existing.length) {
+    alreadyAssigned.push(empId);
+  }
+}
 
-    const existingAssignments = [];
-    for (const empId of allEmployeeIds) {
-      const [result] = await conn.query(queries.CHECK_EMPLOYEE_ASSIGNMENT, [
-        JSON.stringify(empId),
-      ]);
-      if (result.length > 0) {
-        existingAssignments.push(empId);
-      }
-    }
+if (alreadyAssigned.length) {
+  throw new Error(
+    `Employees already assigned plan: ${alreadyAssigned.join(', ')}`
+  );
+}
 
-    if (existingAssignments.length > 0) {
-      throw new Error(
-        `Employees with IDs ${existingAssignments.join(
-          ", "
-        )} already have assignments`
-      );
-    }
 
-    const [rows] = await conn.query(
-      `SELECT employee_id, CONCAT(first_name, ' ', last_name) AS employee_name
+    // 🔹 Fetch employee names
+    const [employees] = await conn.query(
+      `SELECT employee_id, CONCAT(first_name,' ',last_name) AS name
        FROM employees
-       WHERE employee_id IN (${allEmployeeIds.map(() => "?").join(",")})`,
-      allEmployeeIds
+       WHERE employee_id IN (${[...allEmployeeIds].map(() => '?').join(',')})`,
+      [...allEmployeeIds]
     );
 
-    const nameMap = rows.reduce((map, r) => {
-      map[r.employee_id] = r.employee_name;
-      return map;
-    }, {});
+    const nameMap = {};
+    employees.forEach(e => nameMap[e.employee_id] = e.name);
 
-    for (const empId of allEmployeeIds) {
-      assignedData.push({
-        type: directEmployeeSet.has(empId) ? "individual" : "department",
-        employee_id: empId,
-        employee_name: nameMap[empId] || null,
-      });
-    }
+    const assignedData = [...allEmployeeIds].map(empId => ({
+      employee_id: empId,
+      employee_name: nameMap[empId] || null
+    }));
 
-    await conn.query(queries.ADD_ASSIGNED_COMPENSATION, [
-      compensationPlanName,
-      JSON.stringify(assignedData),
-      assignedBy,
-      assignedDate || new Date(),
-    ]);
+    // 🔹 INSERT WITH org_id
+   await conn.query(
+  queries.ADD_ASSIGNED_COMPENSATION,
+  [
+    orgId,
+    compensationPlanName,
+    JSON.stringify(assignedData),
+    assignedBy
+  ]
+);
+
 
     await conn.commit();
-    return { assigned: assignedData.length };
+    return { assignedCount: assignedData.length };
   } catch (err) {
     await conn.rollback();
     throw err;
@@ -118,13 +116,14 @@ async function assignCompensation({
     conn.release();
   }
 }
+
 async function getCompensationPlans() {
   const conn = await pool.getConnection();
   try {
     const [result] = await conn.query(queries.GET_COMPENSATION_PLANS);
-    return result.map((row) => ({
+    return result.map(row => ({
       id: row.id,
-      compensation_plan_name: row.compensation_plan_name,
+      compensation_plan_name: row.compensation_plan_name
     }));
   } catch (err) {
     throw new Error(`Error fetching compensation plans: ${err.message}`);
@@ -133,36 +132,45 @@ async function getCompensationPlans() {
   }
 }
 
-async function getAssignedCompensationDetails() {
+async function getAssignedCompensationDetails(orgId) {
   const conn = await pool.getConnection();
   try {
     const [result] = await conn.query(
-      queries.GET_ASSIGNED_COMPENSATION_DETAILS
+      queries.GET_ASSIGNED_COMPENSATION_DETAILS,
+      [orgId]
     );
     return result;
-  } catch (err) {
-    throw err;
   } finally {
     conn.release();
   }
 }
 
+
+
 async function addEmployeeBonus({
+  org_id,
   percentageCtc,
   percentageMonthlySalary,
   fixedAmount,
   applicableMonth,
 }) {
-  const [result] = await pool.query(queries.ADD_EMPLOYEE_BONUS, [
-    percentageCtc,
-    percentageMonthlySalary,
-    fixedAmount,
-    applicableMonth,
-  ]);
+  const [result] = await pool.query(
+    queries.ADD_EMPLOYEE_BONUS,
+    [
+      org_id,
+      percentageCtc,
+      percentageMonthlySalary,
+      fixedAmount,
+      applicableMonth,
+    ]
+  );
+
   return result;
 }
 
+
 async function addEmployeeBonusBulk({
+  org_id,
   percentageCtc,
   percentageMonthlySalary,
   fixedAmount,
@@ -172,21 +180,32 @@ async function addEmployeeBonusBulk({
   try {
     await conn.beginTransaction();
 
+    // ✅ Skip employees with invalid salary (ORG-WISE)
     const [skipped] = await conn.query(
-      `SELECT CONCAT(e.first_name, ' ', e.last_name) AS full_name
-FROM employees e
-JOIN employee_professional ep ON e.employee_id = ep.employee_id
-WHERE e.status = 'Active' AND (ep.salary IS NULL OR ep.salary <= 0)
-`
+      `
+      SELECT CONCAT(e.first_name, ' ', e.last_name) AS full_name
+      FROM employees e
+      JOIN employee_professional ep ON e.employee_id = ep.employee_id
+      WHERE e.status = 'Active'
+        AND e.org_id = ?
+        AND (ep.salary IS NULL OR ep.salary <= 0)
+      `,
+      [org_id]
     );
-    const skippedEmployees = skipped.map((row) => row.full_name);
 
-    const [result] = await conn.query(queries.ADD_EMPLOYEE_BONUS_BULK, [
-      percentageCtc,
-      percentageMonthlySalary,
-      fixedAmount,
-      applicableMonth,
-    ]);
+    const skippedEmployees = skipped.map(row => row.full_name);
+
+    // ✅ Insert bulk bonus
+    const [result] = await conn.query(
+      queries.ADD_EMPLOYEE_BONUS_BULK,
+      [
+        org_id,
+        percentageCtc,
+        percentageMonthlySalary,
+        fixedAmount,
+        applicableMonth,
+      ]
+    );
 
     await conn.commit();
     return {
@@ -202,26 +221,23 @@ WHERE e.status = 'Active' AND (ep.salary IS NULL OR ep.salary <= 0)
   }
 }
 
-async function getEmployeeBonusDetails() {
-  try {
-    const [rows] = await pool.query(queries.GET_EMPLOYEE_BONUS_DETAILS);
-    return rows;
-  } catch (error) {
-    console.error("Query failed:", error);
-    throw error;
-  }
+
+
+async function getEmployeeBonusDetails(org_id) {
+  const [rows] = await pool.query(
+    queries.GET_EMPLOYEE_BONUS_DETAILS,
+    [org_id]
+  );
+  return rows;
 }
 
-async function addEmployeeAdvance({
-  employeeId,
-  advanceAmount,
-  recoveryMonths,
-  applicableMonths,
-}) {
+
+async function addEmployeeAdvance({ employeeId, advanceAmount, recoveryMonths, applicableMonths }) {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
 
+    // Verify employee exists and is active
     const [employee] = await conn.query(
       `SELECT employee_id 
        FROM employees 
@@ -254,12 +270,180 @@ async function getEmployeeAdvanceDetails() {
   return rows;
 }
 
+// const getEmployeeExtraHoursService = async (startDate, endDate) => {
+//   const [rows] = await pool.query(queries.GET_EMPLOYEE_EXTRA_HOURS, [startDate, endDate]);
+
+//   const grouped = {};
+
+//   rows.forEach((row) => {
+//     const punchin = new Date(row.punchin_time);
+//     const punchout = new Date(row.punchout_time);
+//     let current = new Date(punchin);
+
+//     while (current < punchout) {
+//       const dayStart = new Date(current.getFullYear(), current.getMonth(), current.getDate());
+//       const dayEnd = new Date(dayStart);
+//       dayEnd.setDate(dayEnd.getDate() + 1);
+
+//       const sessionStart = new Date(Math.max(current.getTime(), dayStart.getTime()));
+//       const sessionEnd = new Date(Math.min(punchout.getTime(), dayEnd.getTime()));
+//       const dayHours = (sessionEnd - sessionStart) / (1000 * 60 * 60);
+//       const dateStr = dayStart.toISOString().split('T')[0];
+//       const key = `${row.employee_id}-${dateStr}`;
+
+//       if (!grouped[key]) {
+//         grouped[key] = {
+//           employee_id: row.employee_id,
+//           work_date: dateStr,
+//           total_hours_worked: 0,
+//           extra_hours: 0,
+//           sessions: [],
+//           projects: new Set(),
+//           supervisors: new Set(),
+//           comments: '',
+//           rate: 0,
+//           // DO NOT set status here
+//         };
+//       }
+
+//       const group = grouped[key];
+//       group.total_hours_worked += dayHours;
+
+//       // Push session with correct status from DB
+//       group.sessions.push({
+//         punch_id: row.punch_id,
+//         apportioned_hours: dayHours,
+//         status: row.status, // ← This is the real status from overtime_details
+//       });
+
+//       if (row.project) group.projects.add(row.project);
+//       if (row.supervisor) group.supervisors.add(row.supervisor);
+//       if (row.comments) group.comments += (group.comments ? '; ' : '') + row.comments;
+
+//       const rowRate = parseFloat(row.rate) || 0;
+//       group.rate = group.rate === 0 ? rowRate : (group.rate + rowRate) / 2;
+
+//       current = dayEnd;
+//     }
+//   });
+
+//   // SET STATUS ONLY AFTER ALL SESSIONS ARE COLLECTED
+//   Object.values(grouped).forEach((group) => {
+//     const sessionStatuses = group.sessions.map(s => s.status);
+
+//     const hasApproved = sessionStatuses.includes('Approved');
+//     const hasRejected = sessionStatuses.includes('Rejected');
+//     const hasPending  = sessionStatuses.includes('Pending');
+
+//     if (hasRejected) {
+//       group.status = 'Rejected';
+//     } else if (hasApproved && !hasPending) {
+//       group.status = 'Approved';
+//     } else if (hasPending) {
+//       group.status = 'Pending';
+//     } else {
+//       group.status = 'Partially Approved';
+//     }
+
+//     group.total_hours_worked = Math.min(group.total_hours_worked, 24);
+//     group.extra_hours = Math.max(0, group.total_hours_worked - 10);
+//     group.projects = Array.from(group.projects).join(', ');
+//     group.supervisors = Array.from(group.supervisors).join(', ');
+
+//     const totalApportioned = group.sessions.reduce((sum, s) => sum + s.apportioned_hours, 0);
+//     group.sessions.forEach((s) => {
+//       s.extra_hours = totalApportioned > 0
+//         ? (s.apportioned_hours / totalApportioned) * group.extra_hours
+//         : 0;
+//     });
+//   });
+
+//   return Object.values(grouped).filter(g => g.total_hours_worked > 0);
+// };
 const getEmployeeExtraHoursService = async (startDate, endDate) => {
-  const [rows] = await pool.query(queries.GET_EMPLOYEE_EXTRA_HOURS, [
-    startDate,
-    endDate,
-  ]);
-  return rows;
+  const [rows] = await pool.query(queries.GET_EMPLOYEE_EXTRA_HOURS, [startDate, endDate]);
+
+  const grouped = {};
+
+  rows.forEach((row) => {
+    const punchin = new Date(row.punchin_time);
+    const punchout = new Date(row.punchout_time);
+    let current = new Date(punchin);
+
+    while (current < punchout) {
+      const dayStart = new Date(current.getFullYear(), current.getMonth(), current.getDate());
+      const dayEnd = new Date(dayStart);
+      dayEnd.setDate(dayEnd.getDate() + 1);
+
+      const sessionStart = new Date(Math.max(current.getTime(), dayStart.getTime()));
+      const sessionEnd = new Date(Math.min(punchout.getTime(), dayEnd.getTime()));
+      const dayHours = (sessionEnd - sessionStart) / (1000 * 60 * 60);
+      const dateStr = dayStart.toISOString().split('T')[0];
+      const key = `${row.employee_id}-${dateStr}`;
+
+      if (!grouped[key]) {
+        grouped[key] = {
+          employee_id: row.employee_id,
+          employee_name: row.employee_name || "Unknown", // ✅ Added here
+          work_date: dateStr,
+          total_hours_worked: 0,
+          extra_hours: 0,
+          sessions: [],
+          projects: new Set(),
+          supervisors: new Set(),
+          comments: '',
+          rate: 0,
+        };
+      }
+
+      const group = grouped[key];
+      group.total_hours_worked += dayHours;
+
+      group.sessions.push({
+        punch_id: row.punch_id,
+        apportioned_hours: dayHours,
+        status: row.status,
+      });
+
+if (row.assigned_projects) {
+  row.assigned_projects.split(', ').forEach(proj => {
+    if (proj.trim()) group.projects.add(proj.trim());
+  });
+}if (row.supervisor_name) group.supervisors.add(row.supervisor_name);
+      if (row.comments) group.comments += (group.comments ? '; ' : '') + row.comments;
+
+      const rowRate = parseFloat(row.rate) || 0;
+      group.rate = group.rate === 0 ? rowRate : (group.rate + rowRate) / 2;
+
+      current = dayEnd;
+    }
+  });
+
+  Object.values(grouped).forEach((group) => {
+    const statuses = group.sessions.map(s => s.status);
+    const hasApproved = statuses.includes('Approved');
+    const hasRejected = statuses.includes('Rejected');
+    const hasPending = statuses.includes('Pending');
+
+    if (hasRejected) group.status = 'Rejected';
+    else if (hasApproved && !hasPending) group.status = 'Approved';
+    else if (hasPending) group.status = 'Pending';
+    else group.status = 'Partially Approved';
+
+    group.total_hours_worked = Math.min(group.total_hours_worked, 24);
+    group.extra_hours = Math.max(0, group.total_hours_worked - 10);
+    group.projects = Array.from(group.projects).join(', ');
+    group.supervisors = Array.from(group.supervisors).join(', ');
+
+    const totalApportioned = group.sessions.reduce((sum, s) => sum + s.apportioned_hours, 0);
+    group.sessions.forEach((s) => {
+      s.extra_hours = totalApportioned > 0
+        ? (s.apportioned_hours / totalApportioned) * group.extra_hours
+        : 0;
+    });
+  });
+
+  return Object.values(grouped).filter(g => g.total_hours_worked > 0);
 };
 
 async function addOvertimeDetailsBulk(dataArray) {
@@ -267,7 +451,7 @@ async function addOvertimeDetailsBulk(dataArray) {
   try {
     await conn.beginTransaction();
 
-    const values = dataArray.map((row) => [
+    const values = dataArray.map(row => [
       row.punch_id,
       row.work_date,
       row.employee_id,
@@ -278,12 +462,10 @@ async function addOvertimeDetailsBulk(dataArray) {
       row.comments,
       row.status,
       new Date(),
-      new Date(),
+      new Date()
     ]);
 
-    const [result] = await conn.query(queries.ADD_OVERTIME_DETAILS_BULK, [
-      values,
-    ]);
+    const [result] = await conn.query(queries.ADD_OVERTIME_DETAILS_BULK, [values]);
     await conn.commit();
     return { success: true, affectedRows: result.affectedRows };
   } catch (err) {
@@ -303,7 +485,7 @@ async function approveOvertimeRow(row) {
     row.rate,
     row.project,
     row.supervisor,
-    row.comments,
+    row.comments
   ]);
   return { success: true, insertId: result.insertId };
 }
@@ -317,7 +499,7 @@ async function rejectOvertimeRow(row) {
     row.rate,
     row.project,
     row.supervisor,
-    row.comments,
+    row.comments
   ]);
   return { success: true, insertId: result.insertId };
 }
@@ -329,9 +511,7 @@ async function getAllOvertimeDetails() {
 
 async function getEmployeeLopDetailsForCurrentPeriod() {
   try {
-    const [rows] = await pool.query(
-      queries.GET_EMPLOYEE_LOP_DAYS_FOR_CURRENT_PERIOD
-    );
+    const [rows] = await pool.query(queries.GET_EMPLOYEE_LOP_DAYS_FOR_CURRENT_PERIOD);
     return rows;
   } catch (err) {
     console.error("Error fetching LOP details:", err);
@@ -339,10 +519,24 @@ async function getEmployeeLopDetailsForCurrentPeriod() {
   }
 }
 
+async function getWorkingDaysCurrentMonth() {
+  const conn = await pool.getConnection();
+  try {
+    const [rows] = await conn.query(queries.GET_WORKING_DAYS_CURRENT_MONTH);
+    return rows[0]?.total_working_days || 0;
+  } catch (err) {
+    console.error("Error fetching working days:", err);
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
+
 module.exports = {
   checkEmployeeAssignment,
   assignCompensation,
-
+   getWorkingDaysCurrentMonth, 
   getAssignedCompensationDetails,
   addEmployeeBonus,
   addEmployeeBonusBulk,
