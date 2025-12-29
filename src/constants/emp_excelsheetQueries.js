@@ -1,5 +1,3 @@
-
-
 const GET_EMP_ATTENDANCE_BY_DATE_RANGE = `
 SELECT 
     ea.employee_id,
@@ -25,7 +23,7 @@ SELECT
         LIMIT 1
     ) AS last_punchout_location
 FROM emp_attendence ea
-JOIN employees e ON ea.employee_id = e.employee_id AND e.Org_id = ?
+JOIN employees e ON ea.employee_id = e.employee_id AND e.org_id = ?
 WHERE (DATE(ea.punchin_time) BETWEEN ? AND ?)
    OR (DATE(ea.punchout_time) BETWEEN ? AND ?)
 GROUP BY ea.employee_id, DATE(ea.punchin_time)

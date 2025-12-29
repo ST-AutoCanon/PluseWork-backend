@@ -232,7 +232,7 @@ WHERE id = ?;
     p.photo_url,
     CONCAT(e.first_name, ' ', e.last_name) AS name,
     d.name AS department_name,
-    e.Org_id AS org_id
+    e.org_id  
   FROM employees e
   LEFT JOIN employee_professional pr ON e.employee_id = pr.employee_id
   LEFT JOIN departments d ON pr.department_id = d.id
@@ -248,7 +248,7 @@ WHERE id = ?;
     p.photo_url,
     CONCAT(e.first_name, ' ', e.last_name) AS name,
     d.name AS department_name,
-    e.Org_id AS org_id
+    e.org_id 
   FROM employees e
   LEFT JOIN employee_professional pr ON e.employee_id = pr.employee_id
   LEFT JOIN departments d ON pr.department_id = d.id

@@ -24,7 +24,7 @@ module.exports = {
 
   ADD_DEPARTMENT:
     "INSERT INTO departments (name, icon, org_id) VALUES (?, ?, ?)",
-  GET_DEPARTMENTS: "SELECT * FROM departments WHERE Org_id = ?",
+  GET_DEPARTMENTS: "SELECT * FROM departments WHERE org_id = ?",
 
   GET_HOLIDAYS:
     "SELECT date, occasion, type FROM holidays WHERE org_id = ? AND YEAR(date) = YEAR(CURDATE())",

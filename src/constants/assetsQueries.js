@@ -35,7 +35,7 @@ const GET_ASSET_COUNTS = `
 const SEARCH_EMPLOYEES_BY_NAME = `
   SELECT employee_id, CONCAT(first_name, ' ', last_name) AS name
   FROM employees
-  WHERE CONCAT(first_name, ' ', last_name) LIKE CONCAT(?, '%') AND Org_id = ?
+  WHERE CONCAT(first_name, ' ', last_name) LIKE CONCAT(?, '%') AND org_id = ?
   LIMIT 10;
 `;
 

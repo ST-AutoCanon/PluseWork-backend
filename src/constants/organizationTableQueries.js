@@ -53,7 +53,7 @@ DELETE FROM organizations WHERE id = ?
 `;
 
 const DELETE_ALL_EMPLOYEES = `
-DELETE FROM employees WHERE Org_id = ?
+DELETE FROM employees WHERE org_id = ?
 `;
 
 const DELETE_SIDEBAR_ACCESS_BY_ORG = `
@@ -79,7 +79,7 @@ const SELECT_EMPLOYEE_ID_BY_EMAIL = `
   SELECT employee_id
   FROM employees
   WHERE email = ?
-    AND Org_id = ?
+    AND org_id = ?
     AND status = 'Active'
   LIMIT 1
 `;

@@ -17,7 +17,7 @@ module.exports = {
     SELECT
       pr.role,
       e.employee_id,
-      e.Org_id,
+      e.org_id,
       CONCAT(e.first_name, ' ', e.last_name) AS name,
       p.gender,
       e.email,
@@ -74,25 +74,25 @@ module.exports = {
     LEFT JOIN employee_personal p
       ON pr.employee_id = p.employee_id
     JOIN employees e ON pr.employee_id = e.employee_id
-    WHERE e.Org_id = ?
+    WHERE e.org_id = ?
     GROUP BY d.name;
   `,
 
   GET_ATTENDANCE_STATUS_COUNT: `
   SELECT
-    (SELECT COUNT(*) FROM employees WHERE Org_id = ?) AS totalEmployees,
+    (SELECT COUNT(*) FROM employees WHERE org_id = ?) AS totalEmployees,
     (SELECT COUNT(DISTINCT a.employee_id)
      FROM emp_attendence a
      JOIN employees e2 ON a.employee_id = e2.employee_id
      WHERE DATE(a.punchin_time) = CURDATE()
        AND a.punchin_time IS NOT NULL
-       AND e2.Org_id = ?) AS present,
+       AND e2.org_id = ?) AS present,
     (SELECT COUNT(*)
      FROM leavequeries lq
      JOIN employees le ON lq.employee_id = le.employee_id
      WHERE DATE(lq.start_date) = CURDATE()
        AND lq.status = 'Approved'
-       AND le.Org_id = ?) AS approved_leave;
+       AND le.org_id = ?) AS approved_leave;
 `,
 
   GET_EMPLOYEE_LOGIN_DATA_COUNT: `WITH FirstPunch AS (
@@ -103,7 +103,7 @@ module.exports = {
     FROM emp_attendence a
     JOIN employees e ON a.employee_id = e.employee_id
     WHERE a.punchin_time >= DATE_SUB(CURDATE(), INTERVAL 1 MONTH)
-      AND e.Org_id = ?
+      AND e.org_id = ?
     GROUP BY a.employee_id, DATE(a.punchin_time)
 ),
 HourlyData AS (
@@ -140,7 +140,7 @@ ORDER BY STR_TO_DATE(SUBSTRING_INDEX(punchin_label, ' ', 1), '%H');
       COUNT(*) AS count
     FROM employee_professional pr
     JOIN employees e ON pr.employee_id = e.employee_id
-    WHERE e.Org_id = ?
+    WHERE e.org_id = ?
     GROUP BY salary_range
     ORDER BY FIELD(salary_range, '<30k', '30k-50k', '50k-70k', '70k+', '90k+');
   `,
@@ -152,7 +152,7 @@ ORDER BY STR_TO_DATE(SUBSTRING_INDEX(punchin_label, ' ', 1), '%H');
       SUM(CASE WHEN card_label = 'Previous Month Salary' THEN card_value ELSE 0 END) AS total_previous_month_salary
     FROM employee_payrolldata pd
     JOIN employees e ON pd.employee_id = e.employee_id
-    WHERE e.Org_id = ?
+    WHERE e.org_id = ?
       AND card_label IN ('Previous Month Credit', 'Previous Month Expenses', 'Previous Month Salary');
   `,
 

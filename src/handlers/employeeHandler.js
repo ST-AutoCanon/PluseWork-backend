@@ -7,6 +7,11 @@ const ErrorHandler = require("../utils/errorHandler");
 const xlsx = require("xlsx");
 const db = require("../config");
 const queries = require("../constants/empDetailsQueries");
+const {
+  getTenantPool,
+  sanitizeDbName,
+  getTenantPoolByOrgId,
+} = require("../db/tenantPoolManager");
 
 const getWebPath = (fullPath) => {
   const relPath = fullPath.split("EmployeeDetails").pop().replace(/\\/g, "/");
@@ -38,7 +43,6 @@ exports.bulkAddEmployees = async (req, res) => {
     console.warn(
       "[bulkAddEmployees] orgId not provided - employees will be created without org association"
     );
-  } else {
   }
 
   try {
@@ -125,54 +129,11 @@ exports.createFullEmployee = async (req, res) => {
       console.warn("[createFullEmployee] orgId not provided in request");
     }
 
-    let additionalCerts = [];
-    if (raw.additional_certs) {
-      try {
-        additionalCerts =
-          typeof raw.additional_certs === "string"
-            ? JSON.parse(raw.additional_certs)
-            : raw.additional_certs;
-      } catch (e) {
-        additionalCerts = [];
-      }
-    }
+    const tenantDb = orgId ? await getTenantPoolByOrgId(orgId) : db;
 
-    for (let key of Object.keys(raw)) {
-      const m = key.match(
-        /^additional_certs\[(\d+)\]\[(name|year|institution)\]$/
-      );
-      if (!m) continue;
-      const idx = Number(m[1]);
-      const field = m[2];
-      additionalCerts[idx] = additionalCerts[idx] || {};
-      additionalCerts[idx][field] = raw[key];
-    }
-    data.additional_certs = (additionalCerts || []).filter(Boolean);
-
-    let expList = [];
-    if (raw.experience) {
-      try {
-        expList =
-          typeof raw.experience === "string"
-            ? JSON.parse(raw.experience)
-            : raw.experience;
-      } catch (e) {
-        expList = [];
-      }
-    }
-    for (let key of Object.keys(raw)) {
-      const m = key.match(
-        /^experience\[(\d+)\]\[(company|role|start_date|end_date)\]$/
-      );
-      if (!m) continue;
-      const idx = Number(m[1]);
-      const field = m[2];
-      expList[idx] = expList[idx] || {};
-      expList[idx][field] = raw[key];
-    }
-    data.experience = (expList || []).filter(Boolean);
-
-    const [emailRows] = await db.execute(queries.CHECK_EMAIL, [data.email]);
+    const [emailRows] = await tenantDb.execute(queries.CHECK_EMAIL, [
+      data.email,
+    ]);
     if (emailRows.length) {
       return res
         .status(400)
@@ -184,7 +145,7 @@ exports.createFullEmployee = async (req, res) => {
         );
     }
 
-    const [persRows] = await db.execute(queries.CHECK_PERSONAL_DUP, [
+    const [persRows] = await tenantDb.execute(queries.CHECK_PERSONAL_DUP, [
       data.aadhaar_number,
       data.pan_number,
     ]);
@@ -200,71 +161,6 @@ exports.createFullEmployee = async (req, res) => {
             `Aadhaar/PAN number already exists.`
           )
         );
-    }
-
-    let filesByField = {};
-    if (Array.isArray(req.files)) {
-      for (let f of req.files) {
-        filesByField[f.fieldname] = filesByField[f.fieldname] || [];
-        filesByField[f.fieldname].push(f);
-      }
-    } else if (typeof req.files === "object") {
-      for (let [fieldname, fileArray] of Object.entries(req.files)) {
-        filesByField[fieldname] = fileArray;
-      }
-    }
-
-    const simpleMap = {
-      photo: "photo_url",
-      aadhaar_doc: "aadhaar_doc_url",
-      pan_doc: "pan_doc_url",
-      passport_doc: "passport_doc_url",
-      driving_license_doc: "driving_license_doc_url",
-      voter_id_doc: "voter_id_doc_url",
-      tenth_cert: "tenth_cert_url",
-      twelfth_cert: "twelfth_cert_url",
-      ug_cert: "ug_cert_url",
-      pg_cert: "pg_cert_url",
-      resume: "resume_url",
-      other_docs: "other_docs_urls",
-    };
-
-    for (let [field, dataKey] of Object.entries(simpleMap)) {
-      const files = filesByField[field] || [];
-      if (!files.length) continue;
-      data[dataKey] = files.map((f) => getWebPath(f.path));
-    }
-
-    if (Array.isArray(data.additional_certs)) {
-      data.additional_certs = data.additional_certs.map((cert, idx) => {
-        const key = `additional_certs[${idx}][file]`;
-        const files = filesByField[key] || [];
-        cert.file_urls = files.map((f) => getWebPath(f.path));
-        return cert;
-      });
-    }
-
-    if (Array.isArray(data.experience)) {
-      data.experience = data.experience.map((exp, idx) => {
-        const key = `experience[${idx}][doc]`;
-        const files = filesByField[key] || [];
-        exp.doc_urls = files.map((f) => getWebPath(f.path));
-        return exp;
-      });
-    }
-
-    for (let side of [
-      "father",
-      "mother",
-      "spouse",
-      "child1",
-      "child2",
-      "child3",
-    ]) {
-      const field = `${side}_gov_doc`;
-      const urlKey = `${side}_gov_doc_url`;
-      const files = filesByField[field] || [];
-      if (files.length) data[urlKey] = files.map((f) => getWebPath(f.path));
     }
 
     let employee_id;
@@ -340,25 +236,9 @@ exports.updateFullEmployee = async (req, res) => {
       console.warn("[updateFullEmployee] orgId not provided in request");
     }
 
-    [
-      "dob",
-      "father_dob",
-      "mother_dob",
-      "spouse_dob",
-      "child1_dob",
-      "child2_dob",
-      "child3_dob",
-      "marriage_date",
-      "joining_date",
-    ].forEach((k) => {
-      if (data[k] && typeof data[k] === "string" && data[k].includes("T")) {
-        data[k] = data[k].split("T")[0];
-      }
-    });
+    const tenantDb = orgId ? await getTenantPoolByOrgId(orgId) : db;
 
-    const hasKey = (k) => Object.prototype.hasOwnProperty.call(raw, k);
-
-    const [emailRows] = await db.execute(queries.CHECK_EMAIL_UPDATE, [
+    const [emailRows] = await tenantDb.execute(queries.CHECK_EMAIL_UPDATE, [
       data.email,
       data.employee_id,
     ]);
@@ -373,11 +253,10 @@ exports.updateFullEmployee = async (req, res) => {
         );
     }
 
-    const [persRows] = await db.execute(queries.CHECK_PERSONAL_DUP_UPDATE, [
-      data.aadhaar_number,
-      data.pan_number,
-      data.employee_id,
-    ]);
+    const [persRows] = await tenantDb.execute(
+      queries.CHECK_PERSONAL_DUP_UPDATE,
+      [data.aadhaar_number, data.pan_number, data.employee_id]
+    );
     if (persRows.length) {
       const field =
         persRows[0].aadhaar_number === data.aadhaar_number ? "Aadhaar" : "PAN";
@@ -389,128 +268,6 @@ exports.updateFullEmployee = async (req, res) => {
             `${field} number already in use by another employee.`
           )
         );
-    }
-
-    let filesByField = {};
-    if (Array.isArray(req.files)) {
-      for (let f of req.files) {
-        filesByField[f.fieldname] = filesByField[f.fieldname] || [];
-        filesByField[f.fieldname].push(f);
-      }
-    } else if (typeof req.files === "object" && req.files !== null) {
-      for (let [field, arr] of Object.entries(req.files)) {
-        filesByField[field] = arr;
-      }
-    }
-
-    const simpleMap = {
-      photo: "photo_url",
-      aadhaar_doc: "aadhaar_doc_url",
-      pan_doc: "pan_doc_url",
-      passport_doc: "passport_doc_url",
-      driving_license_doc: "driving_license_doc_url",
-      voter_id_doc: "voter_id_doc_url",
-      tenth_cert: "tenth_cert_url",
-      twelfth_cert: "twelfth_cert_url",
-      ug_cert: "ug_cert_url",
-      pg_cert: "pg_cert_url",
-      resume: "resume_url",
-      other_docs: "other_docs_urls",
-    };
-
-    for (let [field, dataKey] of Object.entries(simpleMap)) {
-      const files = filesByField[field] || [];
-      if (files.length) {
-        data[dataKey] = files.map((f) => getWebPath(f.path));
-      } else if (hasKey(dataKey)) {
-        data[dataKey] = raw[dataKey];
-      } else {
-        delete data[dataKey];
-      }
-    }
-
-    if (hasKey("additional_certs")) {
-      let additionalCerts = [];
-      if (raw.additional_certs) {
-        try {
-          additionalCerts =
-            typeof raw.additional_certs === "string"
-              ? JSON.parse(raw.additional_certs)
-              : raw.additional_certs;
-        } catch (e) {
-          additionalCerts = [];
-        }
-      }
-      for (let key of Object.keys(raw)) {
-        const m = key.match(
-          /^additional_certs\[(\d+)\]\[(name|year|institution)\]$/
-        );
-        if (!m) continue;
-        const idx = Number(m[1]);
-        const field = m[2];
-        additionalCerts[idx] = additionalCerts[idx] || {};
-        additionalCerts[idx][field] = raw[key];
-      }
-      data.additional_certs = (additionalCerts || []).map((cert, idx) => {
-        const key = `additional_certs[${idx}][file]`;
-        const files = filesByField[key] || [];
-        if (files.length) cert.file_urls = files.map((f) => getWebPath(f.path));
-        return cert;
-      });
-    } else {
-      delete data.additional_certs;
-    }
-
-    if (hasKey("experience")) {
-      let expList = [];
-      if (raw.experience) {
-        try {
-          expList =
-            typeof raw.experience === "string"
-              ? JSON.parse(raw.experience)
-              : raw.experience;
-        } catch (e) {
-          expList = [];
-        }
-      }
-      for (let key of Object.keys(raw)) {
-        const m = key.match(
-          /^experience\[(\d+)\]\[(company|role|start_date|end_date)\]$/
-        );
-        if (!m) continue;
-        const idx = Number(m[1]);
-        const field = m[2];
-        expList[idx] = expList[idx] || {};
-        expList[idx][field] = raw[key];
-      }
-      data.experience = (expList || []).map((exp, idx) => {
-        const key = `experience[${idx}][doc]`;
-        const files = filesByField[key] || [];
-        if (files.length) exp.doc_urls = files.map((f) => getWebPath(f.path));
-        return exp;
-      });
-    } else {
-      delete data.experience;
-    }
-
-    for (let side of [
-      "father",
-      "mother",
-      "spouse",
-      "child1",
-      "child2",
-      "child3",
-    ]) {
-      const field = `${side}_gov_doc`;
-      const urlKey = `${side}_gov_doc_url`;
-      const files = filesByField[field] || [];
-      if (files.length) {
-        data[urlKey] = files.map((f) => getWebPath(f.path));
-      } else if (hasKey(urlKey)) {
-        data[urlKey] = raw[urlKey];
-      } else {
-        delete data[urlKey];
-      }
     }
 
     await employeeService.editFullEmployee(data);
@@ -535,7 +292,7 @@ exports.updateFullEmployee = async (req, res) => {
 exports.getFullEmployee = async (req, res) => {
   try {
     const employeeId = req.params.employeeId;
-    const profile = await employeeService.getFullEmployee(employeeId);
+    const profile = await employeeService.getFullEmployee(employeeId, {});
     return res
       .status(200)
       .json(

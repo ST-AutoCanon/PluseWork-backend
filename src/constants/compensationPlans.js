@@ -4,7 +4,6 @@ const INSERT_COMPENSATION_PLAN = `
   VALUES (?, ?, ?);
 `;
 
-
 const INSERT_COMPENSATION_WORKING_DAYS = `
   INSERT INTO compensation_working_days (compensation_plan_id, sunday, monday, tuesday, wednesday, thursday, friday, saturday)
   VALUES (?, ?, ?, ?, ?, ?, ?, ?);
@@ -20,7 +19,6 @@ const GET_ALL_COMPENSATION_PLANS = `
   FROM compensation_plans
   WHERE org_id = ?;
 `;
-
 
 //compensationp plan by id
 const GET_COMPENSATION_PLAN_BY_ID = `
@@ -58,7 +56,6 @@ const DELETE_COMPENSATION_WORKING_DAYS = `
   DELETE FROM compensation_working_days WHERE compensation_plan_id = ?;
 `;
 
-
 const GET_ALL_EMPLOYEE_FULL_NAMES = `
   SELECT 
     employee_id, 
@@ -67,8 +64,6 @@ const GET_ALL_EMPLOYEE_FULL_NAMES = `
   WHERE status = 'active' AND org_id = ?
   ORDER BY first_name ASC;
 `;
-
-
 
 const GET_ALL_DEPARTMENT_NAMES = `
   SELECT id, name
@@ -86,12 +81,10 @@ const GET_EMPLOYEES_BY_DEPARTMENT_ID = `
   JOIN departments d
     ON ep.department_id = d.id
   WHERE ep.department_id = ?
-    AND d.Org_id = ?
+    AND d.org_id = ?
     AND e.status = 'active'
   ORDER BY e.first_name ASC;
 `;
-
-
 
 /* ------------------- TDS Slab Queries ------------------- */
 

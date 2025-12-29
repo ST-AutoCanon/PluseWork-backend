@@ -128,7 +128,7 @@ CREATE TABLE IF NOT EXISTS password_resets (
   email VARCHAR(100),
   token VARCHAR(255),
   expiry_time DATETIME,
-  Org_id VARCHAR(50)
+  org_id VARCHAR(50)
 );
 
 CREATE TABLE IF NOT EXISTS sidebar_menu_access (
@@ -212,7 +212,7 @@ CREATE TABLE IF NOT EXISTS departments (
   id INT AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(255),
   icon VARCHAR(255),
-  Org_id VARCHAR(50)
+  org_id VARCHAR(50)
 );
 
 CREATE TABLE IF NOT EXISTS assets (

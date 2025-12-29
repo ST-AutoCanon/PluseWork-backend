@@ -3,9 +3,24 @@ const {
   getDepartmentsService,
 } = require("../services/addDepartment");
 
+const path = require("path");
+
+const resolveOrgIdFromReq = (req) => {
+  const header =
+    req.headers && (req.headers["x-org-id"] || req.headers["x_org_id"]);
+  const body = req.body && (req.body.orgId || req.body.org_id);
+  const query = req.query && (req.query.orgId || req.query.org_id);
+  // also check req.user if your auth middleware sets it
+  const userOrg =
+    req.user && (req.user.orgId || req.user.Org_id || req.user.org_id);
+  return header || body || query || userOrg || null;
+};
+
 const addDepartmentHandler = async (req, res) => {
   try {
-    const { name, orgId } = req.body;
+    const { name } = req.body;
+    const orgId = resolveOrgIdFromReq(req);
+
     if (!name) {
       return res.status(400).json({ message: "Department name is required" });
     }
@@ -14,11 +29,12 @@ const addDepartmentHandler = async (req, res) => {
     }
 
     const icon = req.file ? `/departments/${orgId}/${req.file.filename}` : null;
+
     await addDepartmentService(name, icon, orgId);
 
     return res.status(201).json({ message: "Department added successfully" });
   } catch (error) {
-    if (error.message === "Department already exists") {
+    if (error && error.message === "Department already exists") {
       return res.status(409).json({ message: error.message });
     }
     console.error("Error adding department:", error);
@@ -28,7 +44,7 @@ const addDepartmentHandler = async (req, res) => {
 
 const getDepartmentsHandler = async (req, res) => {
   try {
-    const orgId = req.query.orgId;
+    const orgId = resolveOrgIdFromReq(req);
     if (!orgId) {
       return res.status(400).json({ message: "orgId is required" });
     }
@@ -41,4 +57,7 @@ const getDepartmentsHandler = async (req, res) => {
   }
 };
 
-module.exports = { addDepartmentHandler, getDepartmentsHandler };
+module.exports = {
+  addDepartmentHandler,
+  getDepartmentsHandler,
+};

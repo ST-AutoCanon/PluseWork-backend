@@ -5,6 +5,23 @@ const bcrypt = require("bcrypt");
 const path = require("path");
 const fs = require("fs");
 const { sendResetEmail } = require("../utils/brevoMailer");
+const { sendResetEmail: sendResetEmailMailer } = require("../utils/mailer");
+const { getTenantPool, sanitizeDbName } = require("../db/tenantPoolManager");
+
+function selectSendResetEmailFn(orgId) {
+  if (String(orgId) === "1") return sendResetEmailMailer;
+  return sendResetEmailBrevo;
+}
+
+async function getTenantPoolForOrgId(orgId) {
+  if (!orgId) {
+    const err = new Error("orgId required to get tenant pool");
+    err.code = "ORG_REQUIRED";
+    throw err;
+  }
+  const dbName = sanitizeDbName(`tenant_${orgId}`);
+  return getTenantPool(dbName);
+}
 
 const BASE_UPLOADS = path.join(__dirname, "../../../EmployeeDetails");
 
@@ -142,7 +159,7 @@ async function addFullEmployeeUsingConnection(conn, data, options = {}) {
     suffix = options.providedSuffix;
     orgName = options.providedOrgName || null;
   } else {
-    const [orgRows] = await conn.execute(queries.SELECT_ORG_FOR_UPDATE, [
+    const [orgRows] = await db.execute(queries.SELECT_ORG_FOR_UPDATE, [
       resolvedOrg,
     ]);
     org = orgRows && orgRows[0] ? orgRows[0] : null;
@@ -165,7 +182,7 @@ async function addFullEmployeeUsingConnection(conn, data, options = {}) {
     }
 
     const newCounter = Number(org.employee_counter || 0) + 1;
-    await conn.execute(queries.UPDATE_ORG_COUNTER, [newCounter, resolvedOrg]);
+    await db.execute(queries.UPDATE_ORG_COUNTER, [newCounter, resolvedOrg]);
 
     suffix = newCounter;
     const suffixStr = String(suffix).padStart(PAD_DIGITS, "0");
@@ -196,36 +213,6 @@ async function addFullEmployeeUsingConnection(conn, data, options = {}) {
   await conn.execute(queries.ADD_EMPLOYEE_CORE, coreParams);
 
   const eid = employeeId;
-
-  const personalFileKeys = [
-    "spouse_gov_doc_url",
-    "aadhaar_doc_url",
-    "pan_doc_url",
-    "passport_doc_url",
-    "driving_license_doc_url",
-    "voter_id_doc_url",
-    "father_gov_doc_url",
-    "mother_gov_doc_url",
-    "child1_gov_doc_url",
-    "child2_gov_doc_url",
-    "child3_gov_doc_url",
-    "photo_url",
-  ];
-
-  function normalizeToStringArray(input) {
-    if (input == null) return [];
-    if (Array.isArray(input)) return input;
-    try {
-      const parsed = JSON.parse(input);
-      if (Array.isArray(parsed)) return parsed;
-    } catch {}
-    return [String(input)];
-  }
-  function arrayToJsonOrNull(val) {
-    const arr = normalizeToStringArray(val);
-    if (!arr || !arr.length) return null;
-    return JSON.stringify(arr);
-  }
 
   const personalParams = [
     eid,
@@ -385,14 +372,18 @@ exports.addFullEmployee = async (data, options = {}) => {
   if (missing.length > 0) {
     throw new Error(`Missing required fields: ${missing.join(", ")}`);
   }
-  const conn = await db.getConnection();
+
+  const tenantPool = await getTenantPoolForOrgId(data.org_id);
+  const conn = await tenantPool.getConnection();
   try {
     await conn.beginTransaction();
     const res = await addFullEmployeeUsingConnection(conn, data, options);
     await conn.commit();
 
     try {
-      const mailRes = await sendResetEmail(
+      const sendResetEmailFn = selectSendResetEmailFn(data.org_id);
+
+      const mailRes = await sendResetEmailFn(
         data.email,
         `${data.first_name} ${data.last_name}`,
         {
@@ -404,13 +395,38 @@ exports.addFullEmployee = async (data, options = {}) => {
       );
 
       if (mailRes && mailRes.resetToken) {
-        const conn2 = await db.getConnection();
-        await conn2.execute(queries.SAVE_RESET_TOKEN, [
-          data.email,
-          mailRes.resetToken,
-          mailRes.tokenExpiry,
-        ]);
-        conn2.release();
+        try {
+          const tenantConn2 = await tenantPool.getConnection();
+          try {
+            await tenantConn2.execute(queries.SAVE_RESET_TOKEN, [
+              data.email,
+              mailRes.resetToken,
+              mailRes.tokenExpiry,
+              data.org_id,
+            ]);
+          } finally {
+            try {
+              tenantConn2.release();
+            } catch (e) {}
+          }
+        } catch (tenantSaveErr) {
+          console.warn(
+            "[addFullEmployee] WARNING: failed to save reset token in tenant DB:",
+            tenantSaveErr && (tenantSaveErr.stack || tenantSaveErr)
+          );
+        }
+
+        try {
+          await db.execute(queries.SAVE_RESET_TOKEN_MASTER, [
+            mailRes.resetToken,
+            data.org_id,
+          ]);
+        } catch (masterSaveErr) {
+          console.warn(
+            "[addFullEmployee] WARNING: failed to save reset token in master DB:",
+            masterSaveErr && (masterSaveErr.stack || masterSaveErr)
+          );
+        }
       }
     } catch (mailErr) {
       console.warn("[addFullEmployee] reset-email failed:", mailErr);
@@ -434,7 +450,22 @@ exports.addFullEmployee = async (data, options = {}) => {
 exports.editFullEmployee = async (data) => {
   normalizeOrgId(data);
 
-  const conn = await db.getConnection();
+  let orgId = data.org_id || data.orgId || null;
+  if (!orgId) {
+    const [maybe] = await db
+      .execute(queries.GET_ORG_FOR_EMPLOYEE_ID, [data.employee_id])
+      .catch(() => [[]]);
+    if (maybe && maybe.length) {
+      orgId = maybe[0].Org_id || maybe[0].org_id || null;
+    }
+  }
+
+  if (!orgId) {
+    throw new Error("org_id required to edit employee");
+  }
+
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  const conn = await tenantPool.getConnection();
   try {
     await conn.beginTransaction();
 
@@ -747,7 +778,15 @@ exports.editFullEmployee = async (data) => {
 };
 
 exports.getFullEmployee = async (employeeId) => {
-  const [rows] = await db.execute(queries.GET_FULL_EMPLOYEE, [employeeId]);
+  const [maybe] = await db.execute(queries.GET_EMPLOYEE, [employeeId]);
+  if (!maybe || maybe.length === 0) throw new Error("Not found");
+  const orgId = maybe[0].Org_id || maybe[0].org_id;
+  if (!orgId) throw new Error("orgId not found for employee");
+
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  const [rows] = await tenantPool.query(queries.GET_FULL_EMPLOYEE, [
+    employeeId,
+  ]);
   if (!rows.length) throw new Error("Not found");
   const row = rows[0];
 
@@ -796,6 +835,7 @@ exports.getFullEmployee = async (employeeId) => {
 
 exports.searchEmployees = async (search, fromDate, toDate, orgId) => {
   try {
+    const tenantPool = orgId ? await getTenantPoolForOrgId(orgId) : null;
     let query = queries.GET_ALL_EMPLOYEES;
     let params = [];
 
@@ -857,7 +897,10 @@ exports.searchEmployees = async (search, fromDate, toDate, orgId) => {
       }
     }
 
-    const [rows] = await db.execute(query, params);
+    const executor = tenantPool || db;
+    const [rows] = (await executor.execute)
+      ? await executor.execute(query, params)
+      : await executor.query(query, params);
     return rows;
   } catch (error) {
     console.error("❌ Error fetching employees from database:", error);
@@ -867,7 +910,12 @@ exports.searchEmployees = async (search, fromDate, toDate, orgId) => {
 
 exports.deactivateEmployee = async (employeeId) => {
   try {
-    const [result] = await db.execute(queries.UPDATE_EMPLOYEE_STATUS, [
+    const [maybe] = await db.execute(queries.GET_EMPLOYEE, [employeeId]);
+    if (!maybe || maybe.length === 0) throw new Error("Employee not found");
+    const orgId = maybe[0].Org_id || maybe[0].org_id;
+    const tenantPool = await getTenantPoolForOrgId(orgId);
+
+    const [result] = await tenantPool.execute(queries.UPDATE_EMPLOYEE_STATUS, [
       employeeId,
     ]);
 
@@ -897,24 +945,41 @@ exports.getEmployee = async (employeeId) => {
   }
 };
 
-exports.getUserRoles = async () => {
+exports.getUserRoles = async (orgId) => {
+  if (orgId) {
+    const tenantPool = await getTenantPoolForOrgId(orgId);
+    const [rows] = await tenantPool.query(queries.GET_USER_ROLES);
+    return rows;
+  }
   const [rows] = await db.execute(queries.GET_USER_ROLES);
   return rows;
 };
 
-exports.getPositions = async (role) => {
-  const [rows] = await db.execute(queries.GET_POSITIONS_BY_ROLE_AND_DEPT, [
-    role,
-    role,
-    role,
-    role,
-    role,
-  ]);
+exports.getPositions = async (role, orgId) => {
+  const executor = orgId ? await getTenantPoolForOrgId(orgId) : db;
+  const [rows] = (await executor.execute)
+    ? await executor.execute(queries.GET_POSITIONS_BY_ROLE_AND_DEPT, [
+        role,
+        role,
+        role,
+        role,
+        role,
+      ])
+    : await executor.query(queries.GET_POSITIONS_BY_ROLE_AND_DEPT, [
+        role,
+        role,
+        role,
+        role,
+        role,
+      ]);
   return rows.map((r) => r.name);
 };
 
 exports.getSupervisorsByPosition = async (position, department_id, orgId) => {
-  const [rankRows] = await db.execute(queries.GET_POSITION_RANK, [position]);
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  const [rankRows] = await tenantPool.execute(queries.GET_POSITION_RANK, [
+    position,
+  ]);
   const currentRank = rankRows[0]?.rank;
   if (!currentRank) return [];
 
@@ -922,7 +987,7 @@ exports.getSupervisorsByPosition = async (position, department_id, orgId) => {
   const maxRank = currentRank - 1;
   if (minRank > maxRank) return [];
 
-  const [rows] = await db.execute(queries.GET_SUPERVISORS_BY_POSITION, [
+  const [rows] = await tenantPool.execute(queries.GET_SUPERVISORS_BY_POSITION, [
     department_id || null,
     minRank,
     maxRank,
@@ -933,7 +998,12 @@ exports.getSupervisorsByPosition = async (position, department_id, orgId) => {
 };
 
 exports.assignSupervisor = async (employeeId, supervisorId, startDate) => {
-  const conn = await db.getConnection();
+  const [maybe] = await db.execute(queries.GET_EMPLOYEE, [employeeId]);
+  if (!maybe || maybe.length === 0) throw new Error("Employee not found");
+  const orgId = maybe[0].Org_id || maybe[0].org_id;
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+
+  const conn = await tenantPool.getConnection();
   try {
     await conn.beginTransaction();
     await conn.execute(queries.UPDATE_SUPERVISOR_ASSIGNMENT_END, [
@@ -956,7 +1026,14 @@ exports.assignSupervisor = async (employeeId, supervisorId, startDate) => {
 };
 
 exports.getSupervisorHistory = async (employeeId) => {
-  const [rows] = await db.execute(queries.GET_SUPERVISOR_HISTORY, [employeeId]);
+  const [maybe] = await db.execute(queries.GET_EMPLOYEE, [employeeId]);
+  if (!maybe || maybe.length === 0) throw new Error("Employee not found");
+  const orgId = maybe[0].Org_id || maybe[0].org_id;
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+
+  const [rows] = await tenantPool.execute(queries.GET_SUPERVISOR_HISTORY, [
+    employeeId,
+  ]);
   return rows;
 };
 
@@ -967,28 +1044,60 @@ async function sendResetEmailAndSave(email, name, opts = {}, saveConn = null) {
     throw new Error("email required to send reset email");
   }
 
+  const providedOrgId = opts.orgId || opts.org_id || null;
+  const sendFn = selectSendResetEmailFn(providedOrgId);
+
   try {
-    const mailRes = await sendResetEmail(email, name, opts);
+    const mailRes = await sendFn(email, name, opts);
 
     if (mailRes && mailRes.resetToken) {
+      const token = mailRes.resetToken;
+      const expiry = mailRes.tokenExpiry || null;
+
       try {
         if (saveConn && typeof saveConn.execute === "function") {
           await saveConn.execute(queries.SAVE_RESET_TOKEN, [
             email,
-            mailRes.resetToken,
-            mailRes.tokenExpiry,
+            token,
+            expiry,
+            providedOrgId,
           ]);
+        } else if (providedOrgId) {
+          const tenantPool = await getTenantPoolForOrgId(providedOrgId);
+          const tenantConn = await tenantPool.getConnection();
+          try {
+            await tenantConn.execute(queries.SAVE_RESET_TOKEN, [
+              email,
+              token,
+              expiry,
+              providedOrgId,
+            ]);
+          } finally {
+            try {
+              tenantConn.release();
+            } catch (e) {}
+          }
         } else {
-          await db.execute(queries.SAVE_RESET_TOKEN, [
-            email,
-            mailRes.resetToken,
-            mailRes.tokenExpiry,
-          ]);
+          console.warn(
+            "[sendResetEmailAndSave] orgId not provided and no saveConn - skipping tenant password_resets save"
+          );
         }
       } catch (saveErr) {
         console.warn(
-          "[sendResetEmailAndSave] WARNING: failed to save reset token:",
+          "[sendResetEmailAndSave] WARNING: failed to save reset token in tenant DB:",
           saveErr && (saveErr.stack || saveErr)
+        );
+      }
+
+      try {
+        await db.execute(queries.SAVE_RESET_TOKEN_MASTER, [
+          token,
+          providedOrgId,
+        ]);
+      } catch (masterSaveErr) {
+        console.warn(
+          "[sendResetEmailAndSave] WARNING: failed to save reset token in master DB:",
+          masterSaveErr && (masterSaveErr.stack || masterSaveErr)
         );
       }
     } else {

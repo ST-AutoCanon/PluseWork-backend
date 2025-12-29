@@ -18,7 +18,7 @@ module.exports = {
 
   ADD_EMPLOYEE_CORE: `
     INSERT INTO employees (
-      employee_id, suffix, first_name, last_name, email, password, phone_number, dob, Org_id, status, created_at, updated_at
+      employee_id, suffix, first_name, last_name, email, password, phone_number, dob, org_id, status, created_at, updated_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Active', NOW(), NOW())
   `,
 
@@ -324,12 +324,20 @@ SELECT employee_id
 `,
 
   SAVE_RESET_TOKEN: `
-  INSERT INTO password_resets (email, token, expiry_time) 
-  VALUES (?, ?, ?)
+  INSERT INTO password_resets (email, token, expiry_time, org_id) 
+  VALUES (?, ?, ?, ?)
   ON DUPLICATE KEY UPDATE 
     token = VALUES(token), 
     expiry_time = VALUES(expiry_time)
 `,
+
+  SAVE_RESET_TOKEN_MASTER: `
+  INSERT INTO password_reset_tokens (token, org_id, created_at)
+  VALUES (?, ?, NOW())
+  ON DUPLICATE KEY UPDATE
+    created_at = VALUES(created_at)
+`,
+
   GET_ALL_EMPLOYEES: `
   SELECT
     e.employee_id,
@@ -465,7 +473,7 @@ LEFT JOIN (
 
 
   WHERE 1=1
-  AND e.Org_id = ?
+  AND e.org_id = ?
 `,
 
   SEARCH_EMPLOYEES: `
@@ -602,17 +610,12 @@ LEFT JOIN (
     e.employee_id   LIKE ? OR
     d.name          LIKE ?
   )
-    AND e.Org_id = ?
+    AND e.org_id = ?
   ORDER BY e.employee_id;
 `,
 
   UPDATE_EMPLOYEE_STATUS: `UPDATE employees SET status = 'Inactive' WHERE employee_id = ?`,
 
-  VERIFY_RESET_TOKEN: `
-    SELECT email 
-    FROM password_resets 
-    WHERE token = ? AND expiry_time > NOW();
-  `,
   UPDATE_EMPLOYEE_PASSWORD: `
     UPDATE employees 
     SET password = ? 
@@ -673,7 +676,7 @@ LEFT JOIN (
    AND (pos.department_id = ? OR pos.department_id IS NULL)
    LEFT JOIN departments d ON p.department_id = d.id
   WHERE pos.\`rank\` BETWEEN ? AND ?
-    AND e.status = 'Active' AND e.Org_id = ?
+    AND e.status = 'Active' AND e.org_id = ?
   ORDER BY pos.\`rank\` DESC
 `,
 
@@ -707,6 +710,6 @@ LEFT JOIN (
   UPDATE_EMPLOYEE_IDS_BY_ORG: `
     UPDATE employees
     SET employee_id = CONCAT(?, '-', LPAD(suffix, 6, '0'))
-    WHERE Org_id = ?
+    WHERE org_id = ?
   `,
 };

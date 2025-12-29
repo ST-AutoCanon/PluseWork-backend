@@ -8,7 +8,7 @@ module.exports = {
     FROM employees e
     JOIN employee_professional p ON e.employee_id = p.employee_id
     WHERE p.supervisor_id = ?
-      AND e.Org_id = (SELECT Org_id FROM employees WHERE employee_id = ?)
+      AND e.org_id = (SELECT org_id FROM employees WHERE employee_id = ?)
       AND e.status = 'Active'
     ORDER BY e.first_name, e.last_name;
   `,
@@ -20,7 +20,7 @@ module.exports = {
       e.last_name,
       CONCAT(e.first_name, ' ', e.last_name) AS employee_name
     FROM employees e
-    WHERE e.Org_id = (SELECT Org_id FROM employees WHERE employee_id = ?)
+    WHERE e.org_id = (SELECT org_id FROM employees WHERE employee_id = ?)
       AND e.status = 'Active'
     ORDER BY e.first_name, e.last_name;
   `,
@@ -49,7 +49,7 @@ module.exports = {
     JOIN employee_professional p ON t.employee_id = p.employee_id
     JOIN employees e ON t.employee_id = e.employee_id
     WHERE p.supervisor_id = ?
-      AND e.Org_id = (SELECT Org_id FROM employees WHERE employee_id = ?)
+      AND e.org_id = (SELECT org_id FROM employees WHERE employee_id = ?)
       AND e.status = 'Active'
     ORDER BY t.task_date DESC, t.task_id ASC;
   `,
@@ -76,7 +76,7 @@ module.exports = {
       t.parent_task_id
     FROM weekly_tasks t
     JOIN employees e ON t.employee_id = e.employee_id
-    WHERE e.Org_id = (SELECT Org_id FROM employees WHERE employee_id = ?)
+    WHERE e.org_id = (SELECT org_id FROM employees WHERE employee_id = ?)
       AND e.status = 'Active'
     ORDER BY t.task_date DESC, t.task_id ASC;
   `,
