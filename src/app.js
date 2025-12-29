@@ -19,10 +19,25 @@ const weeklyTaskSupervisorRoutes = require("./routes/weekly_task_supervisor");
 const weekTaskRoutes = require("./routes/weekTaskRoutes");
 const configRoutes = require("./routes/configRoutes");
 
+const compensationRoutes = require("./routes/compensationRoutes");
+const assignCompensationRoutes = require("./routes/assignCompensationRoute");
+const employeeRoutesforsalarybreakup = require("./routes/compensationRoutes");
+const overtimeRoutes = require("./routes/assignCompensationRoute");
+const overtimeSummaryRoutes = require("./routes/overtimeSummaryRoutes");
+const lossofPayCalculationRoutes = require("./routes/lossofPayCalculationRoutes");
+const incentivesRoutes = require("./routes/incentivesRoutes");
+const salaryRoutes2 = require("./routes/salaryCalculationPeriodRoutes");
+const salaryDetailsRoutes = require("./routes/salaryDetailsRoutes");
+const employeeBankReportRoutes = require("./routes/employeebankreportroute");
+const salaryStatementRouter = require("./routes/salaryRoutes");
+const salaryDetailsRouter = require("./routes/salaryDetailsRouter");
+const salaryPeriodRoutes = require("./routes/salaryCalculationPeriodRoutes");
+
 const { createSessionStore, _initPromise } = require("./lib/sessionStore");
 const EmployeeQueries = require("./services/employeeQueries");
 const chatService = require("./services/chatService");
 const apiKeyMiddleware = require("./middleware/apiKeyMiddleware");
+const tenantResolver = require("./middleware/tenantResolver");
 const idleTimeout = require("./middleware/idleTimeout");
 const contact = require("./routes/contact");
 const holidayRoutes = require("./routes/holidayRoutes");
@@ -67,27 +82,8 @@ const empExcelRoutes = require("./routes/emp_excelsheetRoutes");
 const letterRoutes = require("./routes/letterRoutes");
 const letterheadRoutes = require("./routes/letterheadRoute");
 const letterheadTemplateRoutes = require("./routes/letterheadTemplateRoutes");
-
-
-
-
-const compensationRoutes = require("./routes/compensationRoutes");
-const assignCompensationRoutes = require("./routes/assignCompensationRoute");
-const employeeRoutesforsalarybreakup = require("./routes/compensationRoutes");
-const overtimeRoutes = require("./routes/assignCompensationRoute");
-const overtimeSummaryRoutes = require("./routes/overtimeSummaryRoutes");
-const lossofPayCalculationRoutes = require("./routes/lossofPayCalculationRoutes");
-const incentivesRoutes = require("./routes/incentivesRoutes");
-const salaryRoutes2 = require('./routes/salaryCalculationPeriodRoutes');
-const salaryDetailsRoutes = require('./routes/salaryDetailsRoutes'); // Adjust path if needed
-const employeeBankReportRoutes = require('./routes/employeebankreportroute');
-const salaryStatementRouter = require("./routes/salaryRoutes");
-const salaryDetailsRouter = require("./routes/salaryDetailsRouter");
-const salaryPeriodRoutes = require('./routes/salaryCalculationPeriodRoutes');
-
-
-const chatRoutes = require("./routes/chatRoutes");
 const employeeProjectsRoute = require("./routes/employeeProjectsRoute");
+const chatRoutes = require("./routes/chatRoutes");
 const orgRoutes = require("./routes/orgRoutes");
 const sidebarRoutes = require("./routes/sidebarRoutes");
 const policyNotificationService = require("./services/policyNotificationService");
@@ -283,6 +279,11 @@ app.use((req, res, next) => {
       );
     })();
 
+    app.use("/api", organizationTableRoutes);
+    app.use("/api", sidebarRoutes);
+
+    app.use("/api", tenantResolver);
+
     app.use("/", holidayRoutes);
     app.use("/", loginRoutes);
     app.use("/", meRoute);
@@ -323,43 +324,42 @@ app.use((req, res, next) => {
     app.use("/api/employeelogin", employeeloginRoutes);
     app.use("/api", empExcelRoutes);
     app.use("/api/employee", employeeBirthdayRoutes);
-    app.use("/api", sidebarRoutes);
+
     app.use("/", orgRoutes);
     app.use("/api", payrollRoutes);
-    app.use("/api", organizationTableRoutes);
+
+    app.use("/api/overtime", overtimeRoutes);
+    app.use("/api/overtime-summary", overtimeSummaryRoutes);
+    app.use("/api", salaryPeriodRoutes);
+    app.use("/api/compensations", compensationRoutes);
+    app.use("/api/compensation", assignCompensationRoutes);
+    app.use("/api", employeeRoutesforsalarybreakup);
+    app.use("/api/salary-details", salaryDetailsRoutes);
+    app.use("/api/compensation", employeeBankReportRoutes);
+    app.use("/api/lop", lossofPayCalculationRoutes);
+
+    app.use("/api/compensations", compensationRoutes);
+    app.use("/api/compensation", assignCompensationRoutes);
+    app.use("/api/overtime", overtimeRoutes);
+    app.use("/api/overtime-summary", overtimeSummaryRoutes);
+    app.use("/api", salaryPeriodRoutes);
+    app.use("/api/compensations", compensationRoutes);
+    app.use("/api", employeeProjectsRoute);
+    app.use("/api/leave-policies", leavePolicy);
+
     app.use("/", vendorRoutes);
     app.use("/", oldEmployeeRoutes);
     app.use("/api", letterRoutes);
     app.use("/api", letterheadRoutes);
     app.use("/api", letterheadTemplateRoutes);
     app.use("/api/templates", letterheadTemplateRoutes);
-
-    ////
-    //compensation
-app.use("/api/overtime", overtimeRoutes);
-app.use("/api/overtime-summary", overtimeSummaryRoutes);
-app.use('/api', salaryPeriodRoutes);
-app.use("/api/compensations", compensationRoutes);
-app.use("/api/compensation", assignCompensationRoutes);
-app.use("/api", employeeRoutesforsalarybreakup);
-app.use('/api/salary-details', salaryDetailsRoutes);
-app.use('/api/compensation', employeeBankReportRoutes);
- app.use("/api/lop", lossofPayCalculationRoutes);
-
-    ///
     app.use("/api/compensations", compensationRoutes);
     app.use("/api/compensation", assignCompensationRoutes);
     app.use("/api/overtime", overtimeRoutes);
     app.use("/api/overtime-summary", overtimeSummaryRoutes);
-    app.use('/api', salaryPeriodRoutes);
-    app.use("/api/compensations", compensationRoutes);
     app.use("/api", employeeProjectsRoute);
-    // app.use("/api/lop", lossofPayCalculationRoutes);
+    app.use("/api/lop", lossofPayCalculationRoutes);
     app.use("/api/leave-policies", leavePolicy);
-    //  app.use("/api", configRoutes);
-
-
-    
 
     app.use("/api/weekly_task_supervisor", weeklyTaskSupervisorRoutes);
     app.use("/api/week_tasks", weekTaskRoutes);

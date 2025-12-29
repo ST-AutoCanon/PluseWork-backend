@@ -1,4 +1,18 @@
 module.exports = {
+  GET_ADMIN_BY_EMAIL: `
+    SELECT
+      au.id AS admin_id,
+      au.email,
+      au.password_hash AS password,
+      au.name,
+      au.role_id,
+      ur.name AS role_name
+    FROM admin_users au
+    LEFT JOIN user_roles ur ON au.role_id = ur.id
+    WHERE au.email = ?
+    LIMIT 1;
+  `,
+
   GET_USER_BY_EMAIL: `
     SELECT
       pr.role,
@@ -11,7 +25,7 @@ module.exports = {
       pr.position,
       e.status,
       d.name AS department
-      FROM employees e
+    FROM employees e
     LEFT JOIN employee_personal p
       ON e.employee_id = p.employee_id
     LEFT JOIN employee_professional pr
@@ -21,195 +35,33 @@ module.exports = {
     WHERE e.email = ?;
   `,
 
-  GET_END_DATE: `SELECT id, Name, start_date, end_date FROM Organizations WHERE id = ?`,
+  GET_END_DATE: `SELECT id, name, start_date, end_date FROM organizations WHERE id = ?`,
 
-  GET_ADMIN_DETAILS: `
-    SELECT
-      pr.role,
-      e.employee_id,
-      e.Org_id, -- include org id
-      CONCAT(e.first_name, ' ', e.last_name) AS name,
-      p.gender,
-      e.email
-    FROM employees e
-    LEFT JOIN employee_personal p
-      ON e.employee_id = p.employee_id
-    LEFT JOIN employee_professional pr
-      ON e.employee_id = pr.employee_id
-    WHERE e.employee_id = ?;
+  GET_ORG_ID_NAME_LIST: `
+    SELECT id, name
+    FROM organizations
+    ORDER BY name
   `,
 
-  GET_ADMIN_DASHBOARD: `
-    SELECT
-      COUNT(DISTINCT e.employee_id) AS total_employees,
-      SUM(CASE WHEN DATE(a.date) = CURDATE() AND a.login_time IS NOT NULL THEN 1 ELSE 0 END) AS present,
-      (
-        SELECT COUNT(*)
-        FROM leavequeries lq
-        JOIN employees le ON lq.employee_id = le.employee_id
-        WHERE lq.leave_type = 'Sick'
-          AND lq.status = 'Approved'
-          AND DATE(lq.created_at) = CURDATE()
-          AND le.org_id = ?
-      ) AS sick_leave,
-      (
-        SELECT COUNT(*)
-        FROM leavequeries lq
-        JOIN employees le ON lq.employee_id = le.employee_id
-        WHERE lq.leave_type = 'Other'
-          AND lq.status = 'Approved'
-          AND DATE(lq.created_at) = CURDATE()
-          AND le.org_id = ?
-      ) AS other_absence
-    FROM employees e
-    LEFT JOIN attendance a
-      ON e.employee_id = a.employee_id AND DATE(a.date) = CURDATE()
-    WHERE e.Org_id = ?;
+  SELECT_ORG_ID_BY_PREFIX: `
+    SELECT id
+    FROM organizations
+    WHERE UPPER(employee_prefix) = ?
+    LIMIT 1
   `,
 
-  GET_SALARY_DISTRIBUTION: `
-    SELECT
-      AVG(pr.salary) AS average_salary,
-      MIN(pr.salary) AS min_salary,
-      MAX(pr.salary) AS max_salary
-    FROM employee_professional pr
-    JOIN employees e ON pr.employee_id = e.employee_id
-    WHERE e.Org_id = ?;
+  GET_SIDEBAR_ACCESS_BY_ROLE: `
+    SELECT sidebar_item_id
+    FROM sidebar_menu_access
+    WHERE org_id = ? AND role = ?
+    ORDER BY sidebar_item_id
   `,
 
-  GET_DEPARTMENT_DISTRIBUTION: `
-    SELECT
-      d.name AS department_name,
-      COUNT(pr.department_id) AS count
-    FROM employee_professional pr
-    LEFT JOIN departments d
-      ON pr.department_id = d.id
-    JOIN employees e ON pr.employee_id = e.employee_id
-    WHERE e.Org_id = ?
-    GROUP BY pr.department_id, d.name;
+  GET_SIDEBAR_MENU_BY_IDS: `
+    SELECT id, label, path, icon
+    FROM sidebar_menu
+    WHERE id IN (?)
   `,
-
-  GET_FINANCIAL_STATS: `
-    SELECT
-      SUM(total_expenses) AS previous_month_expenses,
-      SUM(total_salary) AS previous_month_salary,
-      SUM(total_credit) AS previous_month_credit
-    FROM financials
-    WHERE org_id = ?
-      AND MONTH(month) = MONTH(CURRENT_DATE - INTERVAL 1 MONTH)
-      AND YEAR(month) = YEAR(CURRENT_DATE - INTERVAL 1 MONTH);
-  `,
-
-  GET_CURRENT_PROJECTS: `
-    SELECT
-      project_name,
-      job_type,
-      department,
-      start_date,
-      end_date,
-      comments
-    FROM projects
-    WHERE org_id = ?
-      AND CURRENT_DATE BETWEEN start_date AND end_date;
-  `,
-
-  GET_UPCOMING_PROJECTS: `
-    SELECT
-      project_name,
-      job_type,
-      department,
-      start_date,
-      end_date,
-      comments
-    FROM projects
-    WHERE org_id = ?
-      AND start_date > CURRENT_DATE;
-  `,
-
-  GET_PREVIOUS_PROJECTS: `
-    SELECT
-      project_name,
-      job_type,
-      department,
-      start_date,
-      end_date,
-      comments
-    FROM projects
-    WHERE org_id = ?
-      AND end_date < CURRENT_DATE;
-  `,
-
-  GET_HOURLY_LOGIN_DATA: `
-    SELECT
-      CASE
-        WHEN a.login_time < '09:30:00' THEN '<9:30'
-        WHEN a.login_time BETWEEN '09:30:00' AND '10:00:00' THEN '9:30-10:00'
-        WHEN a.login_time BETWEEN '10:00:00' AND '11:00:00' THEN '10:00-11:00'
-        ELSE '>11:00'
-      END AS timing,
-      COUNT(*) AS count
-    FROM attendance a
-    JOIN employees e ON a.employee_id = e.employee_id
-    WHERE DATE(a.date) = CURDATE()
-      AND e.Org_id = ?
-    GROUP BY timing;
-  `,
-
-  GET_EMPLOYEE_DASHBOARD: `
-    SELECT
-      CONCAT(e.first_name, ' ', e.last_name) AS name,
-      e.employee_id,
-      p.gender,
-      d.id AS department_id,
-      d.name AS department,
-      pr.position,
-      pr.salary,
-      p.photo_url,
-      (
-        SELECT COUNT(*)
-        FROM attendance a
-        WHERE a.employee_id = e.employee_id
-          AND DATE(a.date) = CURDATE()
-          AND a.login_time IS NOT NULL
-      ) AS attendance_count,
-      (
-        SELECT COUNT(*)
-        FROM leavequeries lq
-        WHERE lq.employee_id = e.employee_id
-          AND lq.status = 'Approved'
-          AND DATE(lq.created_at) = CURDATE()
-      ) AS leave_queries_count,
-      (
-        SELECT COUNT(*)
-        FROM leavequeries lq
-        WHERE lq.employee_id = e.employee_id
-          AND lq.leave_type = 'Sick'
-          AND lq.status = 'Approved'
-          AND DATE(lq.created_at) = CURDATE()
-      ) AS sick_leave,
-      (
-        SELECT COUNT(*)
-        FROM leavequeries lq
-        WHERE lq.employee_id = e.employee_id
-          AND lq.leave_type = 'Other'
-          AND lq.status = 'Approved'
-          AND DATE(lq.created_at) = CURDATE()
-      ) AS other_absence
-    FROM employees e
-    LEFT JOIN employee_personal p
-      ON e.employee_id = p.employee_id
-    LEFT JOIN employee_professional pr
-      ON e.employee_id = pr.employee_id
-    LEFT JOIN departments d
-      ON pr.department_id = d.id
-    WHERE e.employee_id = ?;
-  `,
-
-  GET_SIDEBAR_MENU: `SELECT sm.label, sm.path, sm.icon
-FROM sidebar_menu sm
-JOIN sidebar_menu_access sma ON sm.id = sma.sidebar_item_id
-WHERE sma.role = ? AND sma.org_id = ?
-`,
 
   GET_EMPLOYEE_COUNT_BY_DEPARTMENT: `
     SELECT
@@ -230,10 +82,10 @@ WHERE sma.role = ? AND sma.org_id = ?
   SELECT
     (SELECT COUNT(*) FROM employees WHERE Org_id = ?) AS totalEmployees,
     (SELECT COUNT(DISTINCT a.employee_id)
-     FROM attendance a
+     FROM emp_attendence a
      JOIN employees e2 ON a.employee_id = e2.employee_id
-     WHERE DATE(a.date) = CURDATE()
-       AND a.login_time IS NOT NULL
+     WHERE DATE(a.punchin_time) = CURDATE()
+       AND a.punchin_time IS NOT NULL
        AND e2.Org_id = ?) AS present,
     (SELECT COUNT(*)
      FROM leavequeries lq
@@ -346,4 +198,8 @@ ORDER BY STR_TO_DATE(SUBSTRING_INDEX(punchin_label, ' ', 1), '%H');
     FROM reimbursement
     WHERE employee_id = ?;
   `,
+  GET_SIDEBAR_MENU: `SELECT sm.label, sm.path, sm.icon
+FROM sidebar_menu sm
+JOIN sidebar_menu_access sma ON sm.id = sma.sidebar_item_id
+WHERE sma.role = ? AND sma.org_id = ?`,
 };

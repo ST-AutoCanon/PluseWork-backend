@@ -9,9 +9,81 @@ dotenv.config();
 class LoginHandler {
   static async login(req, res) {
     try {
-      const { email, password } = req.body;
+      const { email, password, orgId, loginAsSuperAdmin } = req.body;
 
-      const user = await LoginService.fetchUserByEmail(email);
+      if (!email || !password) {
+        return res
+          .status(400)
+          .json(
+            ErrorHandler.generateErrorResponse(
+              400,
+              "email and password required"
+            )
+          );
+      }
+
+      if (!loginAsSuperAdmin && !orgId) {
+        return res
+          .status(400)
+          .json(
+            ErrorHandler.generateErrorResponse(
+              400,
+              "Either orgId (tenant login) or loginAsSuperAdmin=true is required."
+            )
+          );
+      }
+
+      let user;
+      try {
+        user = await LoginService.fetchUserByEmail(email, {
+          orgId: orgId || null,
+          superAdmin: !!loginAsSuperAdmin,
+        });
+      } catch (svcErr) {
+        if (svcErr && svcErr.code === "ORG_REQUIRED") {
+          return res
+            .status(400)
+            .json(ErrorHandler.generateErrorResponse(400, svcErr.message));
+        }
+        if (svcErr && svcErr.code === "TENANT_SCHEMA") {
+          console.error(
+            "Tenant schema error:",
+            svcErr.original || svcErr.message
+          );
+          return res
+            .status(503)
+            .json(
+              ErrorHandler.generateErrorResponse(
+                503,
+                "Tenant is not provisioned or unavailable. Please contact administrator."
+              )
+            );
+        }
+        if (svcErr && svcErr.code === "TENANT_LOOKUP_FAILED") {
+          console.error(
+            "Tenant lookup failed:",
+            svcErr.original || svcErr.message
+          );
+          return res
+            .status(500)
+            .json(
+              ErrorHandler.generateErrorResponse(
+                500,
+                "Failed to perform tenant lookup. Please try again later."
+              )
+            );
+        }
+        console.error(
+          "Login service error:",
+          svcErr && (svcErr.stack || svcErr)
+        );
+        return res
+          .status(500)
+          .json(
+            ErrorHandler.generateErrorResponse(500, "Internal server error")
+          );
+      }
+
       if (!user) {
         return res
           .status(401)
@@ -47,7 +119,7 @@ class LoginHandler {
               .json(
                 ErrorHandler.generateErrorResponse(
                   403,
-                  "your subscription ended, to renew kindly contact Administrator"
+                  "Your subscription ended. To renew, please contact Administrator."
                 )
               );
           }
@@ -62,6 +134,7 @@ class LoginHandler {
       req.session.user = {
         id: user.employee_id,
         role: user.role,
+        role_id: user.role_id || null,
         orgId: user.Org_id,
         name: user.name,
         gender: user.gender,
@@ -96,6 +169,7 @@ class LoginHandler {
           code: 200,
           message: {
             role: user.role,
+            role_id: user.role_id,
             name: user.name,
             org_id: user.Org_id,
             gender: user.gender,
@@ -105,6 +179,20 @@ class LoginHandler {
       });
     } catch (err) {
       console.error("Login error:", err);
+      return res
+        .status(500)
+        .json(ErrorHandler.generateErrorResponse(500, "Internal server error"));
+    }
+  }
+
+  static async getOrgIdNameList(req, res) {
+    try {
+      const orgs = await LoginService.fetchOrgIdNameList();
+      return res
+        .status(200)
+        .json({ status: "success", code: 200, message: orgs });
+    } catch (err) {
+      console.error("Error fetching org list:", err);
       return res
         .status(500)
         .json(ErrorHandler.generateErrorResponse(500, "Internal server error"));
@@ -208,42 +296,6 @@ class LoginHandler {
       });
     } catch (err) {
       console.error("getSidebar error:", err);
-      return res
-        .status(500)
-        .json(ErrorHandler.generateErrorResponse(500, "Internal server error"));
-    }
-  }
-
-  static async getDashboard(req, res) {
-    try {
-      const user = req.session?.user;
-      if (!user || !user.employeeId) {
-        return res
-          .status(401)
-          .json(ErrorHandler.generateErrorResponse(401, "Unauthorized"));
-      }
-
-      let dashboard = {};
-      try {
-        if ((user.role || "").toLowerCase() === "admin") {
-          dashboard = await LoginService.fetchAdminDashboard(user.employeeId);
-        } else {
-          dashboard = await LoginService.fetchEmployeeDashboard(
-            user.employeeId
-          );
-        }
-      } catch (dashErr) {
-        console.warn("Dashboard fetch failed:", dashErr?.message || dashErr);
-        dashboard = {};
-      }
-
-      return res.status(200).json({
-        status: "success",
-        code: 200,
-        message: dashboard,
-      });
-    } catch (err) {
-      console.error("getDashboard error:", err);
       return res
         .status(500)
         .json(ErrorHandler.generateErrorResponse(500, "Internal server error"));

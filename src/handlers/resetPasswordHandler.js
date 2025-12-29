@@ -20,41 +20,37 @@ exports.resetPassword = async (req, res) => {
         );
     }
 
-    const employeeEmail = await verifyResetToken(resetToken);
+    const result = await verifyResetToken(resetToken);
 
-    if (!employeeEmail || typeof employeeEmail !== "string") {
-      const errorResponse = ErrorHandler.generateErrorResponse(
-        400,
-        "Invalid or expired token."
-      );
-      return res.status(400).json(errorResponse);
+    if (!result) {
+      return res
+        .status(400)
+        .json(
+          ErrorHandler.generateErrorResponse(400, "Invalid or expired token.")
+        );
     }
+
+    const { email, orgId } = result;
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);
 
-    await updateEmployeePassword(employeeEmail, hashedPassword);
+    await updateEmployeePassword(orgId, email, hashedPassword);
 
-    const successResponse = ErrorHandler.generateSuccessResponse({
-      message:
-        "Password reset successful. You can now log in with your new password.",
-    });
-    res.status(200).json(successResponse);
+    return res.status(200).json(
+      ErrorHandler.generateSuccessResponse({
+        message: "Password reset successful. You can now log in.",
+      })
+    );
   } catch (error) {
     console.error("Error resetting password:", error);
 
-    if (error && typeof error === "object" && error.code && error.message) {
-      const status = error.code >= 400 && error.code < 600 ? error.code : 500;
-      return res.status(status).json({
-        status: "error",
-        code: error.code,
-        message: error.message,
-      });
-    }
-
-    const errorResponse = ErrorHandler.generateErrorResponse(
-      500,
-      "An error occurred while resetting your password."
-    );
-    res.status(500).json(errorResponse);
+    return res
+      .status(500)
+      .json(
+        ErrorHandler.generateErrorResponse(
+          500,
+          error.message || "An error occurred while resetting your password."
+        )
+      );
   }
 };

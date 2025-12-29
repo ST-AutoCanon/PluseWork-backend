@@ -18,34 +18,22 @@ exports.generateDocx = async (claim, employee) => {
     throw new Error("Claim ID is undefined, cannot generate document.");
   }
 
-  const safeString = (v, fallback = "") =>
-    v === null || v === undefined ? String(fallback) : String(v);
-
-  const TR = (textOrOpts, opts = {}) => {
-    if (
-      typeof textOrOpts === "object" &&
-      textOrOpts !== null &&
-      !Array.isArray(textOrOpts)
-    ) {
-      return new TextRun({
-        ...textOrOpts,
-        text: safeString(textOrOpts.text, ""),
-      });
-    }
-    return new TextRun({ text: safeString(textOrOpts, ""), ...opts });
-  };
-
-  const P = (textOrOpts, opts = {}) =>
-    new Paragraph({ children: [TR(textOrOpts, opts)] });
+  const companyHeader = new Paragraph({
+    children: [
+      new TextRun({
+        text: "Sukalpa Tech Solutions Pvt Ltd.",
+        bold: true,
+        size: 36,
+      }),
+    ],
+    alignment: "center",
+    spacing: { after: 300 },
+  });
 
   const formTitle = new Paragraph({
     children: [
-      TR({ text: "Reimbursement Form", bold: true, size: 30 }),
-      TR({
-        text: " - " + safeString(claim.claim_type, ""),
-        bold: true,
-        size: 30,
-      }),
+      new TextRun({ text: "Reimbursement Form", bold: true, size: 30 }),
+      new TextRun({ text: " - " + claim.claim_type, bold: true, size: 30 }),
     ],
     alignment: "left",
     spacing: { after: 200 },
@@ -54,50 +42,82 @@ exports.generateDocx = async (claim, employee) => {
   const employeeDetailsGrid = [
     new Paragraph({
       children: [
-        TR({ text: "Employee ID: ", bold: true }),
-        TR(safeString(claim.employee_id, "")),
-        TR({ text: "    Department: ", bold: true }),
-        TR(safeString(employee?.department_name, "")),
+        new TextRun({ text: "Employee ID: ", bold: true }),
+        new TextRun({ text: claim.employee_id + "    " }),
+        new TextRun({ text: "Department: ", bold: true }),
+        new TextRun({ text: employee.department_name }),
       ],
       spacing: { after: 100 },
     }),
     new Paragraph({
       children: [
-        TR({ text: "Employee Name: ", bold: true }),
-        TR(safeString(employee?.name, "")),
-        TR({ text: "    Designation: ", bold: true }),
-        TR(safeString(employee?.position, "")),
+        new TextRun({ text: "Employee Name: ", bold: true }),
+        new TextRun({ text: employee.name + "    " }),
+        new TextRun({ text: "Designation: ", bold: true }),
+        new TextRun({ text: employee.position }),
       ],
       spacing: { after: 200 },
     }),
   ];
+
+  if (Array.isArray(claim.invoices) && claim.invoices.length) {
+    employeeDetailsGrid.push(
+      new Paragraph({
+        children: [
+          new TextRun({ text: "Invoice Numbers: ", bold: true }),
+          new TextRun({ text: claim.invoices.join(", ") }),
+        ],
+        spacing: { after: 200 },
+      })
+    );
+  }
 
   const reimbursementTableRows = [
     new TableRow({
       children: [
         new TableCell({
           width: { size: 15, type: WidthType.PERCENTAGE },
-          children: [P({ text: "Date", bold: true })],
+          children: [
+            new Paragraph({
+              children: [new TextRun({ text: "Date", bold: true })],
+            }),
+          ],
           margins: { top: 100, bottom: 100, left: 100, right: 100 },
         }),
         new TableCell({
           width: { size: 50, type: WidthType.PERCENTAGE },
-          children: [P({ text: "Description", bold: true })],
+          children: [
+            new Paragraph({
+              children: [new TextRun({ text: "Description", bold: true })],
+            }),
+          ],
           margins: { top: 100, bottom: 100, left: 100, right: 100 },
         }),
         new TableCell({
           width: { size: 10, type: WidthType.PERCENTAGE },
-          children: [P({ text: "Unit", bold: true })],
+          children: [
+            new Paragraph({
+              children: [new TextRun({ text: "Unit", bold: true })],
+            }),
+          ],
           margins: { top: 100, bottom: 100, left: 100, right: 100 },
         }),
         new TableCell({
           width: { size: 12.5, type: WidthType.PERCENTAGE },
-          children: [P({ text: "Price", bold: true })],
+          children: [
+            new Paragraph({
+              children: [new TextRun({ text: "Price", bold: true })],
+            }),
+          ],
           margins: { top: 100, bottom: 100, left: 100, right: 100 },
         }),
         new TableCell({
           width: { size: 12.5, type: WidthType.PERCENTAGE },
-          children: [P({ text: "Amount", bold: true })],
+          children: [
+            new Paragraph({
+              children: [new TextRun({ text: "Amount", bold: true })],
+            }),
+          ],
           margins: { top: 100, bottom: 100, left: 100, right: 100 },
         }),
       ],
@@ -105,29 +125,39 @@ exports.generateDocx = async (claim, employee) => {
   ];
 
   const addClaimRow = (date, description, unit, price, amount) => {
-    const safeText = (value) => safeString(value, "-");
+    const safeText = (value) => (value ? value.toString() : "-");
 
     reimbursementTableRows.push(
       new TableRow({
         children: [
           new TableCell({
-            children: [P(safeText(date))],
+            children: [
+              new Paragraph({ children: [new TextRun(safeText(date))] }),
+            ],
             margins: { top: 100, bottom: 100, left: 100, right: 100 },
           }),
           new TableCell({
-            children: [P(safeText(description))],
+            children: [
+              new Paragraph({ children: [new TextRun(safeText(description))] }),
+            ],
             margins: { top: 100, bottom: 100, left: 100, right: 100 },
           }),
           new TableCell({
-            children: [P(safeText(unit))],
+            children: [
+              new Paragraph({ children: [new TextRun(safeText(unit))] }),
+            ],
             margins: { top: 100, bottom: 100, left: 100, right: 100 },
           }),
           new TableCell({
-            children: [P(safeText(price))],
+            children: [
+              new Paragraph({ children: [new TextRun(safeText(price))] }),
+            ],
             margins: { top: 100, bottom: 100, left: 100, right: 100 },
           }),
           new TableCell({
-            children: [P(safeText(amount))],
+            children: [
+              new Paragraph({ children: [new TextRun(safeText(amount))] }),
+            ],
             margins: { top: 100, bottom: 100, left: 100, right: 100 },
           }),
         ],
@@ -135,74 +165,77 @@ exports.generateDocx = async (claim, employee) => {
     );
   };
 
-  let formattedDate = "-";
-  if (claim.from_date && claim.to_date) {
-    formattedDate = `${new Date(
-      claim.from_date
-    ).toLocaleDateString()} - ${new Date(claim.to_date).toLocaleDateString()}`;
-  } else if (claim.date) {
-    formattedDate = new Date(claim.date).toLocaleDateString();
-  }
+  let formattedDate = claim.display_date
+    ? new Date(claim.display_date).toLocaleDateString()
+    : "-";
 
   const getClaimDetails = (claim) => {
-    const claimDetails = [];
+    let claimDetails = [];
+
     switch (claim.claim_type) {
       case "Transportation":
         claimDetails.push(
           {
             description: "Transport Amount",
-            value: claim.transport_amount || 0,
+            value: claim.transport_amount || "0",
           },
           {
             description: "Accomodation Fees",
-            value: claim.accommodation_fees || 0,
+            value: claim.accommodation_fees || "0",
           },
-          { description: "DA", value: claim.da || 0 }
+          { description: "DA", value: claim.da || "0" }
         );
         break;
       case "Telecommunication":
         claimDetails.push({
           description: claim.service_provider || "Unknown Provider",
-          value: claim.total_amount || 0,
+          value: claim.aggregated_total || "0",
         });
         break;
       case "Meals":
         claimDetails.push({
           description: claim.meal_type || "Meal",
-          value: claim.total_amount || 0,
+          value: claim.aggregated_total || "0",
         });
         break;
       case "Stationary":
         claimDetails.push(
           {
             description: claim.purpose || "Stationary Purchase",
-            value: claim.stationary || 0,
+            value: claim.stationary || "0",
           },
           {
             description: claim.purchasing_item || "Item",
-            value: claim.total_amount || 0,
+            value: claim.aggregated_total || "0",
           }
         );
         break;
       case "Miscellaneous":
         claimDetails.push({
           description: claim.purpose || "Miscellaneous",
-          value: claim.total_amount || 0,
+          value: claim.aggregated_total || "0",
         });
         break;
       default:
         claimDetails.push({
           description: claim.purpose || "Unknown",
-          value: claim.total_amount || 0,
+          value: claim.aggregated_total || "0",
         });
         break;
     }
+
     return claimDetails;
   };
 
-  const claimDetails = getClaimDetails(claim);
-  claimDetails.forEach(({ description, value }) => {
-    addClaimRow(formattedDate, description, "1", value, value);
+  (claim.lines || []).forEach((line) => {
+    const p = line.payload || {};
+    addClaimRow(
+      formattedDate,
+      p.purpose || p.description || "-",
+      "1",
+      line.total_amount,
+      line.total_amount
+    );
   });
 
   while (reimbursementTableRows.length < 15) {
@@ -212,18 +245,22 @@ exports.generateDocx = async (claim, employee) => {
   reimbursementTableRows.push(
     new TableRow({
       children: [
+        new TableCell({ children: [], columnSpan: 3 }),
         new TableCell({
-          children: [P("")],
-          columnSpan: 3,
-          margins: { top: 100, bottom: 100, left: 100, right: 100 },
-        }),
-        new TableCell({
-          children: [P({ text: "Total Amount", bold: true })],
+          children: [
+            new Paragraph({
+              children: [new TextRun({ text: "Total Amount", bold: true })],
+            }),
+          ],
           margins: { top: 100, bottom: 100, left: 100, right: 100 },
         }),
         new TableCell({
           children: [
-            P({ text: `₹${safeString(claim.total_amount || 0)}`, bold: true }),
+            new Paragraph({
+              children: [
+                new TextRun({ text: `₹${claim.aggregated_total}`, bold: true }),
+              ],
+            }),
           ],
         }),
       ],
@@ -236,14 +273,16 @@ exports.generateDocx = async (claim, employee) => {
     margins: { top: 0, bottom: 0, left: 0, right: 0 },
   });
 
-  const totalAmountNumber = Number(claim.total_amount) || 0;
-  const amountWords = numberToWords.toWords(totalAmountNumber);
+  const amountWords = numberToWords.toWords(claim.aggregated_total);
   const formattedAmountWords =
     amountWords.charAt(0).toUpperCase() + amountWords.slice(1) + " only.";
 
   const amountInWords = new Paragraph({
     children: [
-      TR({ text: `Amount In Words: ${formattedAmountWords}`, bold: true }),
+      new TextRun({
+        text: `Amount In Words: ${formattedAmountWords}`,
+        bold: true,
+      }),
     ],
     spacing: { before: 200, after: 200 },
   });
@@ -252,30 +291,24 @@ exports.generateDocx = async (claim, employee) => {
     claim.status === "approved"
       ? [
           new Paragraph({
-            children: [TR({ text: "Approved By", bold: true })],
+            children: [new TextRun({ text: "Approved By", bold: true })],
             spacing: { after: 100 },
           }),
           new Paragraph({
             children: [
-              TR({ text: "Name & Designation: ", bold: true }),
-              TR(
-                `${safeString(claim.approver_name)} - ${safeString(
-                  claim.approver_designation
-                )}`
-              ),
+              new TextRun({ text: "Name & Designation: ", bold: true }),
+              new TextRun({
+                text: `${claim.approver_name} - ${claim.approver_designation}`,
+              }),
             ],
             spacing: { after: 100 },
           }),
           new Paragraph({
             children: [
-              TR({ text: "Approved Date: ", bold: true }),
-              TR(
-                safeString(
-                  claim.approved_date
-                    ? new Date(claim.approved_date).toLocaleDateString()
-                    : ""
-                )
-              ),
+              new TextRun({ text: "Approved Date: ", bold: true }),
+              new TextRun({
+                text: new Date(claim.approved_date).toLocaleDateString(),
+              }),
             ],
             spacing: { after: 200 },
           }),
@@ -284,7 +317,7 @@ exports.generateDocx = async (claim, employee) => {
 
   const footerNote = new Paragraph({
     children: [
-      TR({
+      new TextRun({
         text: 'Note: "This statement affirms that all provided documents are true and correct."',
         italics: true,
       }),
@@ -300,6 +333,7 @@ exports.generateDocx = async (claim, employee) => {
         children: [
           new TableCell({
             children: [
+              companyHeader,
               formTitle,
               ...employeeDetailsGrid,
               reimbursementTable,
@@ -336,7 +370,9 @@ exports.generateDocx = async (claim, employee) => {
     __dirname,
     `../temp/Reimbursement_${claim.id}.docx`
   );
+
   const buffer = await Packer.toBuffer(doc);
   fs.writeFileSync(docxPath, buffer);
+
   return docxPath;
 };

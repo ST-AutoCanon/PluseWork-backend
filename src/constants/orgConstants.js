@@ -1,5 +1,5 @@
 const GET_ORG_NAME_BY_ID = `
-  SELECT Name FROM Organizations WHERE id = ?;
+  SELECT subdomain FROM organizations WHERE id = ?;
 `;
 
 module.exports = {

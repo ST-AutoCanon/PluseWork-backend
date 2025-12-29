@@ -1,22 +1,35 @@
-const db = require("../config");
+const masterDb = require("../config");
+const { getTenantPoolByOrgId } = require("../db/tenantPoolManager");
 const queries = require("../constants/queries");
 const ErrorHandler = require("../utils/errorHandler");
 
 exports.verifyResetToken = async (resetToken) => {
   try {
-    const [rows] = await db.query(queries.VERIFY_RESET_TOKEN, [resetToken]);
+    const [rows] = await masterDb.query(
+      `SELECT org_id FROM password_reset_tokens WHERE token = ?`,
+      [resetToken]
+    );
 
     if (!rows.length) {
       return null;
     }
 
-    const { email, expiry_time } = rows[0];
+    const orgId = rows[0].org_id;
 
-    if (new Date(expiry_time) < new Date()) {
+    const tenantDb = await getTenantPoolByOrgId(orgId);
+
+    const [tokenRows] = await tenantDb.query(queries.VERIFY_RESET_TOKEN, [
+      resetToken,
+    ]);
+
+    if (!tokenRows.length) {
       return null;
     }
 
-    return email;
+    return {
+      email: tokenRows[0].email,
+      orgId,
+    };
   } catch (error) {
     console.error("Error verifying reset token:", error);
     throw ErrorHandler.generateErrorResponse(
@@ -26,22 +39,16 @@ exports.verifyResetToken = async (resetToken) => {
   }
 };
 
-exports.updateEmployeePassword = async (employeeEmail, hashedPassword) => {
+exports.updateEmployeePassword = async (orgId, email, hashedPassword) => {
   try {
-    if (!employeeEmail || typeof employeeEmail !== "string") {
-      throw ErrorHandler.generateErrorResponse(
-        400,
-        "Invalid email when updating password."
-      );
-    }
+    const tenantDb = await getTenantPoolByOrgId(orgId);
 
-    await db.query(queries.UPDATE_EMPLOYEE_PASSWORD, [
+    await tenantDb.query(queries.UPDATE_EMPLOYEE_PASSWORD, [
       hashedPassword,
-      employeeEmail,
+      email,
     ]);
-    return ErrorHandler.generateSuccessResponse(
-      "Password updated successfully."
-    );
+
+    return true;
   } catch (error) {
     console.error("Error updating employee password:", error);
     throw ErrorHandler.generateErrorResponse(

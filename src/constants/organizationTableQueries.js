@@ -1,77 +1,55 @@
 const GET_ALL_ORGANIZATIONS = `
-SELECT 
-  o.id,
-  o.Name,
-  o.subdomain,
-  o.created_at,
-  o.no_employees,
-  o.company_address,
-  o.c_pan_no,
-  o.admin_email,
-  e.first_name,
-  e.last_name,
-  e.dob,
-  e.phone_number,
-  ep.aadhaar_number,
-  ep.pan_number,
-  o.contact_email_id,
-  o.contact_phone_no,
-  DATE_FORMAT(o.start_date, '%Y-%m-%d') AS start_date,
-  DATE_FORMAT(o.end_date, '%Y-%m-%d') AS end_date,
-  o.employee_prefix,
-  o.employee_counter
-FROM Organizations o
-LEFT JOIN employees e
-  ON LOWER(o.admin_email) = LOWER(e.email)
-LEFT JOIN employee_personal ep
-  ON e.employee_id = ep.employee_id;
+SELECT
+  id,
+  name,
+  subdomain,
+  created_at,
+  no_employees,
+  company_address,
+  c_pan_no,
+  admin_email,
+  contact_email_id,
+  contact_phone_no,
+  DATE_FORMAT(start_date, '%Y-%m-%d') AS start_date,
+  DATE_FORMAT(end_date, '%Y-%m-%d') AS end_date,
+  employee_prefix,
+  employee_counter
+FROM organizations;
 `;
 
 const SELECT_ORG_BY_NAME_OR_SUBDOMAIN = `
-SELECT id, Name, subdomain
-FROM Organizations
+SELECT id, name, subdomain
+FROM organizations
 WHERE Name = ? OR subdomain = ?
 `;
 
 const SELECT_ORG_BY_NAME_OR_SUBDOMAIN_EXCLUDE_ID = `
-SELECT id, Name, subdomain
-FROM Organizations
+SELECT id, name, subdomain
+FROM organizations
 WHERE (Name = ? OR subdomain = ?) AND id != ?
 `;
 
 const INSERT_ORGANIZATION = `
-INSERT INTO Organizations
-  (Name, subdomain, created_at, no_employees, company_address, c_pan_no, admin_email, contact_email_id, contact_phone_no, start_date, end_date, employee_prefix, employee_counter)
+INSERT INTO organizations
+  (name, subdomain, created_at, no_employees, company_address, c_pan_no, admin_email, contact_email_id, contact_phone_no, start_date, end_date, employee_prefix, employee_counter)
 VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
 const SELECT_ORG_BY_ID = `
-SELECT id, Name, subdomain, employee_prefix, employee_counter, no_employees
-FROM Organizations
+SELECT id, name, subdomain, employee_prefix, employee_counter, no_employees
+FROM organizations
 WHERE id = ?
 `;
 
 const UPDATE_ORGANIZATION = `
-UPDATE Organizations SET
-  Name = ?, subdomain = ?, no_employees = ?, company_address = ?, c_pan_no = ?,
+UPDATE organizations SET
+  name = ?, subdomain = ?, no_employees = ?, company_address = ?, c_pan_no = ?,
   admin_email = ?, contact_email_id = ?, contact_phone_no = ?, start_date = ?, end_date = ?, employee_prefix = ?
 WHERE id = ?
 `;
 
 const DELETE_ORGANIZATION = `
-DELETE FROM Organizations WHERE id = ?
-`;
-
-const GET_SIDEBAR_ACCESS_BY_ORG = `
-  SELECT 
-    a.sidebar_item_id,
-    b.label,
-    b.path,
-    b.icon,
-    a.role
-  FROM sidebar_menu_access a
-  JOIN sidebar_menu b ON a.sidebar_item_id = b.id
-  WHERE a.org_id = ?
+DELETE FROM organizations WHERE id = ?
 `;
 
 const DELETE_ALL_EMPLOYEES = `
@@ -92,8 +70,8 @@ const GET_SIDEBAR_MENU = `
 `;
 
 const GET_ORGS_ENDING_IN_DAYS = `
-  SELECT id, Name, admin_email, end_date
-  FROM Organizations
+  SELECT id, name, admin_email, end_date
+  FROM organizations
   WHERE end_date = DATE_ADD(CURDATE(), INTERVAL ? DAY)
 `;
 
@@ -106,6 +84,21 @@ const SELECT_EMPLOYEE_ID_BY_EMAIL = `
   LIMIT 1
 `;
 
+const CREATE_TENANT_DATABASE_TEMPLATE = `
+CREATE DATABASE IF NOT EXISTS \`{db}\`
+  CHARACTER SET utf8mb4
+  COLLATE utf8mb4_general_ci;
+`;
+
+const USE_DATABASE_PREFIX = `USE \`{db}\`; `;
+
+const SELECT_ORG_BY_SUBDOMAIN = `
+  SELECT id, name, subdomain
+  FROM organizations
+  WHERE subdomain = ?
+  LIMIT 1
+`;
+
 module.exports = {
   GET_ALL_ORGANIZATIONS,
   SELECT_ORG_BY_NAME_OR_SUBDOMAIN,
@@ -114,11 +107,13 @@ module.exports = {
   SELECT_ORG_BY_ID,
   UPDATE_ORGANIZATION,
   DELETE_ORGANIZATION,
-  GET_SIDEBAR_ACCESS_BY_ORG,
   DELETE_SIDEBAR_ACCESS_BY_ORG,
   INSERT_SIDEBAR_ACCESS,
   GET_SIDEBAR_MENU,
   DELETE_ALL_EMPLOYEES,
   GET_ORGS_ENDING_IN_DAYS,
   SELECT_EMPLOYEE_ID_BY_EMAIL,
+  CREATE_TENANT_DATABASE_TEMPLATE,
+  USE_DATABASE_PREFIX,
+  SELECT_ORG_BY_SUBDOMAIN,
 };

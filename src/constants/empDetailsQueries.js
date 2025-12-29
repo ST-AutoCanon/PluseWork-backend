@@ -4,14 +4,14 @@ module.exports = {
   `,
 
   SELECT_ORG_FOR_UPDATE: `
-    SELECT id, employee_prefix, employee_counter, no_employees, Name
-    FROM Organizations
+    SELECT id, employee_prefix, employee_counter, no_employees, name
+    FROM organizations
     WHERE id = ?
     FOR UPDATE
   `,
 
   UPDATE_ORG_COUNTER: `
-    UPDATE Organizations
+    UPDATE organizations
     SET employee_counter = ?
     WHERE id = ?
   `,
@@ -702,7 +702,7 @@ LEFT JOIN (
   WHERE sa.employee_id = ?
   ORDER BY sa.start_date DESC
 `,
-  SELECT_ORG: `SELECT no_employees FROM Organizations WHERE id = ?`,
+  SELECT_ORG: `SELECT no_employees FROM organizations WHERE id = ?`,
   COUNT_ACTIVE_EMPLOYEES_BY_ORG: `SELECT COUNT(*) AS cnt FROM employees WHERE org_id = ?`,
   UPDATE_EMPLOYEE_IDS_BY_ORG: `
     UPDATE employees

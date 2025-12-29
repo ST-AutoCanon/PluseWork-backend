@@ -122,12 +122,11 @@ class LeavePolicyHandler {
           );
       }
 
-      await LeavePolicyService.updatePolicy(id, {
+      await LeavePolicyService.updatePolicy(id, orgId, {
         period,
         year_start,
         year_end,
         leave_settings,
-        orgId,
       });
 
       return res

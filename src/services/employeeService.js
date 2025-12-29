@@ -127,40 +127,56 @@ async function addFullEmployeeUsingConnection(conn, data, options = {}) {
   const resolvedOrg = data.org_id || data.orgId || data.organization_id || null;
   if (!resolvedOrg) throw new Error("org_id required for employee creation");
 
-  const [orgRows] = await conn.execute(queries.SELECT_ORG_FOR_UPDATE, [
-    resolvedOrg,
-  ]);
-  const org = orgRows && orgRows[0] ? orgRows[0] : null;
-  if (!org) throw new Error("Organization not found");
+  let org = null;
+  let employeeId;
+  let suffix;
+  let orgName = null;
 
-  const orgName = org?.Name || org?.name || null;
-
-  if (org.no_employees != null && !options.bypassOrgLimit) {
-    const [countRows] = await conn.execute(
-      queries.COUNT_ACTIVE_EMPLOYEES_BY_ORG,
-      [resolvedOrg]
-    );
-    const current = Number(countRows && countRows[0] ? countRows[0].cnt : 0);
-    const allowed = Number(org.no_employees);
-    if (!Number.isNaN(allowed) && current >= allowed) {
+  if (options && options.skipOrgLookup) {
+    if (!options.providedEmployeeId || options.providedSuffix == null) {
       throw new Error(
-        `Employee limit reached for organization (allowed: ${allowed}, current: ${current}).`
+        "skipOrgLookup requires providedEmployeeId and providedSuffix"
       );
     }
-  }
+    employeeId = options.providedEmployeeId;
+    suffix = options.providedSuffix;
+    orgName = options.providedOrgName || null;
+  } else {
+    const [orgRows] = await conn.execute(queries.SELECT_ORG_FOR_UPDATE, [
+      resolvedOrg,
+    ]);
+    org = orgRows && orgRows[0] ? orgRows[0] : null;
+    if (!org) throw new Error("Organization not found");
 
-  const newCounter = Number(org.employee_counter || 0) + 1;
-  await conn.execute(queries.UPDATE_ORG_COUNTER, [newCounter, resolvedOrg]);
+    orgName = org?.Name || org?.name || null;
 
-  const suffix = newCounter;
-  const suffixStr = String(suffix).padStart(PAD_DIGITS, "0");
-  const prefix = (org.employee_prefix || "").toUpperCase();
-  if (!prefix) {
-    throw new Error(
-      "Organization employee_prefix missing; cannot generate employee_id"
-    );
+    if (org.no_employees != null && !options.bypassOrgLimit) {
+      const [countRows] = await conn.execute(
+        queries.COUNT_ACTIVE_EMPLOYEES_BY_ORG,
+        [resolvedOrg]
+      );
+      const current = Number(countRows && countRows[0] ? countRows[0].cnt : 0);
+      const allowed = Number(org.no_employees);
+      if (!Number.isNaN(allowed) && current >= allowed) {
+        throw new Error(
+          `Employee limit reached for organization (allowed: ${allowed}, current: ${current}).`
+        );
+      }
+    }
+
+    const newCounter = Number(org.employee_counter || 0) + 1;
+    await conn.execute(queries.UPDATE_ORG_COUNTER, [newCounter, resolvedOrg]);
+
+    suffix = newCounter;
+    const suffixStr = String(suffix).padStart(PAD_DIGITS, "0");
+    const prefix = (org.employee_prefix || "").toUpperCase();
+    if (!prefix) {
+      throw new Error(
+        "Organization employee_prefix missing; cannot generate employee_id"
+      );
+    }
+    employeeId = `${prefix}-${suffixStr}`;
   }
-  const employeeId = `${prefix}-${suffixStr}`;
 
   const password = crypto.randomBytes(8).toString("hex");
   const hash = await bcrypt.hash(password, 10);
@@ -319,7 +335,7 @@ async function addFullEmployeeUsingConnection(conn, data, options = {}) {
     }
   }
 
-  const fullName = `${data.first_name} ${data.last_name}`.trim();
+  const fullName = `${data.first_name || ""} ${data.last_name || ""}`.trim();
   await conn.execute(queries.ADD_EMPLOYEE_BANK, [
     eid,
     fullName,
@@ -946,20 +962,29 @@ exports.getSupervisorHistory = async (employeeId) => {
 
 exports.addFullEmployeeUsingConnection = addFullEmployeeUsingConnection;
 
-async function sendResetEmailAndSave(email, name, opts = {}) {
+async function sendResetEmailAndSave(email, name, opts = {}, saveConn = null) {
   if (!email) {
     throw new Error("email required to send reset email");
   }
 
   try {
     const mailRes = await sendResetEmail(email, name, opts);
+
     if (mailRes && mailRes.resetToken) {
       try {
-        await db.execute(queries.SAVE_RESET_TOKEN, [
-          email,
-          mailRes.resetToken,
-          mailRes.tokenExpiry,
-        ]);
+        if (saveConn && typeof saveConn.execute === "function") {
+          await saveConn.execute(queries.SAVE_RESET_TOKEN, [
+            email,
+            mailRes.resetToken,
+            mailRes.tokenExpiry,
+          ]);
+        } else {
+          await db.execute(queries.SAVE_RESET_TOKEN, [
+            email,
+            mailRes.resetToken,
+            mailRes.tokenExpiry,
+          ]);
+        }
       } catch (saveErr) {
         console.warn(
           "[sendResetEmailAndSave] WARNING: failed to save reset token:",
@@ -972,6 +997,7 @@ async function sendResetEmailAndSave(email, name, opts = {}) {
         { email, mailRes }
       );
     }
+
     return mailRes;
   } catch (err) {
     console.warn("[sendResetEmailAndSave] sendResetEmail failed:", err);
