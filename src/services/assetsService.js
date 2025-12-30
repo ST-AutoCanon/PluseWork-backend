@@ -1,4 +1,4 @@
-const db = require("../config");
+const db = require("../config"); // master DB (for org lookup only)
 const {
   GET_ASSIGNED_ASSETS_BY_EMPLOYEE,
   SEARCH_EMPLOYEES_BY_NAME,
@@ -12,6 +12,24 @@ const {
   GET_ASSET_COUNTS,
 } = require("../constants/assetsQueries");
 
+const { getTenantPool, sanitizeDbName } = require("../db/tenantPoolManager");
+
+/**
+ * Resolve tenant pool for an orgId; throws if orgId missing.
+ */
+async function getTenantPoolForOrgId(orgId) {
+  if (!orgId) {
+    const err = new Error("orgId required to get tenant pool");
+    err.code = "ORG_REQUIRED";
+    throw err;
+  }
+  const dbName = sanitizeDbName(`tenant_${orgId}`);
+  return getTenantPool(dbName);
+}
+
+/**
+ * Keep master lookup for organization prefix (organization metadata lives in master).
+ */
 const getOrganizationPrefix = async (orgId) => {
   try {
     const [rows] = await db.execute(
@@ -59,11 +77,17 @@ const getOrganizationPrefix = async (orgId) => {
   }
 };
 
-const getLastAssetId = async (combinedPrefix) => {
+/**
+ * Get last asset id from tenant DB (uses tenant pool).
+ * combinedPrefix example: STS-SYS-LPT
+ */
+const getLastAssetId = async (orgId, combinedPrefix) => {
   try {
     const likePattern = `${combinedPrefix}-%`;
-    const [rows] = await db.execute(GET_LAST_ASSET_ID, [likePattern]);
-    if (rows.length === 0) return `${combinedPrefix}-001`;
+    const tenantPool = await getTenantPoolForOrgId(orgId);
+    const [rows] = await tenantPool.query(GET_LAST_ASSET_ID, [likePattern]);
+    if (!rows || rows.length === 0) return `${combinedPrefix}-001`;
+    // parse last numeric suffix
     const lastNumber = parseInt(rows[0].asset_id.split("-").pop(), 10);
     return `${combinedPrefix}-${String(lastNumber + 1).padStart(3, "0")}`;
   } catch (error) {
@@ -72,12 +96,17 @@ const getLastAssetId = async (combinedPrefix) => {
   }
 };
 
+/**
+ * Compute next asset code (tenant DB).
+ * Example returned: ORG-AST-0001
+ */
 const getLastAssetCode = async (orgId) => {
   try {
     const orgPrefix = await getOrganizationPrefix(orgId);
     const likePattern = `${orgPrefix}-AST-%`;
 
-    const [rows] = await db.execute(
+    const tenantPool = await getTenantPoolForOrgId(orgId);
+    const [rows] = await tenantPool.query(
       `
       SELECT asset_code FROM assets
       WHERE asset_code LIKE ? AND org_id = ?
@@ -101,6 +130,9 @@ const getLastAssetCode = async (orgId) => {
   }
 };
 
+/**
+ * Insert new asset into tenant DB.
+ */
 const addAsset = async (orgId, assetData) => {
   try {
     const {
@@ -133,7 +165,7 @@ const addAsset = async (orgId, assetData) => {
 
     const combinedPrefix = `${orgPrefix}-${categoryPrefix}`;
 
-    const asset_id = await getLastAssetId(combinedPrefix);
+    const asset_id = await getLastAssetId(orgId, combinedPrefix);
 
     const asset_code = await getLastAssetCode(orgId);
 
@@ -151,7 +183,8 @@ const addAsset = async (orgId, assetData) => {
       document_path || null,
     ];
 
-    const [result] = await db.execute(INSERT_ASSET, values);
+    const tenantPool = await getTenantPoolForOrgId(orgId);
+    const [result] = await tenantPool.query(INSERT_ASSET, values);
     return {
       asset_id,
       insertId: result.insertId,
@@ -171,9 +204,13 @@ const addAsset = async (orgId, assetData) => {
   }
 };
 
+/**
+ * Get all assets for tenant.
+ */
 const getAssets = async (orgId) => {
   try {
-    const [rows] = await db.execute(GET_ALL_ASSETS, [orgId]);
+    const tenantPool = await getTenantPoolForOrgId(orgId);
+    const [rows] = await tenantPool.query(GET_ALL_ASSETS, [orgId]);
     return rows;
   } catch (error) {
     console.error("❌ Database Error:", error);
@@ -181,9 +218,15 @@ const getAssets = async (orgId) => {
   }
 };
 
+/**
+ * Update assigned_to JSON for an asset (tenant DB).
+ * Returns 'not_found'|'updated'|'inserted'
+ */
 const updateAssignedTo = async (orgId, assetId, assignedTo) => {
   try {
-    const [rows] = await db.execute(
+    const tenantPool = await getTenantPoolForOrgId(orgId);
+
+    const [rows] = await tenantPool.query(
       "SELECT assigned_to FROM assets WHERE asset_id = ? AND org_id = ?",
       [assetId, orgId]
     );
@@ -209,7 +252,7 @@ const updateAssignedTo = async (orgId, assetId, assignedTo) => {
         status: assignedTo.status || assignedArray[existingIndex].status,
       };
       const updatedJson = JSON.stringify(assignedArray);
-      await db.execute(
+      await tenantPool.query(
         "UPDATE assets SET assigned_to = ? WHERE asset_id = ? AND org_id = ?",
         [updatedJson, assetId, orgId]
       );
@@ -217,7 +260,7 @@ const updateAssignedTo = async (orgId, assetId, assignedTo) => {
     } else {
       assignedArray.push(assignedTo);
       const updatedJson = JSON.stringify(assignedArray);
-      await db.execute(
+      await tenantPool.query(
         "UPDATE assets SET assigned_to = ? WHERE asset_id = ? AND org_id = ?",
         [updatedJson, assetId, orgId]
       );
@@ -229,9 +272,13 @@ const updateAssignedTo = async (orgId, assetId, assignedTo) => {
   }
 };
 
+/**
+ * Get assignment data for asset (tenant DB).
+ */
 const getAssignmentData = async (orgId, assetId) => {
   try {
-    const [rows] = await db.execute(GET_ASSIGN_DATA, [assetId, orgId]);
+    const tenantPool = await getTenantPoolForOrgId(orgId);
+    const [rows] = await tenantPool.query(GET_ASSIGN_DATA, [assetId, orgId]);
     return rows;
   } catch (error) {
     console.error("Error fetching assignment data:", error);
@@ -239,10 +286,14 @@ const getAssignmentData = async (orgId, assetId) => {
   }
 };
 
+/**
+ * Update return date on tenant asset assigned_to JSON.
+ */
 const updateReturnDate = async (orgId, assetId, employeeName, returnDate) => {
   try {
+    const tenantPool = await getTenantPoolForOrgId(orgId);
     const getAssignedToQuery = `SELECT assigned_to FROM assets WHERE asset_id = ? AND org_id = ?`;
-    const [rows] = await db.execute(getAssignedToQuery, [assetId, orgId]);
+    const [rows] = await tenantPool.query(getAssignedToQuery, [assetId, orgId]);
     if (!rows.length) throw new Error("Asset not found");
 
     let assignedToArray = JSON.parse(rows[0].assigned_to || "[]");
@@ -262,7 +313,7 @@ const updateReturnDate = async (orgId, assetId, employeeName, returnDate) => {
       throw new Error("Employee record not found or already returned");
 
     const updateQuery = `UPDATE assets SET assigned_to = ?, status = "Returned" WHERE asset_id = ? AND org_id = ?`;
-    await db.execute(updateQuery, [
+    await tenantPool.query(updateQuery, [
       JSON.stringify(assignedToArray),
       assetId,
       orgId,
@@ -273,9 +324,13 @@ const updateReturnDate = async (orgId, assetId, employeeName, returnDate) => {
   }
 };
 
+/**
+ * Get asset counts grouped by category/subcategory (tenant DB).
+ */
 const getAssetCounts = async (orgId) => {
   try {
-    const [rows] = await db.execute(GET_ASSET_COUNTS, [orgId]);
+    const tenantPool = await getTenantPoolForOrgId(orgId);
+    const [rows] = await tenantPool.query(GET_ASSET_COUNTS, [orgId]);
     return rows;
   } catch (error) {
     console.error("Error fetching asset counts:", error);
@@ -283,10 +338,15 @@ const getAssetCounts = async (orgId) => {
   }
 };
 
+/**
+ * Search employees by name inside tenant DB (tenant employees table).
+ * NOTE: the SQL constant currently includes org_id param; we pass orgId as before.
+ */
 const searchEmployeesByName = async (orgId, searchTerm) => {
   try {
-    const [rows] = await db.execute(SEARCH_EMPLOYEES_BY_NAME, [
-      searchTerm,
+    const tenantPool = await getTenantPoolForOrgId(orgId);
+    const [rows] = await tenantPool.query(SEARCH_EMPLOYEES_BY_NAME, [
+      `${searchTerm}%`,
       orgId,
     ]);
     return rows;
@@ -296,12 +356,21 @@ const searchEmployeesByName = async (orgId, searchTerm) => {
   }
 };
 
+/**
+ * Fetch assigned assets for an employee (tenant DB).
+ */
 const fetchAssignedAssetsByEmployee = async (orgId, employeeId) => {
-  const [result] = await db.execute(GET_ASSIGNED_ASSETS_BY_EMPLOYEE, [
-    employeeId,
-    orgId,
-  ]);
-  return result;
+  try {
+    const tenantPool = await getTenantPoolForOrgId(orgId);
+    const [result] = await tenantPool.query(GET_ASSIGNED_ASSETS_BY_EMPLOYEE, [
+      employeeId,
+      orgId,
+    ]);
+    return result;
+  } catch (error) {
+    console.error("❌ Error fetching assigned assets:", error);
+    throw new Error("Failed to fetch assigned assets");
+  }
 };
 
 module.exports = {

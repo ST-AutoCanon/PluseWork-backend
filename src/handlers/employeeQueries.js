@@ -1,24 +1,37 @@
+// handlers/employeeQueries.js
 const EmployeeQueries = require("../services/employeeQueries");
 const ErrorHandler = require("../utils/errorHandler");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 
+/**
+ * Resolve orgId helper (checks headers, query, body, user)
+ */
+const resolveOrgIdFromReq = (req) => {
+  return (
+    req.headers["x-org-id"] ||
+    req.headers["x_org_id"] ||
+    req.query?.orgId ||
+    req.body?.orgId ||
+    (req.user && req.user.orgId) ||
+    null
+  );
+};
+
+/**
+ * File storage uses org-specific subfolder under EmpQueryUploads
+ */
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const orgId =
-      req.headers["x-org-id"] ||
-      req.query?.orgId ||
-      req.body?.orgId ||
-      (req.user && req.user.orgId) ||
-      null;
+    const orgId = resolveOrgIdFromReq(req) || "unknown";
     const uploadPath = path.join(
       __dirname,
       "..",
       "..",
       "..",
       "EmpQueryUploads",
-      orgId
+      String(orgId)
     );
     if (!fs.existsSync(uploadPath)) {
       fs.mkdirSync(uploadPath, { recursive: true });
@@ -34,10 +47,18 @@ const upload = multer({ storage });
 exports.upload = upload;
 
 exports.startThread = async (req, res) => {
-  const orgId = req.headers["x-org-id"] || req.body?.orgId || null;
+  const orgId = resolveOrgIdFromReq(req);
   const { sender_id, sender_role, department_id, subject, message, role } =
     req.body;
   try {
+    if (!orgId) {
+      return res
+        .status(400)
+        .send(
+          ErrorHandler.generateErrorResponse(400, "orgId header is required")
+        );
+    }
+
     const threadId = await EmployeeQueries.startThread(
       sender_id,
       sender_role,
@@ -54,10 +75,10 @@ exports.startThread = async (req, res) => {
     );
     res.status(201).send(response);
   } catch (error) {
-    console.error(error);
+    console.error("[startThread] error:", error);
     const response = ErrorHandler.generateErrorResponse(
       500,
-      "Failed to start thread."
+      error.message || "Failed to start thread."
     );
     res.status(500).send(response);
   }
@@ -65,6 +86,15 @@ exports.startThread = async (req, res) => {
 
 exports.addMessage = async (req, res) => {
   try {
+    const orgId = resolveOrgIdFromReq(req);
+    if (!orgId) {
+      return res
+        .status(400)
+        .json(
+          ErrorHandler.generateErrorResponse(400, "orgId header is required")
+        );
+    }
+
     const { thread_id } = req.params;
     const { sender_id, sender_role, message, recipient_id } = req.body;
 
@@ -86,7 +116,8 @@ exports.addMessage = async (req, res) => {
       sender_role,
       message,
       recipient_id,
-      attachment_url
+      attachment_url,
+      orgId
     );
 
     if (!messageId) {
@@ -110,7 +141,7 @@ exports.addMessage = async (req, res) => {
     };
 
     const io = req.app.get("io");
-    io.to(`query_${thread_id}`).emit("newMessage", newMessage);
+    if (io) io.to(`query_${thread_id}`).emit("newMessage", newMessage);
 
     res.status(200).json({
       status: "success",
@@ -127,9 +158,18 @@ exports.addMessage = async (req, res) => {
 };
 
 exports.getThreadMessages = async (req, res) => {
-  const { thread_id } = req.params;
   try {
-    const messages = await EmployeeQueries.getThreadMessages(thread_id);
+    const orgId = resolveOrgIdFromReq(req);
+    if (!orgId) {
+      return res
+        .status(400)
+        .send(
+          ErrorHandler.generateErrorResponse(400, "orgId header is required")
+        );
+    }
+
+    const { thread_id } = req.params;
+    const messages = await EmployeeQueries.getThreadMessages(thread_id, orgId);
     const response = ErrorHandler.generateSuccessResponse(
       200,
       "Messages retrieved successfully.",
@@ -137,7 +177,7 @@ exports.getThreadMessages = async (req, res) => {
     );
     res.status(200).send(response);
   } catch (error) {
-    console.error(error);
+    console.error("[getThreadMessages] error:", error);
     const response = ErrorHandler.generateErrorResponse(
       500,
       "Failed to retrieve messages."
@@ -147,20 +187,29 @@ exports.getThreadMessages = async (req, res) => {
 };
 
 exports.closeThread = async (req, res) => {
-  const { thread_id } = req.params;
-  const { feedback, note } = req.body;
   try {
-    await EmployeeQueries.closeThread(thread_id, feedback, note);
+    const orgId = resolveOrgIdFromReq(req);
+    if (!orgId) {
+      return res
+        .status(400)
+        .send(
+          ErrorHandler.generateErrorResponse(400, "orgId header is required")
+        );
+    }
+
+    const { thread_id } = req.params;
+    const { feedback, note } = req.body;
+    await EmployeeQueries.closeThread(thread_id, feedback, note, orgId);
     const response = ErrorHandler.generateSuccessResponse(
       200,
       "Thread closed successfully with feedback."
     );
     res.status(200).send(response);
   } catch (error) {
-    console.error(error);
+    console.error("[closeThread] error:", error);
     const response = ErrorHandler.generateErrorResponse(
       500,
-      "Failed to close thread."
+      error.message || "Failed to close thread."
     );
     res.status(500).send(response);
   }
@@ -168,7 +217,14 @@ exports.closeThread = async (req, res) => {
 
 exports.getAllThreads = async (req, res) => {
   try {
-    const orgId = req.headers["x-org-id"] || req.body?.orgId || null;
+    const orgId = resolveOrgIdFromReq(req);
+    if (!orgId) {
+      return res
+        .status(400)
+        .send(
+          ErrorHandler.generateErrorResponse(400, "orgId header is required")
+        );
+    }
     const threads = await EmployeeQueries.getAllThreads(orgId);
     const response = ErrorHandler.generateSuccessResponse(
       200,
@@ -177,19 +233,31 @@ exports.getAllThreads = async (req, res) => {
     );
     res.status(200).send(response);
   } catch (error) {
-    console.error(error);
+    console.error("[getAllThreads] error:", error);
     const response = ErrorHandler.generateErrorResponse(
       500,
-      "Failed to retrieve threads."
+      error.message || "Failed to retrieve threads."
     );
     res.status(500).send(response);
   }
 };
 
 exports.getThreadsByEmployee = async (req, res) => {
-  const { employeeId } = req.params;
   try {
-    const threads = await EmployeeQueries.getThreadsByEmployee(employeeId);
+    const orgId = resolveOrgIdFromReq(req);
+    if (!orgId) {
+      return res
+        .status(400)
+        .send(
+          ErrorHandler.generateErrorResponse(400, "orgId header is required")
+        );
+    }
+
+    const { employeeId } = req.params;
+    const threads = await EmployeeQueries.getThreadsByEmployee(
+      employeeId,
+      orgId
+    );
     res
       .status(200)
       .send(
@@ -200,23 +268,37 @@ exports.getThreadsByEmployee = async (req, res) => {
         )
       );
   } catch (err) {
-    console.error(err);
+    console.error("[getThreadsByEmployee] error:", err);
     res.status(500).json({ message: "Internal server error." });
   }
 };
 
 exports.markMessagesAsRead = async (req, res) => {
-  const { thread_id } = req.params;
-  const { sender_id, user_role } = req.body;
   try {
-    await EmployeeQueries.markMessagesAsRead(thread_id, sender_id, user_role);
+    const orgId = resolveOrgIdFromReq(req);
+    if (!orgId) {
+      return res
+        .status(400)
+        .send(
+          ErrorHandler.generateErrorResponse(400, "orgId header is required")
+        );
+    }
+
+    const { thread_id } = req.params;
+    const { sender_id, user_role } = req.body;
+    await EmployeeQueries.markMessagesAsRead(
+      thread_id,
+      sender_id,
+      user_role,
+      orgId
+    );
     const response = ErrorHandler.generateSuccessResponse(
       200,
       "Messages marked as read."
     );
     res.status(200).send(response);
   } catch (error) {
-    console.error(error);
+    console.error("[markMessagesAsRead] error:", error);
     const response = ErrorHandler.generateErrorResponse(
       500,
       "Failed to mark messages as read."

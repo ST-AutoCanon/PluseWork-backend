@@ -37,7 +37,6 @@ const { createSessionStore, _initPromise } = require("./lib/sessionStore");
 const EmployeeQueries = require("./services/employeeQueries");
 const chatService = require("./services/chatService");
 const apiKeyMiddleware = require("./middleware/apiKeyMiddleware");
-const tenantResolver = require("./middleware/tenantResolver");
 const idleTimeout = require("./middleware/idleTimeout");
 const contact = require("./routes/contact");
 const holidayRoutes = require("./routes/holidayRoutes");
@@ -282,8 +281,6 @@ app.use((req, res, next) => {
     app.use("/api", organizationTableRoutes);
     app.use("/api", sidebarRoutes);
 
-    app.use("/api", tenantResolver);
-
     app.use("/", holidayRoutes);
     app.use("/", loginRoutes);
     app.use("/", meRoute);
@@ -373,6 +370,24 @@ app.use((req, res, next) => {
 
     app.get("/", (req, res) => res.send("Employee Face Recognition API"));
 
+    function resolveOrgIdFromSocket(socket) {
+      try {
+        const headersOrg =
+          socket.handshake?.headers?.["x-org-id"] ||
+          socket.handshake?.headers?.["x_org_id"] ||
+          socket.handshake?.headers?.["x-orgid"] ||
+          null;
+        const authOrg =
+          socket.handshake?.auth?.orgId || socket.handshake?.auth?.org_id;
+        const queryOrg =
+          socket.handshake?.query?.orgId || socket.handshake?.query?.org_id;
+        const candidate = headersOrg || authOrg || queryOrg || null;
+        return candidate ? String(candidate) : null;
+      } catch (e) {
+        return null;
+      }
+    }
+
     const io = new Server(server, {
       cors: { origin: process.env.FRONTEND_URL || "*", credentials: true },
       path: "/api/socket.io",
@@ -434,18 +449,37 @@ app.use((req, res, next) => {
     });
 
     io.on("connection", (socket) => {
+      const socketOrgId = resolveOrgIdFromSocket(socket);
       console.log(
-        `[socket] connected ${socket.id} userId=${socket.userId} via=${socket.authenticatedBy}`
+        `[socket] connected ${socket.id} userId=${socket.userId} via=${socket.authenticatedBy} orgId=${socketOrgId}`
       );
 
-      if (socket.userId) {
-        chatService
-          .getUserRooms(socket.userId)
-          .then((rooms) => {
-            rooms.forEach((r) => socket.join(String(r.id)));
-          })
-          .catch((err) => console.error("[socket] getUserRooms error:", err));
+      // If orgId present, join tenant rooms;
+      // otherwise log and continue — tenant chat calls will be skipped.
+      if (socket.userId && socketOrgId) {
+        (async () => {
+          try {
+            const rooms = await chatService.getUserRooms(
+              socketOrgId,
+              socket.userId
+            );
+            (rooms || []).forEach((r) => {
+              try {
+                socket.join(String(r.id));
+              } catch (e) {}
+            });
+          } catch (err) {
+            console.error("[socket] getUserRooms error:", err);
+          }
+        })();
+      } else if (socket.userId && !socketOrgId) {
+        console.warn(
+          `[socket:${socket.id}] orgId not provided in handshake — skipping tenant chat room joins for user ${socket.userId}`
+        );
+      }
 
+      // Threads (EmployeeQueries) still use master DB; keep joining
+      if (socket.userId) {
         EmployeeQueries.getThreadsByEmployee(socket.userId)
           .then((threads) => {
             threads.forEach((t) => socket.join(`query_${String(t.id)}`));
@@ -453,10 +487,6 @@ app.use((req, res, next) => {
           .catch((err) =>
             console.error("[socket] getThreadsByEmployee error:", err)
           );
-      } else {
-        console.log(
-          `[socket:${socket.id}] connected without userId — limited functionality`
-        );
       }
 
       socket.on("joinThread", (threadId) => {
@@ -467,6 +497,7 @@ app.use((req, res, next) => {
         }
       });
 
+      // Query messages (employee queries): unchanged
       socket.on("sendQueryMessage", async (payload, callback) => {
         try {
           if (!payload || !payload.thread_id) {
@@ -528,8 +559,10 @@ app.use((req, res, next) => {
         }
       });
 
+      // Regular chat messages (tenant-scoped) - now include orgId param
       socket.on("send_message", async (payload = {}, ack) => {
         try {
+          const orgId = socketOrgId || resolveOrgIdFromSocket(socket);
           const { roomId, content, type, fileUrl, location } = payload;
           const payloadSenderId = payload.senderId ?? payload.sender_id ?? null;
 
@@ -556,7 +589,17 @@ app.use((req, res, next) => {
           const lng = location?.lng ?? null;
           const address = location?.address ?? null;
 
+          if (!orgId) {
+            const errMsg = "Missing orgId for tenant chat operation";
+            console.warn(`[socket:${socket.id}] ${errMsg}`);
+            if (typeof ack === "function")
+              ack({ success: false, error: errMsg });
+            socket.emit("error", errMsg);
+            return;
+          }
+
           const saved = await chatService.saveMessage(
+            orgId,
             roomId,
             effectiveSenderId,
             content,
@@ -598,18 +641,34 @@ app.use((req, res, next) => {
         }
       });
 
+      // create_room — pass orgId into service
       socket.on(
         "create_room",
         async ({ name, isGroup, members } = {}, callback) => {
           try {
+            const orgId = socketOrgId || resolveOrgIdFromSocket(socket);
+            if (!orgId) {
+              const errMsg = "Missing orgId for create_room";
+              if (typeof callback === "function")
+                callback({ success: false, error: errMsg });
+              return;
+            }
+
             const roomId = await chatService.createRoom(
+              orgId,
               name,
               isGroup,
               socket.userId,
               members
             );
             socket.join(String(roomId));
-            const [room] = await chatService.getUserRooms(socket.userId);
+
+            // fetch the created room from tenant DB to emit
+            const rooms = await chatService.getUserRooms(orgId, socket.userId);
+            const room =
+              (rooms || []).find((r) => String(r.id) === String(roomId)) ||
+              null;
+
             socket.emit("room_created", room);
             if (typeof callback === "function")
               callback({ success: true, room });

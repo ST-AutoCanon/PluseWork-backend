@@ -292,7 +292,17 @@ exports.updateFullEmployee = async (req, res) => {
 exports.getFullEmployee = async (req, res) => {
   try {
     const employeeId = req.params.employeeId;
-    const profile = await employeeService.getFullEmployee(employeeId, {});
+    const orgId =
+      resolveOrgIdFromReq(req) || (req.user && req.user.orgId) || null;
+    if (!orgId) {
+      return res
+        .status(400)
+        .json(
+          ErrorHandler.generateErrorResponse(400, "Missing x-org-id header")
+        );
+    }
+    const profile = await employeeService.getFullEmployee(employeeId, orgId);
+
     return res
       .status(200)
       .json(
@@ -370,7 +380,17 @@ exports.serveEmployeeFile = async (req, res) => {
 exports.deactivateEmployee = async (req, res) => {
   try {
     const employeeId = req.params.employeeId;
-    await employeeService.deactivateEmployee(employeeId);
+    const orgId =
+      resolveOrgIdFromReq(req) || (req.user && req.user.orgId) || null;
+    if (!orgId) {
+      return res
+        .status(400)
+        .json(
+          ErrorHandler.generateErrorResponse(400, "Missing x-org-id header")
+        );
+    }
+    await employeeService.deactivateEmployee(employeeId, orgId);
+
     return res
       .status(200)
       .json(
@@ -444,11 +464,22 @@ exports.assignSupervisor = async (req, res, next) => {
           )
         );
     }
+    const orgId =
+      resolveOrgIdFromReq(req) || (req.user && req.user.orgId) || null;
+    if (!orgId) {
+      return res
+        .status(400)
+        .json(
+          ErrorHandler.generateErrorResponse(400, "Missing x-org-id header")
+        );
+    }
     const result = await employeeService.assignSupervisor(
       employeeId,
       supervisorId,
-      startDate
+      startDate,
+      orgId
     );
+
     return res.json(
       ErrorHandler.generateSuccessResponse(200, "Supervisor assigned.", result)
     );
@@ -460,7 +491,20 @@ exports.assignSupervisor = async (req, res, next) => {
 exports.getSupervisorHistory = async (req, res, next) => {
   try {
     const employeeId = req.params.employeeId;
-    const history = await employeeService.getSupervisorHistory(employeeId);
+    const orgId =
+      resolveOrgIdFromReq(req) || (req.user && req.user.orgId) || null;
+    if (!orgId) {
+      return res
+        .status(400)
+        .json(
+          ErrorHandler.generateErrorResponse(400, "Missing x-org-id header")
+        );
+    }
+    const history = await employeeService.getSupervisorHistory(
+      employeeId,
+      orgId
+    );
+
     return res.json(
       ErrorHandler.generateSuccessResponse(200, "History fetched.", { history })
     );

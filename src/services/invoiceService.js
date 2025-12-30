@@ -1,6 +1,24 @@
-const db = require("../config");
+// services/invoiceService.js
+const db = require("../config"); // master DB (sequences, org lookup)
 const invoiceQueries = require("../constants/invoiceQueries");
-const projectService = require("./projectService");
+const { getTenantPool, sanitizeDbName } = require("../db/tenantPoolManager");
+
+/**
+ * Resolve tenant pool for an orgId; throws if orgId missing.
+ */
+async function getTenantPoolForOrgId(orgId) {
+  if (!orgId) {
+    const err = new Error("orgId required to get tenant pool");
+    err.code = "ORG_REQUIRED";
+    throw err;
+  }
+  const dbName = sanitizeDbName(`tenant_${orgId}`);
+  return getTenantPool(dbName);
+}
+
+/* -------------------------
+   Helpers (master DB)
+   ------------------------- */
 
 const getFinancialYear = (invoiceDate) => {
   const dateObj = new Date(invoiceDate);
@@ -11,32 +29,23 @@ const getFinancialYear = (invoiceDate) => {
   const endYear = startYear + 1;
 
   const fy = `${String(startYear).slice(2)}-${String(endYear).slice(2)}`;
-
   return fy
     .normalize("NFKD")
     .replace(/[^\d-]/g, "")
     .trim();
 };
 
-async function getOrgName(connection, orgId) {
+async function getOrgNameMaster(connection, orgId) {
   if (!orgId) return null;
-
-  const candidates = [
-    {
-      q: "SELECT Name AS name FROM Organizations WHERE id = ?",
-      params: [orgId],
-    },
-  ];
-
-  for (const c of candidates) {
-    try {
-      const [rows] = await connection.execute(c.q, c.params);
-      if (rows && rows.length > 0 && rows[0].name) {
-        return String(rows[0].name).trim();
-      }
-    } catch (err) {}
+  try {
+    const [rows] = await connection.execute(
+      `SELECT Name AS name FROM Organizations WHERE id = ? LIMIT 1`,
+      [orgId]
+    );
+    if (rows && rows.length > 0) return String(rows[0].name).trim();
+  } catch (e) {
+    // swallow and return null
   }
-
   return null;
 }
 
@@ -58,85 +67,93 @@ function makeOrgAcronym(orgName) {
   }
 
   const single = words[0];
-  return single.slice(0, 3).toUpperCase() || "STS";
+  return (single && single.slice(0, 3).toUpperCase()) || "STS";
 }
 
-const getInvoicesByProject = async (projectId) => {
+/* -------------------------
+   Sequence operations (master DB)
+   - GET_NEXT_SEQUENCE
+   - INSERT_INITIAL_SEQUENCE
+   - UPDATE_SEQUENCE
+   ------------------------- */
+
+const getNextSequenceMaster = async (invoiceType, financialYear, orgId) => {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  const conn = await tenantPool.getConnection();
   try {
-    const [results] = await db.execute(invoiceQueries.GET_INVOICES_BY_PROJECT, [
-      projectId,
-    ]);
-
-    const parsedResults = results.map((invoice) => {
-      if (invoice.lineItems && typeof invoice.lineItems === "string") {
-        try {
-          invoice.lineItems = JSON.parse(invoice.lineItems);
-        } catch (err) {
-          console.warn(
-            `Error parsing lineItems for invoice ${invoice.id}:`,
-            err
-          );
-          invoice.lineItems = [];
-        }
-      }
-      return invoice;
-    });
-
-    return parsedResults;
-  } catch (err) {
-    throw err;
-  }
-};
-
-const getInvoiceById = async (id) => {
-  try {
-    const [results] = await db.execute(invoiceQueries.GET_INVOICE_BY_ID, [id]);
-    if (!results || results.length === 0) {
-      throw new Error(`Invoice with ID ${id} not found`);
-    }
-    const invoice = results[0];
-
-    if (invoice.invoiceDate) {
-      invoice.invoiceDate = new Date(invoice.invoiceDate)
-        .toISOString()
-        .split("T")[0];
-    }
-
-    if (invoice.lineItems && typeof invoice.lineItems === "string") {
-      try {
-        invoice.lineItems = JSON.parse(invoice.lineItems);
-      } catch (error) {
-        console.warn("Error parsing lineItems JSON:", error);
-        invoice.lineItems = [];
-      }
-    }
-
-    return invoice;
-  } catch (err) {
-    throw err;
-  }
-};
-
-const generateTemplateInvoiceNo = async (invoiceType, orgId = null) => {
-  const today = new Date();
-  const financialYear = getFinancialYear(today);
-
-  const connection = await db.getConnection();
-  try {
-    const orgName = await getOrgName(connection, orgId);
-    const acronym = makeOrgAcronym(orgName);
-
-    const [rows] = await connection.execute(invoiceQueries.GET_NEXT_SEQUENCE, [
+    const [rows] = await conn.execute(invoiceQueries.GET_NEXT_SEQUENCE, [
       invoiceType,
       financialYear,
       orgId,
     ]);
+    return rows && rows.length ? rows[0].sequence : undefined;
+  } finally {
+    conn.release();
+  }
+};
 
+const insertInitialSequenceMaster = async (
+  invoiceType,
+  financialYear,
+  orgId,
+  initial = 2
+) => {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  const conn = await tenantPool.getConnection();
+  try {
+    await conn.execute(invoiceQueries.INSERT_INITIAL_SEQUENCE, [
+      invoiceType,
+      financialYear,
+      orgId,
+      initial,
+    ]);
+  } finally {
+    conn.release();
+  }
+};
+
+const updateSequenceMaster = async (
+  nextSeq,
+  invoiceType,
+  financialYear,
+  orgId
+) => {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  const conn = await tenantPool.getConnection();
+  try {
+    await conn.execute(invoiceQueries.UPDATE_SEQUENCE, [
+      nextSeq,
+      invoiceType,
+      financialYear,
+      orgId,
+    ]);
+  } finally {
+    conn.release();
+  }
+};
+
+/* -------------------------
+   Template / invoice number generation (uses master DB)
+   ------------------------- */
+
+const generateTemplateInvoiceNo = async (invoiceType, orgId = null) => {
+  const today = new Date();
+  const financialYear = getFinancialYear(today);
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  const conn = await tenantPool.getConnection();
+  try {
+    const orgName = await getOrgNameMaster(conn, orgId);
+    const acronym = makeOrgAcronym(orgName);
+
+    const [rows] = await conn.execute(invoiceQueries.GET_NEXT_SEQUENCE, [
+      invoiceType,
+      financialYear,
+      orgId,
+    ]);
     const sequence =
       rows && rows.length > 0 && typeof rows[0].sequence !== "undefined"
         ? Number(rows[0].sequence)
         : 1;
-
     const paddedSeq = String(sequence).padStart(4, "0");
 
     if (invoiceType === "tax") {
@@ -149,19 +166,23 @@ const generateTemplateInvoiceNo = async (invoiceType, orgId = null) => {
       throw new Error("Unknown invoice type");
     }
   } finally {
-    connection.release();
+    conn.release();
   }
 };
 
+/**
+ * Generate invoice number and increment master sequence (master DB only).
+ * Returns the generated invoice number string.
+ */
 const generateInvoiceNo = async (invoiceDate, invoiceType, orgId) => {
   const financialYear = getFinancialYear(invoiceDate);
-  const connection = await db.getConnection();
-
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  const conn = await tenantPool.getConnection();
   try {
-    const orgName = await getOrgName(connection, orgId);
+    const orgName = await getOrgNameMaster(conn, orgId);
     const acronym = makeOrgAcronym(orgName);
 
-    const [rows] = await connection.execute(invoiceQueries.GET_NEXT_SEQUENCE, [
+    const [rows] = await conn.execute(invoiceQueries.GET_NEXT_SEQUENCE, [
       invoiceType,
       financialYear,
       orgId,
@@ -170,7 +191,7 @@ const generateInvoiceNo = async (invoiceDate, invoiceType, orgId) => {
     let sequenceForInvoice;
     if (!rows || rows.length === 0) {
       sequenceForInvoice = 1;
-      await connection.execute(invoiceQueries.INSERT_INITIAL_SEQUENCE, [
+      await conn.execute(invoiceQueries.INSERT_INITIAL_SEQUENCE, [
         invoiceType,
         financialYear,
         orgId,
@@ -179,7 +200,7 @@ const generateInvoiceNo = async (invoiceDate, invoiceType, orgId) => {
     } else {
       const currentSeq = Number(rows[0].sequence) || 1;
       sequenceForInvoice = currentSeq;
-      await connection.execute(invoiceQueries.UPDATE_SEQUENCE, [
+      await conn.execute(invoiceQueries.UPDATE_SEQUENCE, [
         currentSeq + 1,
         invoiceType,
         financialYear,
@@ -199,21 +220,96 @@ const generateInvoiceNo = async (invoiceDate, invoiceType, orgId) => {
       throw new Error("Unknown invoice type");
     }
   } finally {
-    connection.release();
+    conn.release();
   }
 };
 
-const createInvoice = async (invoiceData, orgId) => {
-  const connection = await db.getConnection();
+/* -------------------------
+   Tenant-scoped invoice operations (tenant DBs)
+   ------------------------- */
 
+/**
+ * Get invoices for a project from tenant DB.
+ * orgId required (tenant lookup).
+ */
+const getInvoicesByProject = async (orgId, projectId) => {
+  if (!orgId) throw new Error("orgId required");
+  const tenantPool = await getTenantPoolForOrgId(orgId);
   try {
-    const invoiceNo = await generateInvoiceNo(
-      invoiceData.invoiceDate,
-      invoiceData.invoiceType,
-      orgId
+    const [results] = await tenantPool.query(
+      invoiceQueries.GET_INVOICES_BY_PROJECT,
+      [projectId]
     );
 
-    const [results] = await connection.execute(invoiceQueries.INSERT_INVOICE, [
+    return results.map((invoice) => {
+      if (invoice.lineItems && typeof invoice.lineItems === "string") {
+        try {
+          invoice.lineItems = JSON.parse(invoice.lineItems);
+        } catch {
+          invoice.lineItems = [];
+        }
+      }
+      return invoice;
+    });
+  } catch (err) {
+    throw err;
+  }
+};
+
+/**
+ * Get invoice by id from tenant DB.
+ */
+const getInvoiceById = async (orgId, id) => {
+  if (!orgId) throw new Error("orgId required");
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  try {
+    const [results] = await tenantPool.query(invoiceQueries.GET_INVOICE_BY_ID, [
+      id,
+    ]);
+    if (!results || results.length === 0) {
+      throw new Error(`Invoice with ID ${id} not found`);
+    }
+    const invoice = results[0];
+
+    if (invoice.invoiceDate) {
+      invoice.invoiceDate = new Date(invoice.invoiceDate)
+        .toISOString()
+        .split("T")[0];
+    }
+    if (invoice.lineItems && typeof invoice.lineItems === "string") {
+      try {
+        invoice.lineItems = JSON.parse(invoice.lineItems);
+      } catch {
+        invoice.lineItems = [];
+      }
+    }
+    return invoice;
+  } catch (err) {
+    throw err;
+  }
+};
+
+/**
+ * Create invoice:
+ *  - Generate invoice number (master DB sequence)
+ *  - Insert invoice row into tenant DB
+ *  - Return inserted invoice (from tenant DB).
+ */
+const createInvoice = async (invoiceData, orgId) => {
+  if (!orgId) throw new Error("orgId required to create invoice");
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+
+  // compute invoice number using master DB
+  const invoiceNo = await generateInvoiceNo(
+    invoiceData.invoiceDate,
+    invoiceData.invoiceType,
+    orgId
+  );
+
+  // insert into tenant DB
+  const conn = await tenantPool.getConnection();
+  try {
+    const [results] = await conn.execute(invoiceQueries.INSERT_INVOICE, [
       invoiceData.projectId,
       invoiceData.invoiceType,
       invoiceData.invoiceDate,
@@ -221,7 +317,7 @@ const createInvoice = async (invoiceData, orgId) => {
       invoiceData.referenceId,
       invoiceData.referenceDate,
       invoiceData.terms,
-      JSON.stringify(invoiceData.lineItems),
+      JSON.stringify(invoiceData.lineItems || []),
       invoiceData.workDescription,
       invoiceData.subTotal,
       invoiceData.advance,
@@ -233,20 +329,25 @@ const createInvoice = async (invoiceData, orgId) => {
     ]);
 
     if (!results.insertId) {
-      throw new Error("No insertId returned! Possible issue with the query.");
+      throw new Error("Failed to insert invoice");
     }
 
-    const invoice = await getInvoiceById(results.insertId);
+    const invoice = await getInvoiceById(orgId, results.insertId);
     return invoice;
-  } catch (err) {
-    console.error("createInvoice error:", err);
-    throw err;
   } finally {
-    connection.release();
+    try {
+      conn.release();
+    } catch (e) {}
   }
 };
 
-const updateInvoice = async (id, invoiceData) => {
+/**
+ * Update invoice basic fields in tenant DB, then return updated invoice.
+ */
+const updateInvoice = async (orgId, id, invoiceData) => {
+  if (!orgId) throw new Error("orgId required");
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+
   const formattedInvoiceDate = invoiceData.invoiceDate
     ? new Date(invoiceData.invoiceDate).toISOString().split("T")[0]
     : null;
@@ -261,7 +362,7 @@ const updateInvoice = async (id, invoiceData) => {
     invoiceData.referenceId,
     formattedReferenceDate,
     invoiceData.terms,
-    JSON.stringify(invoiceData.lineItems),
+    JSON.stringify(invoiceData.lineItems || []),
     invoiceData.workDescription,
     invoiceData.subTotal,
     invoiceData.advance,
@@ -273,15 +374,24 @@ const updateInvoice = async (id, invoiceData) => {
     id,
   ];
 
-  const [basicResults] = await db.execute(
-    invoiceQueries.UPDATE_INVOICE_BASIC,
-    basicValues
-  );
-
-  return await getInvoiceById(id);
+  const conn = await tenantPool.getConnection();
+  try {
+    await conn.execute(invoiceQueries.UPDATE_INVOICE_BASIC, basicValues);
+    return await getInvoiceById(orgId, id);
+  } finally {
+    try {
+      conn.release();
+    } catch (e) {}
+  }
 };
 
-const updateInvoiceExtra = async (id, invoiceData) => {
+/**
+ * Update invoice extra (gstPayment, milestoneId, status) and perform any project financial updates.
+ */
+const updateInvoiceExtra = async (orgId, id, invoiceData) => {
+  if (!orgId) throw new Error("orgId required");
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+
   const formattedInvoiceDate = invoiceData.invoiceDate
     ? new Date(invoiceData.invoiceDate).toISOString().slice(0, 10)
     : null;
@@ -289,73 +399,91 @@ const updateInvoiceExtra = async (id, invoiceData) => {
     ? new Date(invoiceData.referenceDate).toISOString().slice(0, 10)
     : null;
 
-  await db.execute(invoiceQueries.UPDATE_INVOICE_BASIC, [
-    invoiceData.invoiceType,
-    formattedInvoiceDate,
-    invoiceData.invoiceNo,
-    invoiceData.referenceId,
-    formattedReferenceDate,
-    invoiceData.terms,
-    JSON.stringify(invoiceData.lineItems),
-    invoiceData.workDescription,
-    invoiceData.subTotal,
-    invoiceData.advance,
-    invoiceData.totalExcludingTax,
-    invoiceData.gst,
-    invoiceData.gstAmount,
-    invoiceData.totalAmount,
-    invoiceData.totalIncludingTax,
-    id,
-  ]);
+  const conn = await tenantPool.getConnection();
+  try {
+    await conn.execute(invoiceQueries.UPDATE_INVOICE_BASIC, [
+      invoiceData.invoiceType,
+      formattedInvoiceDate,
+      invoiceData.invoiceNo,
+      invoiceData.referenceId,
+      formattedReferenceDate,
+      invoiceData.terms,
+      JSON.stringify(invoiceData.lineItems || []),
+      invoiceData.workDescription,
+      invoiceData.subTotal,
+      invoiceData.advance,
+      invoiceData.totalExcludingTax,
+      invoiceData.gst,
+      invoiceData.gstAmount,
+      invoiceData.totalAmount,
+      invoiceData.totalIncludingTax,
+      id,
+    ]);
 
-  await db.execute(invoiceQueries.UPDATE_INVOICE_EXTRA, [
-    invoiceData.gstPayment,
-    invoiceData.milestoneId,
-    invoiceData.status,
-    id,
-  ]);
+    await conn.execute(invoiceQueries.UPDATE_INVOICE_EXTRA, [
+      invoiceData.gstPayment,
+      invoiceData.milestoneId,
+      invoiceData.status,
+      id,
+    ]);
 
-  const [[{ payment_type }]] = await db.query(
-    `SELECT payment_type FROM add_project WHERE id = ?`,
-    [invoiceData.projectId]
-  );
+    // fetch payment_type from tenant add_project table (tenant DB)
+    const [[{ payment_type }]] = await conn.query(
+      `SELECT payment_type FROM add_project WHERE id = ?`,
+      [invoiceData.projectId]
+    );
 
-  if (invoiceData.gstPayment === "Completed" && invoiceData.milestoneId) {
-    const common = {
-      m_actual_amount: invoiceData.totalExcludingTax,
-      m_tds_percentage: null,
-      m_tds_amount: invoiceData.tdsAmount || 0,
-      m_gst_percentage: invoiceData.gst,
-      m_gst_amount: invoiceData.gstAmount,
-      m_total_amount: invoiceData.totalIncludingTax,
-    };
+    // Update financials in tenant DB
+    if (invoiceData.gstPayment === "Completed" && invoiceData.milestoneId) {
+      const common = {
+        m_actual_amount: invoiceData.totalExcludingTax,
+        m_tds_percentage: null,
+        m_tds_amount: invoiceData.tdsAmount || 0,
+        m_gst_percentage: invoiceData.gst,
+        m_gst_amount: invoiceData.gstAmount,
+        m_total_amount: invoiceData.totalIncludingTax,
+      };
 
-    if (payment_type === "Monthly Scheduled") {
-      await projectService.updateFinancialDetailsById({
-        financial_id: Number(invoiceData.milestoneId),
-        ...common,
-      });
-    } else {
-      await projectService.updateFinancialDetailsForInvoice({
-        project_id: Number(invoiceData.projectId),
-        milestone_id: Number(invoiceData.milestoneId),
-        ...common,
-      });
+      if (payment_type === "Monthly Scheduled") {
+        // financial_details.id refers to financial row id (tenant DB)
+        await require("./projectService").updateFinancialDetailsById(orgId, {
+          financial_id: Number(invoiceData.milestoneId),
+          ...common,
+        });
+      } else {
+        await require("./projectService").updateFinancialDetailsForInvoice(
+          orgId,
+          {
+            project_id: Number(invoiceData.projectId),
+            milestone_id: Number(invoiceData.milestoneId),
+            ...common,
+          }
+        );
+      }
     }
-  }
 
-  return await getInvoiceById(id);
+    return await getInvoiceById(orgId, id);
+  } finally {
+    try {
+      conn.release();
+    } catch (e) {}
+  }
 };
 
-const updateSequence = async (invoiceType, orgId) => {
-  const connection = await db.getConnection();
-  try {
-    const today = new Date();
-    const financialYear = getFinancialYear(today);
-    const cleanedFinancialYear = financialYear.trim();
-    const cleanInvoiceType = invoiceType.toString().trim().toLowerCase();
+/* -------------------------
+   Sequence admin (master DB) — updateSequence
+   (this operates on master invoice_numbers table)
+   ------------------------- */
 
-    const [rows] = await connection.execute(invoiceQueries.GET_NEXT_SEQUENCE, [
+const updateSequence = async (invoiceType, orgId) => {
+  const today = new Date();
+  const financialYear = getFinancialYear(today);
+  const cleanedFinancialYear = financialYear.trim();
+  const cleanInvoiceType = invoiceType.toString().trim().toLowerCase();
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  const conn = await tenantPool.getConnection();
+  try {
+    const [rows] = await conn.execute(invoiceQueries.GET_NEXT_SEQUENCE, [
       cleanInvoiceType,
       cleanedFinancialYear,
       orgId,
@@ -363,13 +491,15 @@ const updateSequence = async (invoiceType, orgId) => {
 
     const nextSequence = rows && rows.length > 0 ? Number(rows[0].sequence) : 1;
 
-    const [updateResult] = await connection.execute(
-      invoiceQueries.UPDATE_SEQUENCE,
-      [nextSequence, cleanInvoiceType, cleanedFinancialYear, orgId]
-    );
+    const [updateResult] = await conn.execute(invoiceQueries.UPDATE_SEQUENCE, [
+      nextSequence,
+      cleanInvoiceType,
+      cleanedFinancialYear,
+      orgId,
+    ]);
 
     if (updateResult.affectedRows === 0) {
-      await connection.execute(invoiceQueries.INSERT_INITIAL_SEQUENCE, [
+      await conn.execute(invoiceQueries.INSERT_INITIAL_SEQUENCE, [
         cleanInvoiceType,
         cleanedFinancialYear,
         orgId,
@@ -378,27 +508,33 @@ const updateSequence = async (invoiceType, orgId) => {
     }
 
     return { updatedSequence: nextSequence };
-  } catch (err) {
-    console.error("[updateSequence] Error:", err);
-    throw new Error("Failed to update sequence: " + err.message);
   } finally {
-    connection.release();
+    conn.release();
   }
 };
 
-async function parseSequenceFromInvoiceNumber(invoiceNumber) {
+/* -------------------------
+   Download details (tenant DB) + possible master sequence update
+   - Insert tenant download_details
+   - If invoice number contains a sequence, ensure master sequence >= usedSeq + 1
+   ------------------------- */
+
+function parseSequenceFromInvoiceNumber(invoiceNumber) {
   if (!invoiceNumber || typeof invoiceNumber !== "string") return null;
   const m = invoiceNumber.trim().match(/(\d+)\s*$/);
   if (!m) return null;
   return parseInt(m[1], 10);
 }
 
-async function recordDownloadDetails(
+const recordDownloadDetails = async (
   invoiceType,
   invoiceNumber,
   details,
   orgId
-) {
+) => {
+  if (!orgId) throw new Error("orgId required");
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+
   const {
     to,
     address,
@@ -420,59 +556,61 @@ async function recordDownloadDetails(
     terms,
   } = details;
 
-  const params = [
-    orgId,
-    invoiceType,
-    invoiceNumber,
-    to,
-    address,
-    contact,
-    companyGst,
-    state,
-    invoiceDate,
-    referenceDate,
-    referenceId,
-    placeOfSupply,
-    withSeal ? 1 : 0,
-    JSON.stringify(lineItems),
-    subTotal,
-    gst,
-    gstAmount,
-    advance,
-    totalExcludingTax,
-    totalIncludingTax,
-    terms,
-  ];
-
-  const connection = await db.getConnection();
+  const tenantConn = await tenantPool.getConnection();
+  const masterConn = await db.getConnection();
 
   try {
-    await connection.beginTransaction();
+    await tenantConn.beginTransaction();
+    await masterConn.beginTransaction();
 
-    const [res] = await connection.execute(
+    const [res] = await tenantConn.execute(
       invoiceQueries.INSERT_DOWNLOAD_DETAILS,
-      params
+      [
+        orgId,
+        invoiceType,
+        invoiceNumber,
+        to,
+        address,
+        contact,
+        companyGst,
+        state,
+        invoiceDate,
+        referenceDate,
+        referenceId,
+        placeOfSupply,
+        withSeal ? 1 : 0,
+        JSON.stringify(lineItems || []),
+        subTotal,
+        gst,
+        gstAmount,
+        advance,
+        totalExcludingTax,
+        totalIncludingTax,
+        terms,
+      ]
     );
 
+    // parse and update master sequence if necessary
     const usedSeq = parseSequenceFromInvoiceNumber(invoiceNumber);
     const fy = getFinancialYear(invoiceDate || new Date());
-
     if (usedSeq != null && orgId) {
-      const [rows] = await connection.execute(
+      const [rows] = await tenantConn.execute(
         invoiceQueries.GET_NEXT_SEQUENCE,
         [invoiceType, fy, orgId]
       );
 
       if (!rows || rows.length === 0) {
-        await connection.execute(invoiceQueries.INSERT_INITIAL_SEQUENCE, [
+        // insert initial sequence (set sequence to usedSeq + 1)
+        await tenantConn.execute(invoiceQueries.INSERT_INITIAL_SEQUENCE, [
           invoiceType,
           fy,
           orgId,
+          usedSeq + 1,
         ]);
       } else {
         const currentSeq = Number(rows[0].sequence) || 1;
         if (currentSeq <= usedSeq) {
-          await connection.execute(invoiceQueries.UPDATE_SEQUENCE, [
+          await tenantConn.execute(invoiceQueries.UPDATE_SEQUENCE, [
             usedSeq + 1,
             invoiceType,
             fy,
@@ -480,37 +618,55 @@ async function recordDownloadDetails(
           ]);
         }
       }
-    } else {
     }
 
-    await connection.commit();
+    await tenantConn.commit();
+    await masterConn.commit();
+
     return { id: res.insertId };
   } catch (err) {
     try {
-      await connection.rollback();
+      await tenantConn.rollback();
     } catch (e) {}
-    console.error("recordDownloadDetails error:", err);
+    try {
+      await masterConn.rollback();
+    } catch (e) {}
     throw err;
   } finally {
-    connection.release();
+    try {
+      tenantConn.release();
+    } catch (e) {}
+    try {
+      masterConn.release();
+    } catch (e) {}
   }
-}
+};
 
-async function getAllDownloadDetails(orgId) {
-  const [rows] = await db.execute(invoiceQueries.GET_ALL_DOWNLOAD_DETAILS, [
-    orgId,
-  ]);
-  return rows.map((r) => {
-    if (r.lineItems && typeof r.lineItems === "string") {
-      try {
-        r.lineItems = JSON.parse(r.lineItems);
-      } catch {
-        r.lineItems = [];
+/**
+ * Get all download_details for org (tenant DB)
+ */
+const getAllDownloadDetails = async (orgId) => {
+  if (!orgId) throw new Error("orgId required");
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  try {
+    const [rows] = await tenantPool.query(
+      invoiceQueries.GET_ALL_DOWNLOAD_DETAILS,
+      [orgId]
+    );
+    return rows.map((r) => {
+      if (r.lineItems && typeof r.lineItems === "string") {
+        try {
+          r.lineItems = JSON.parse(r.lineItems);
+        } catch {
+          r.lineItems = [];
+        }
       }
-    }
-    return r;
-  });
-}
+      return r;
+    });
+  } catch (err) {
+    throw err;
+  }
+};
 
 module.exports = {
   getInvoicesByProject,
@@ -522,4 +678,6 @@ module.exports = {
   updateInvoiceExtra,
   recordDownloadDetails,
   getAllDownloadDetails,
+  // Expose master-sequence helper for other callers if needed:
+  generateInvoiceNo, // used internally, but exported for tests/consumers
 };

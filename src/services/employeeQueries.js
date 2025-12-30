@@ -1,7 +1,26 @@
-const db = require("../config");
+// services/employeeQueries.js
+const db = require("../config"); // master DB for org lookup
 const queries = require("../constants/empQueryQueries");
+const { getTenantPool, sanitizeDbName } = require("../db/tenantPoolManager");
+
+/**
+ * Resolve tenant pool for an orgId; throws if orgId missing.
+ */
+async function getTenantPoolForOrgId(orgId) {
+  if (!orgId) {
+    const err = new Error("orgId required to get tenant pool");
+    err.code = "ORG_REQUIRED";
+    throw err;
+  }
+  const dbName = sanitizeDbName(`tenant_${orgId}`);
+  return getTenantPool(dbName);
+}
 
 class EmployeeQueries {
+  /**
+   * Start a new thread in tenant DB.
+   * recipientRole: 'Admin' | 'HR' | 'Manager'
+   */
   static async startThread(
     sender_id,
     sender_role,
@@ -11,24 +30,29 @@ class EmployeeQueries {
     recipientRole,
     orgId
   ) {
+    if (!orgId) throw new Error("orgId required");
+
+    const tenantPool = await getTenantPoolForOrgId(orgId);
+
+    // resolve recipient_id using tenant DB
     let recipient_id;
     if (recipientRole === "Admin") {
-      const [admins] = await db.execute(queries.GET_ADMIN, [orgId]);
+      const [admins] = await tenantPool.query(queries.GET_ADMIN, [orgId]);
       if (!admins || admins.length === 0) {
         throw new Error("No admin found for this organization.");
       }
       recipient_id = admins[0].employee_id;
     } else if (recipientRole === "HR") {
-      const [hr] = await db.execute(queries.GET_HR, [orgId, orgId]);
+      const [hr] = await tenantPool.query(queries.GET_HR, [orgId, orgId]);
       if (!hr || hr.length === 0) {
         throw new Error("No HR manager found for this organization.");
       }
       recipient_id = hr[0].employee_id;
     } else if (recipientRole === "Manager") {
-      const [managers] = await db.execute(queries.GET_MANAGER_BY_DEPARTMENT, [
-        department_id,
-        orgId,
-      ]);
+      const [managers] = await tenantPool.query(
+        queries.GET_MANAGER_BY_DEPARTMENT,
+        [department_id, orgId]
+      );
       if (!managers || managers.length === 0) {
         throw new Error(
           "No department manager found for this organization/department."
@@ -39,43 +63,74 @@ class EmployeeQueries {
       throw new Error("Invalid recipient role.");
     }
 
-    const [result] = await db.execute(queries.CREATE_THREAD, [
-      orgId,
-      sender_id,
-      recipient_id,
-      subject,
-      department_id || null,
-    ]);
-    const threadId = result.insertId;
+    const tenantConn = await tenantPool.getConnection();
+    try {
+      await tenantConn.beginTransaction();
 
-    const [messageResult] = await db.execute(queries.ADD_MESSAGE, [
-      threadId,
-      sender_id,
-      sender_role,
-      message,
-      null,
-    ]);
-    const messageId = messageResult.insertId;
+      const [result] = await tenantConn.execute(queries.CREATE_THREAD, [
+        orgId,
+        sender_id,
+        recipient_id,
+        subject,
+        department_id || null,
+      ]);
+      const threadId = result.insertId;
 
-    await EmployeeQueries.markMessageUnreadForRecipients(messageId, [
-      recipient_id,
-    ]);
+      const [messageResult] = await tenantConn.execute(queries.ADD_MESSAGE, [
+        threadId,
+        sender_id,
+        sender_role,
+        message,
+        null,
+      ]);
+      const messageId = messageResult.insertId;
 
-    return threadId;
+      // mark unread for recipients
+      await EmployeeQueries.markMessageUnreadForRecipientsTenant(
+        tenantConn,
+        messageId,
+        [recipient_id]
+      );
+
+      await tenantConn.commit();
+      return threadId;
+    } catch (err) {
+      try {
+        await tenantConn.rollback();
+      } catch (e) {}
+      throw err;
+    } finally {
+      try {
+        tenantConn.release();
+      } catch (e) {}
+    }
   }
 
+  /**
+   * Get admin ids for the org the employee belongs to.
+   * This keeps master lookup for employee->org, then queries tenant DB for admins.
+   */
   static async getAdminIdsByEmployee(employeeId) {
+    // master DB: get org for employee
     const [orgRows] = await db.execute(queries.GET_ORG_BY_EMPLOYEE, [
       employeeId,
     ]);
     if (!orgRows || orgRows.length === 0) return [];
 
     const org_id = orgRows[0].org_id;
-    const [admins] = await db.execute(queries.GET_ADMIN, [org_id]);
+    if (!org_id) return [];
+
+    const tenantPool = await getTenantPoolForOrgId(org_id);
+    const [admins] = await tenantPool.query(queries.GET_ADMIN, [org_id]);
     return admins.map((a) => a.employee_id).filter((id) => id != null);
   }
 
-  static async updateThreadLatestMessage(thread_id, message, attachment_url) {
+  static async updateThreadLatestMessageTenant(
+    conn,
+    thread_id,
+    message,
+    attachment_url
+  ) {
     let latestMessageValue = "";
     if (message && message.trim().length > 0) {
       latestMessageValue = message;
@@ -84,55 +139,141 @@ class EmployeeQueries {
     } else {
       latestMessageValue = "";
     }
-    await db.execute(queries.UPDATE_LATEST_MESSAGE, [
+    await conn.execute(queries.UPDATE_LATEST_MESSAGE, [
       latestMessageValue,
       thread_id,
     ]);
   }
 
+  static async updateThreadLatestMessage(
+    thread_id,
+    message,
+    attachment_url,
+    orgId
+  ) {
+    if (!orgId) throw new Error("orgId required");
+    const tenantPool = await getTenantPoolForOrgId(orgId);
+    const conn = await tenantPool.getConnection();
+    try {
+      await EmployeeQueries.updateThreadLatestMessageTenant(
+        conn,
+        thread_id,
+        message,
+        attachment_url
+      );
+    } finally {
+      try {
+        conn.release();
+      } catch (e) {}
+    }
+  }
+
+  /**
+   * Add message into tenant DB.
+   */
   static async addMessage(
     thread_id,
     sender_id,
     sender_role,
     message,
     recipient_id,
-    attachment_url = null
+    attachment_url = null,
+    orgId
   ) {
-    const [result] = await db.execute(queries.ADD_MESSAGE, [
-      thread_id,
-      sender_id,
-      sender_role,
-      message,
-      attachment_url,
-    ]);
-    const messageId = result.insertId;
-    await EmployeeQueries.updateThreadLatestMessage(
-      thread_id,
-      message,
-      attachment_url
-    );
-    await EmployeeQueries.markMessageUnreadForRecipients(messageId, [
-      recipient_id,
-    ]);
-    return messageId;
-  }
+    if (!orgId) throw new Error("orgId required");
+    const tenantPool = await getTenantPoolForOrgId(orgId);
+    const tenantConn = await tenantPool.getConnection();
+    try {
+      await tenantConn.beginTransaction();
+      const [result] = await tenantConn.execute(queries.ADD_MESSAGE, [
+        thread_id,
+        sender_id,
+        sender_role,
+        message,
+        attachment_url,
+      ]);
+      const messageId = result.insertId;
 
-  static async markMessageUnreadForRecipients(messageId, recipientIds) {
-    const values = recipientIds.map((id) => [messageId, id, false]);
-    await db.query(queries.UNREAD_STATUS, [values]);
-  }
+      await EmployeeQueries.updateThreadLatestMessageTenant(
+        tenantConn,
+        thread_id,
+        message,
+        attachment_url
+      );
 
-  static async markMessagesAsRead(thread_id, sender_id, user_role) {
-    if (user_role === "Admin") {
-      await db.execute(queries.MARK_MESSAGES_AS_READ_ADMIN, [thread_id]);
-    } else {
-      await db.execute(queries.MARK_MESSAGES_AS_READ, [thread_id, sender_id]);
+      await EmployeeQueries.markMessageUnreadForRecipientsTenant(
+        tenantConn,
+        messageId,
+        [recipient_id]
+      );
+
+      await tenantConn.commit();
+      return messageId;
+    } catch (err) {
+      try {
+        await tenantConn.rollback();
+      } catch (e) {}
+      throw err;
+    } finally {
+      try {
+        tenantConn.release();
+      } catch (e) {}
     }
   }
 
-  static async getThreadMessages(thread_id) {
+  /**
+   * Helper to insert unread rows using an existing tenant connection
+   * so callers can participate in the same transaction.
+   * values is an array of [messageId, recipientId, is_read]
+   */
+  static async markMessageUnreadForRecipientsTenant(
+    conn,
+    messageId,
+    recipientIds
+  ) {
+    if (!Array.isArray(recipientIds) || recipientIds.length === 0) return;
+    const values = recipientIds.map((id) => [messageId, id, false]);
+    // uses INSERT ... VALUES ? with bulk
+    await conn.query(queries.UNREAD_STATUS, [values]);
+  }
+
+  static async markMessageUnreadForRecipients(messageId, recipientIds, orgId) {
+    if (!orgId) throw new Error("orgId required");
+    const tenantPool = await getTenantPoolForOrgId(orgId);
+    const conn = await tenantPool.getConnection();
     try {
-      const [rows] = await db.execute(queries.GET_THREAD_MESSAGES, [thread_id]);
+      await EmployeeQueries.markMessageUnreadForRecipientsTenant(
+        conn,
+        messageId,
+        recipientIds
+      );
+    } finally {
+      try {
+        conn.release();
+      } catch (e) {}
+    }
+  }
+
+  static async markMessagesAsRead(thread_id, sender_id, user_role, orgId) {
+    if (!orgId) throw new Error("orgId required");
+    const tenantPool = await getTenantPoolForOrgId(orgId);
+    if (user_role === "Admin") {
+      await tenantPool.query(queries.MARK_MESSAGES_AS_READ_ADMIN, [thread_id]);
+    } else {
+      await tenantPool.query(queries.MARK_MESSAGES_AS_READ, [
+        thread_id,
+        sender_id,
+      ]);
+    }
+  }
+
+  static async getThreadMessages(thread_id, orgId) {
+    if (!orgId) throw new Error("orgId required");
+    const tenantPool = await getTenantPoolForOrgId(orgId);
+    try {
+      const [rows] = await tenantPool.query(queries.GET_THREAD_MESSAGES, [
+        thread_id,
+      ]);
       return rows;
     } catch (error) {
       console.error("Error fetching thread messages:", error);
@@ -140,13 +281,17 @@ class EmployeeQueries {
     }
   }
 
-  static async closeThread(thread_id, feedback, note = null) {
-    await db.execute(queries.CLOSE_THREAD, [feedback, note, thread_id]);
+  static async closeThread(thread_id, feedback, note = null, orgId) {
+    if (!orgId) throw new Error("orgId required");
+    const tenantPool = await getTenantPoolForOrgId(orgId);
+    await tenantPool.query(queries.CLOSE_THREAD, [feedback, note, thread_id]);
   }
 
   static async getAllThreads(orgId) {
+    if (!orgId) throw new Error("orgId required");
+    const tenantPool = await getTenantPoolForOrgId(orgId);
     try {
-      const [rows] = await db.execute(queries.GET_ALL_THREADS, [orgId]);
+      const [rows] = await tenantPool.query(queries.GET_ALL_THREADS, [orgId]);
       return rows;
     } catch (error) {
       console.error("Error fetching threads:", error.sqlMessage || error);
@@ -154,18 +299,22 @@ class EmployeeQueries {
     }
   }
 
-  static async getThreadsByEmployee(employeeId) {
+  static async getThreadsByEmployee(employeeId, orgId) {
+    if (!orgId) throw new Error("orgId required");
+    const tenantPool = await getTenantPoolForOrgId(orgId);
     try {
-      const [threads] = await db.execute(queries.FETCH_THREADS, [
+      // FETCH_THREADS expects five instances of employeeId
+      const params = [
         employeeId,
         employeeId,
         employeeId,
         employeeId,
         employeeId,
-      ]);
+      ];
+      const [threads] = await tenantPool.query(queries.FETCH_THREADS, params);
       return threads;
     } catch (error) {
-      console.error(error);
+      console.error("Error fetching threads by employee:", error);
       throw new Error("Error fetching threads");
     }
   }

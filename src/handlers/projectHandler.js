@@ -1,8 +1,22 @@
+// handlers/projectHandler.js
 const projectService = require("../services/projectService");
+
+function resolveOrgIdFromReq(req) {
+  const header =
+    req.headers && (req.headers["x-org-id"] || req.headers["x_org_id"]);
+  const body = req.body && (req.body.orgId || req.body.org_id);
+  const query = req.query && (req.query.orgId || req.query.org_id);
+  return header || body || query || null;
+}
 
 exports.createProject = async (req, res) => {
   try {
-    const orgId = req.headers["x-org-id"] || req.body.org_id || null;
+    const orgId = resolveOrgIdFromReq(req);
+    if (!orgId) {
+      return res
+        .status(400)
+        .json({ error: "orgId header or body is required" });
+    }
 
     const {
       country,
@@ -22,13 +36,12 @@ exports.createProject = async (req, res) => {
       project_status,
       payment_type,
       description,
-      month_year,
     } = req.body;
 
     const projectCategoryJson =
       typeof project_category === "string"
         ? project_category
-        : JSON.stringify(project_category);
+        : JSON.stringify(project_category || []);
 
     const employeeListJson = req.body.employee_list
       ? typeof req.body.employee_list === "string"
@@ -41,7 +54,8 @@ exports.createProject = async (req, res) => {
         ? req.files.map((file) => file.filename)
         : [];
 
-    const projectId = await projectService.addProject([
+    // Build array excluding orgId; projectService will append orgId
+    const insertValues = [
       country,
       state,
       company_name,
@@ -60,10 +74,12 @@ exports.createProject = async (req, res) => {
       payment_type,
       description,
       JSON.stringify(attachments),
-      orgId,
-    ]);
+      // orgId intentionally omitted here; service will add it
+    ];
 
-    await projectService.addSTSOwner([
+    const projectId = await projectService.addProject(orgId, insertValues);
+
+    await projectService.addSTSOwner(orgId, [
       projectId,
       req.body.sts_owner_id,
       req.body.sts_owner,
@@ -72,13 +88,14 @@ exports.createProject = async (req, res) => {
       req.body.key_considerations,
     ]);
 
+    // milestones & financials: pass orgId so the inserts go to tenant DB
     let milestoneIds = [];
     const { milestones = [] } = req.body;
     const parsedMilestones =
       typeof milestones === "string" ? JSON.parse(milestones) : milestones;
     if (Array.isArray(parsedMilestones)) {
       for (const milestone of parsedMilestones) {
-        const milestoneId = await projectService.addMilestone([
+        const milestoneId = await projectService.addMilestone(orgId, [
           projectId,
           milestone.details,
           milestone.start_date,
@@ -131,7 +148,7 @@ exports.createProject = async (req, res) => {
           : null;
 
         if (payment_type === "Monthly Scheduled") {
-          await projectService.addFinancialDetails([
+          await projectService.addFinancialDetails(orgId, [
             projectId,
             milestoneId || null,
             project_amount,
@@ -154,7 +171,7 @@ exports.createProject = async (req, res) => {
             completedDate,
           ]);
         } else {
-          await projectService.addFinancialDetails([
+          await projectService.addFinancialDetails(orgId, [
             projectId,
             milestoneId,
             project_amount,
@@ -193,9 +210,12 @@ exports.createProject = async (req, res) => {
 
 exports.getProjects = async (req, res) => {
   try {
-    const orgId = req.headers["x-org-id"] || req.query.orgId || null;
-
+    const orgId = resolveOrgIdFromReq(req);
     const { employeeId } = req.query;
+    if (!orgId) {
+      return res.status(400).json({ error: "orgId header is required" });
+    }
+
     let projects;
     if (employeeId) {
       projects = await projectService.getEmployeeProjects(employeeId, orgId);
@@ -217,7 +237,11 @@ exports.getEmployeeProjects = async (req, res) => {
       return res.status(400).json({ error: "Employee ID is required" });
     }
 
-    const orgId = req.headers["x-org-id"] || req.query.orgId || null;
+    const orgId = resolveOrgIdFromReq(req);
+    if (!orgId) {
+      return res.status(400).json({ error: "orgId header is required" });
+    }
+
     const projects = await projectService.getEmployeeProjects(
       employeeId,
       orgId
@@ -232,8 +256,7 @@ exports.getEmployeeProjects = async (req, res) => {
 exports.searchEmployees = async (req, res) => {
   try {
     const search = String(req.query.search || "").trim();
-
-    const orgId = req.headers["x-org-id"] || req.query.orgId || null;
+    const orgId = resolveOrgIdFromReq(req);
 
     if (!orgId) {
       return res.status(400).json({
@@ -253,14 +276,18 @@ exports.searchEmployees = async (req, res) => {
 exports.getProjectById = async (req, res) => {
   try {
     const { id } = req.params;
-    const project = await projectService.getProjectById(id);
+    const orgId = resolveOrgIdFromReq(req);
+    if (!orgId) {
+      return res.status(400).json({ error: "orgId header is required" });
+    }
+
+    const project = await projectService.getProjectById(orgId, id);
 
     if (!project) {
       return res.status(404).json({ message: "Project not found" });
     }
 
-    const userRole = req.session.userRole;
-
+    const userRole = req.session && req.session.userRole;
     if (userRole === "Employee" || userRole === "Team Lead") {
       delete project.project_amount;
       delete project.tds_percentage;
@@ -282,30 +309,13 @@ exports.getProjectById = async (req, res) => {
 exports.updateProject = async (req, res) => {
   try {
     const { id } = req.params;
-    const {
-      country,
-      state,
-      company_name,
-      project_name,
-      project_poc_name,
-      project_poc_contact,
-      company_gst,
-      company_pan,
-      company_address,
-      project_category,
-      start_date,
-      end_date,
-      service_mode,
-      service_location,
-      project_status,
-      payment_type,
-      description,
-      employee_list,
-      milestones,
-      financialDetails,
-    } = req.body;
+    const orgId = resolveOrgIdFromReq(req);
+    if (!orgId) {
+      return res.status(400).json({ error: "orgId header is required" });
+    }
 
-    const existingProject = await projectService.getProjectById(id);
+    // Build attachments array same as before
+    const existingProject = await projectService.getProjectById(orgId, id);
     if (!existingProject) {
       return res.status(404).json({ message: "Project not found" });
     }
@@ -324,56 +334,61 @@ exports.updateProject = async (req, res) => {
     const attachmentsJson = JSON.stringify(attachmentsArr);
 
     const projectCategoryJson =
-      typeof project_category === "string"
-        ? project_category
-        : JSON.stringify(project_category || []);
+      typeof req.body.project_category === "string"
+        ? req.body.project_category
+        : JSON.stringify(req.body.project_category || []);
     const employeeListJson =
-      typeof employee_list === "string"
-        ? employee_list
-        : JSON.stringify(employee_list || []);
+      typeof req.body.employee_list === "string"
+        ? req.body.employee_list
+        : JSON.stringify(req.body.employee_list || []);
 
-    const formattedStartDate = start_date
-      ? new Date(start_date).toISOString().split("T")[0]
+    const formattedStartDate = req.body.start_date
+      ? new Date(req.body.start_date).toISOString().split("T")[0]
       : null;
-    const formattedEndDate = end_date
-      ? new Date(end_date).toISOString().split("T")[0]
+    const formattedEndDate = req.body.end_date
+      ? new Date(req.body.end_date).toISOString().split("T")[0]
       : null;
 
-    await projectService.updateProject(id, [
-      country,
-      state,
-      company_name,
-      project_name,
-      project_poc_name,
-      project_poc_contact,
-      company_gst,
-      company_pan,
-      company_address,
+    const updateParams = [
+      req.body.country,
+      req.body.state,
+      req.body.company_name,
+      req.body.project_name,
+      req.body.project_poc_name,
+      req.body.project_poc_contact,
+      req.body.company_gst,
+      req.body.company_pan,
+      req.body.company_address,
       projectCategoryJson,
       formattedStartDate,
       formattedEndDate,
-      service_mode,
-      service_location,
-      project_status,
-      payment_type,
-      description,
+      req.body.service_mode,
+      req.body.service_location,
+      req.body.project_status,
+      req.body.payment_type,
+      req.body.description,
       attachmentsJson,
-      id,
-    ]);
+      // id appended by service
+    ];
 
-    await projectService.updateSTSOwner(id, [
+    await projectService.updateProject(orgId, id, updateParams);
+
+    await projectService.updateSTSOwner(orgId, id, [
       req.body.sts_owner_id,
       req.body.sts_owner,
       req.body.sts_contact,
       employeeListJson,
       req.body.key_considerations,
-      id,
+      // id appended by service
     ]);
 
+    // Milestones / financials — keep similar flow but pass orgId into service calls
     let parsedMilestones = [];
-    if (milestones) {
+    if (req.body.milestones) {
       parsedMilestones =
-        typeof milestones === "string" ? JSON.parse(milestones) : milestones;
+        typeof req.body.milestones === "string"
+          ? JSON.parse(req.body.milestones)
+          : req.body.milestones;
     }
     if (Array.isArray(parsedMilestones)) {
       for (const m of parsedMilestones) {
@@ -383,9 +398,8 @@ exports.updateProject = async (req, res) => {
         const end = m.end_date
           ? new Date(m.end_date).toISOString().split("T")[0]
           : null;
-
         if (m.id) {
-          await projectService.updateMilestone(m.id, [
+          await projectService.updateMilestone(orgId, m.id, [
             m.details,
             start,
             end,
@@ -395,7 +409,7 @@ exports.updateProject = async (req, res) => {
             m.id,
           ]);
         } else {
-          const newMilestoneId = await projectService.addMilestone([
+          const newMilestoneId = await projectService.addMilestone(orgId, [
             id,
             m.details,
             start,
@@ -409,14 +423,13 @@ exports.updateProject = async (req, res) => {
       }
     }
 
-    const month_year = req.body.month_year || null;
-
+    // Financial details: upsert/update/add via tenant DB
     let parsedFinancial = [];
-    if (financialDetails) {
+    if (req.body.financialDetails) {
       parsedFinancial =
-        typeof financialDetails === "string"
-          ? JSON.parse(financialDetails)
-          : financialDetails;
+        typeof req.body.financialDetails === "string"
+          ? JSON.parse(req.body.financialDetails)
+          : req.body.financialDetails;
     }
 
     if (Array.isArray(parsedFinancial) && parsedFinancial.length) {
@@ -460,7 +473,7 @@ exports.updateProject = async (req, res) => {
               .replace("T", " ")
           : null;
 
-        if (payment_type === "Monthly Scheduled") {
+        if (req.body.payment_type === "Monthly Scheduled") {
           const params = [
             financialId,
             id,
@@ -484,10 +497,10 @@ exports.updateProject = async (req, res) => {
             statusValue,
             completedDate,
           ];
-          await projectService.upsertFinancialDetails(params);
+          await projectService.upsertFinancialDetails(orgId, params);
         } else {
           if (financialId) {
-            await projectService.updateFinancialDetails([
+            await projectService.updateFinancialDetails(orgId, [
               project_amount,
               tds_percentage,
               tds_amount,
@@ -496,7 +509,7 @@ exports.updateProject = async (req, res) => {
               total_amount,
               monthly_fixed_amount,
               service_description,
-              month_year,
+              fin.month_year,
               m_actual_percentage,
               m_actual_amount,
               m_tds_percentage,
@@ -510,7 +523,7 @@ exports.updateProject = async (req, res) => {
               financialId,
             ]);
           } else {
-            await projectService.addFinancialDetails([
+            await projectService.addFinancialDetails(orgId, [
               id,
               fin.milestone_id || null,
               project_amount,
@@ -521,7 +534,7 @@ exports.updateProject = async (req, res) => {
               total_amount,
               monthly_fixed_amount,
               service_description,
-              month_year,
+              fin.month_year,
               m_actual_percentage,
               m_actual_amount,
               m_tds_percentage,

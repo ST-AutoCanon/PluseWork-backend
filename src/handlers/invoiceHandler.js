@@ -1,12 +1,31 @@
+// handlers/invoiceHandler.js
 const invoiceService = require("../services/invoiceService");
 
+const resolveOrgIdFromReq = (req) => {
+  return (
+    req.headers["x-org-id"] ||
+    req.headers["x_org_id"] ||
+    req.body?.orgId ||
+    req.query?.orgId ||
+    null
+  );
+};
+
 const getInvoices = async (req, res) => {
+  const orgId = resolveOrgIdFromReq(req);
   const { projectId } = req.query;
   if (!projectId) {
     return res.status(400).json({ error: "projectId is required" });
   }
+  if (!orgId) {
+    return res.status(400).json({ error: "orgId header is required" });
+  }
+
   try {
-    const invoices = await invoiceService.getInvoicesByProject(projectId);
+    const invoices = await invoiceService.getInvoicesByProject(
+      orgId,
+      projectId
+    );
     res.json({ invoices });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -14,8 +33,12 @@ const getInvoices = async (req, res) => {
 };
 
 const createInvoice = async (req, res) => {
-  const orgId = req.headers["x-org-id"] || req.body?.orgId || null;
+  const orgId = resolveOrgIdFromReq(req);
   const invoiceData = req.body;
+
+  if (!orgId) {
+    return res.status(400).json({ error: "orgId header is required" });
+  }
 
   if (!invoiceData.projectId || !invoiceData.invoiceDate) {
     return res
@@ -33,8 +56,13 @@ const createInvoice = async (req, res) => {
 };
 
 const updateInvoice = async (req, res) => {
+  const orgId = resolveOrgIdFromReq(req);
+  if (!orgId)
+    return res.status(400).json({ error: "orgId header is required" });
+
   try {
     const updatedInvoice = await invoiceService.updateInvoice(
+      orgId,
       req.params.id,
       req.body
     );
@@ -45,10 +73,15 @@ const updateInvoice = async (req, res) => {
 };
 
 const updateInvoiceExtra = async (req, res) => {
+  const orgId = resolveOrgIdFromReq(req);
+  if (!orgId)
+    return res.status(400).json({ error: "orgId header is required" });
+
   try {
     const invoiceData = req.body;
 
     const updatedInvoice = await invoiceService.updateInvoiceExtra(
+      orgId,
       req.params.id,
       invoiceData
     );
@@ -60,7 +93,8 @@ const updateInvoiceExtra = async (req, res) => {
 };
 
 const generateTemplateInvoice = async (req, res) => {
-  const orgId = req.headers["x-org-id"] || req.body?.orgId || null;
+  // template generation uses master sequence but accepts orgId for acronym lookup
+  const orgId = resolveOrgIdFromReq(req);
   const { invoiceType } = req.query;
   if (!invoiceType) {
     return res.status(400).json({ error: "invoiceType is required" });
@@ -83,7 +117,7 @@ const updateInvoiceSequence = async (req, res) => {
   }
 
   try {
-    const orgId = req.headers["x-org-id"] || req.body?.orgId || null;
+    const orgId = resolveOrgIdFromReq(req);
     const result = await invoiceService.updateSequence(invoiceType, orgId);
     res.json({ message: "Sequence updated successfully", ...result });
   } catch (error) {
@@ -93,7 +127,11 @@ const updateInvoiceSequence = async (req, res) => {
 
 const recordDownloadDetails = async (req, res, next) => {
   try {
-    const orgId = req.headers["x-org-id"] || req.body?.orgId || null;
+    const orgId = resolveOrgIdFromReq(req);
+    if (!orgId) {
+      return res.status(400).json({ error: "orgId header is required" });
+    }
+
     const { invoiceType, invoiceNumber, downloadDetails } = req.body;
     if (!invoiceType || !invoiceNumber || !downloadDetails) {
       return res.status(400).json({
@@ -116,10 +154,9 @@ const recordDownloadDetails = async (req, res, next) => {
 
 const getDownloadDetails = async (req, res, next) => {
   try {
-    const orgId =
-      req.headers["x-org-id"] || req.query?.orgId || req.body?.orgId || null;
+    const orgId = resolveOrgIdFromReq(req);
     if (!orgId) {
-      return res.status(400).json({ error: "orgId is required" });
+      return res.status(400).json({ error: "orgId header is required" });
     }
     const downloadDetails = await invoiceService.getAllDownloadDetails(orgId);
     res.json({ downloadDetails });

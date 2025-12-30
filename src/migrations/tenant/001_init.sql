@@ -298,3 +298,265 @@ CREATE TABLE IF NOT EXISTS invoices (
   milestoneId INT,
   status VARCHAR(20)
 );
+
+CREATE TABLE IF NOT EXISTS emp_attendence (
+  punch_id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  employee_i varchar(20),
+  punch_status enum('Punch In','Punch Out') NOT NULL,
+  punchin_time datetime DEFAULT NULL,
+  punchin_device varchar(255) DEFAULT NULL,
+  punchin_location varchar(255) DEFAULT NULL,
+  punchout_time datetime DEFAULT NULL,
+  punchout_device varchar(255) DEFAULT NULL,
+  punchout_location varchar(255) DEFAULT NULL,
+  punchmode enum('Manual','Automatic') NOT NULL DEFAULT 'Manual',
+  KEY employee_id (employee_id),
+  CONSTRAINT emp_attendence_ibfk_1 FOREIGN KEY (employee_id) REFERENCES employees (employee_id) ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS leavequeries (
+  id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  employee_id varchar(20) NOT NULL,
+  start_date date NOT NULL,
+  end_date date NOT NULL,
+  reason text,
+  status enum('Approved','Rejected','pending') NOT NULL DEFAULT 'pending',
+  created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  leave_type varchar(50) DEFAULT NULL,
+  comments text,
+  H_F_day varchar(30) DEFAULT NULL,
+  compensated_days decimal(5,2) DEFAULT '0.00',
+  deducted_days decimal(5,2) DEFAULT '0.00',
+  loss_of_pay_days decimal(5,2) DEFAULT '0.00',
+  preserved_leave_days decimal(5,2) DEFAULT '0.00',
+  is_defaulted tinyint(1) NOT NULL DEFAULT '0',
+  KEY idx_leavequeries_employee (employee_id),
+  KEY idx_leavequeries_status (status),
+  KEY idx_leavequeries_start_date (start_date),
+  KEY idx_leavequeries_end_date (end_date)
+   );
+
+CREATE TABLE IF NOT EXISTS reimbursement (
+  id int NOT NULL AUTO_INCREMENT,
+  employee_id varchar(10) NOT NULL,
+  department_id int DEFAULT NULL,
+  project varchar(255) DEFAULT NULL,
+  claim_type enum('Transportation','Meals','Telecommunication','Miscellaneous','Stationary') NOT NULL,
+  transport_type enum('Outstation','Intercity','Fuel') DEFAULT NULL,
+  participants json DEFAULT NULL,
+  comments text,
+  status enum('pending','approved','rejected') DEFAULT 'pending',
+  payment_status varchar(15) NOT NULL DEFAULT 'Pending',
+  paid_date date DEFAULT NULL,
+  approved_date date DEFAULT NULL,
+  approver_id varchar(10) DEFAULT NULL,
+  aggregated_total decimal(12,2) DEFAULT NULL,
+  approver_name varchar(50) DEFAULT NULL,
+  approver_designation varchar(50) DEFAULT NULL,
+  approver_comments text,
+  created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY department_id (department_id),
+  KEY fk_reimbursement_employee (employee_id),
+  CONSTRAINT fk_reimbursement_employee FOREIGN KEY (employee_id) REFERENCES employees (employee_id) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT reimbursement_ibfk_2 FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS reimbursement_lines (
+  id bigint NOT NULL AUTO_INCREMENT,
+  reimbursement_id int NOT NULL,
+  line_index int NOT NULL DEFAULT '0',
+  purpose text,
+  date date DEFAULT NULL,
+  from_date date DEFAULT NULL,
+  to_date date DEFAULT NULL,
+  travel_from varchar(255) DEFAULT NULL,
+  travel_to varchar(255) DEFAULT NULL,
+  transport_amount decimal(12,2) DEFAULT '0.00',
+  accommodation_fees decimal(12,2) DEFAULT '0.00',
+  da decimal(12,2) DEFAULT '0.00',
+  total_amount decimal(12,2) DEFAULT '0.00',
+  meal_type varchar(60) DEFAULT NULL,
+  meals_objective varchar(255) DEFAULT NULL,
+  purchasing_item varchar(255) DEFAULT NULL,
+  stationairy_item varchar(255) DEFAULT NULL,
+  service_provider varchar(255) DEFAULT NULL,
+  meta json DEFAULT NULL,
+  created_at datetime DEFAULT CURRENT_TIMESTAMP,
+  updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY reimbursement_id (reimbursement_id,line_index),
+  CONSTRAINT fk_rl_reimbursement FOREIGN KEY (reimbursement_id) REFERENCES reimbursement (id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS reimbursement_attachments (
+  id bigint NOT NULL AUTO_INCREMENT,
+  reimbursement_id int NOT NULL,
+  line_id bigint DEFAULT NULL,
+  file_name varchar(512) NOT NULL,
+  file_path varchar(2048) NOT NULL,
+  file_size bigint DEFAULT '0',
+  mime_type varchar(128) DEFAULT NULL,
+  created_at datetime DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY reimbursement_id (reimbursement_id),
+  KEY line_id (line_id),
+  CONSTRAINT fk_attach_line FOREIGN KEY (line_id) REFERENCES reimbursement_lines (id) ON DELETE CASCADE,
+  CONSTRAINT fk_attach_reim FOREIGN KEY (reimbursement_id) REFERENCES reimbursement (id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS notifications (
+  id bigint unsigned NOT NULL AUTO_INCREMENT,
+  user_id varchar(20) NOT NULL,
+  meeting_id int DEFAULT NULL,
+  policy_id bigint DEFAULT NULL,
+  message text NOT NULL,
+  triggered_at timestamp NULL DEFAULT NULL,
+  is_read tinyint(1) NOT NULL DEFAULT '0',
+  created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_user_id (user_id),
+  KEY idx_meeting_id (meeting_id),
+  KEY idx_policy_id (policy_id),
+  KEY idx_triggered_at (triggered_at),
+  KEY idx_is_read (is_read)
+);
+
+
+CREATE TABLE IF NOT EXISTS employee_experience (
+  experience_id int NOT NULL AUTO_INCREMENT,
+  employee_id varchar(20) NOT NULL,
+  company varchar(255) DEFAULT NULL,
+  designation varchar(255) DEFAULT NULL,
+  start_date date DEFAULT NULL,
+  end_date date DEFAULT NULL,
+  doc_url text,
+  created_at datetime DEFAULT CURRENT_TIMESTAMP,
+  updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (experience_id),
+  KEY fk_employee_experience_employee_id (employee_id),
+  CONSTRAINT fk_employee_experience_employee_id FOREIGN KEY (employee_id) REFERENCES employees (employee_id) ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS threads (
+  id int NOT NULL AUTO_INCREMENT,
+  org_id int unsigned DEFAULT NULL,
+  sender_id varchar(10) NOT NULL,
+  recipient_id varchar(10) NOT NULL,
+  department_id int DEFAULT NULL,
+  status enum('open','closed') DEFAULT 'open',
+  feedback enum('Very Unsatisfied','Unsatisfied','Satisfied','Very Satisfied') DEFAULT NULL,
+  created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  subject varchar(255) DEFAULT NULL,
+  latest_message text,
+  note text,
+  PRIMARY KEY (id),
+  KEY fk_threads_employee (sender_id),
+   CONSTRAINT fk_threads_employee FOREIGN KEY (sender_id) REFERENCES employees (employee_id) ON DELETE CASCADE ON UPDATE CASCADE
+ );
+
+ CREATE TABLE IF NOT EXISTS employee_queries (
+  id int NOT NULL AUTO_INCREMENT,
+  thread_id int NOT NULL,
+  sender_id varchar(10) NOT NULL,
+  sender_role varchar(50) NOT NULL,
+  message text NOT NULL,
+  created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  attachment_url varchar(255) DEFAULT NULL,
+  PRIMARY KEY (id),
+  KEY thread_id (thread_id),
+  CONSTRAINT employee_queries_ibfk_1 FOREIGN KEY (thread_id) REFERENCES threads (id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS message_read_status (
+  id int NOT NULL AUTO_INCREMENT,
+  message_id int NOT NULL,
+  recipient_id varchar(10) NOT NULL,
+  is_read tinyint(1) DEFAULT '0',
+  read_at timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (id),
+  KEY message_id (message_id),
+  CONSTRAINT message_read_status_ibfk_1 FOREIGN KEY (message_id) REFERENCES employee_queries (id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS room_members (
+  room_id int NOT NULL,
+  employee_id varchar(20) NOT NULL,
+  joined_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (room_id,employee_id),
+  KEY idx_room_members_emp (employee_id),
+  CONSTRAINT fk_rm_employee FOREIGN KEY (employee_id) REFERENCES employees (employee_id) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT fk_rm_room FOREIGN KEY (room_id) REFERENCES chat_rooms (room_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS messages (
+  message_id bigint NOT NULL AUTO_INCREMENT,
+  room_id int NOT NULL,
+  sender_id varchar(20) DEFAULT NULL,
+  message_text text NOT NULL,
+  type enum('text','file') NOT NULL DEFAULT 'text',
+  file_url varchar(255) DEFAULT NULL COMMENT 'If type="file", URL or path here',
+  created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  latitude decimal(9,6) DEFAULT NULL,
+  longitude decimal(9,6) DEFAULT NULL,
+  address text,
+  PRIMARY KEY (message_id),
+  KEY idx_messages_room (room_id),
+  KEY idx_messages_sender (sender_id),
+  CONSTRAINT fk_msg_room FOREIGN KEY (room_id) REFERENCES chat_rooms (room_id) ON DELETE CASCADE,
+  CONSTRAINT fk_msg_sender FOREIGN KEY (sender_id) REFERENCES employees (employee_id) ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS message_reads (
+  message_id bigint NOT NULL,
+  reader_id varchar(20) NOT NULL,
+  read_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (message_id,reader_id),
+  KEY reader_id (reader_id),
+  CONSTRAINT message_reads_ibfk_1 FOREIGN KEY (message_id) REFERENCES messages (message_id) ON DELETE CASCADE,
+  CONSTRAINT message_reads_ibfk_2 FOREIGN KEY (reader_id) REFERENCES employees (employee_id) ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS templates (
+  id bigint NOT NULL AUTO_INCREMENT,
+  organization_id int unsigned NOT NULL,
+  name varchar(255) NOT NULL,
+  template_type varchar(64) DEFAULT 'generic',
+  grapes_json longtext,
+  html longtext,
+  css longtext,
+  thumbnail_url varchar(1024) DEFAULT NULL,
+  meta longtext,
+  version int DEFAULT '1',
+  created_by int DEFAULT NULL,
+  created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  is_default tinyint(1) DEFAULT '0',
+  PRIMARY KEY (id)
+);
+
+CREATE TABLE IF NOT EXISTS template_versions (
+  id bigint NOT NULL AUTO_INCREMENT,
+  template_id bigint NOT NULL,
+  grapes_json longtext,
+  html longtext,
+  css longtext,
+  version_num int DEFAULT NULL,
+  created_by int DEFAULT NULL,
+  created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY template_id (template_id),
+  CONSTRAINT template_versions_ibfk_1 FOREIGN KEY (template_id) REFERENCES templates (id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS holidays (
+  id int NOT NULL AUTO_INCREMENT,
+  org_id int unsigned DEFAULT NULL,
+  date date NOT NULL,
+  occasion varchar(255) NOT NULL,
+  type enum('Optional','Company') DEFAULT NULL,
+  PRIMARY KEY (id)
+  );

@@ -1,3 +1,4 @@
+// services/templateService.js
 const fs = require("fs-extra");
 const path = require("path");
 const sharp = require("sharp");
@@ -5,13 +6,22 @@ const { promisify } = require("util");
 const { execFile } = require("child_process");
 const execFileP = promisify(execFile);
 const { v4: uuidv4 } = require("uuid");
-const db = require("../config");
-const {
-  INSERT_TEMPLATE,
-  INSERT_TEMPLATE_VERSION,
-  GET_TEMPLATES_BY_ORG,
-} = require("../constants/templateQueries");
 
+const { getTenantPool, sanitizeDbName } = require("../db/tenantPoolManager");
+const queries = require("../constants/templateQueries");
+
+// --- tenant pool helper ---
+async function getTenantPoolForOrgId(orgId) {
+  if (!orgId) {
+    const err = new Error("orgId required to get tenant pool");
+    err.code = "ORG_REQUIRED";
+    throw err;
+  }
+  const dbName = sanitizeDbName(`tenant_${orgId}`);
+  return getTenantPool(dbName);
+}
+
+// --- OCR helper using tesseract CLI ---
 async function runTesseractCLI(imagePath) {
   try {
     const { stdout } = await execFileP("tesseract", [
@@ -98,6 +108,7 @@ function groupWordsIntoLines(words = [], yThreshold = 10) {
   return lines;
 }
 
+/* Build grapes JSON overlays from OCR lines */
 function buildGrapesFromComposite(
   compositeUrl,
   compositeMeta = {},
@@ -260,6 +271,7 @@ function buildGrapesFromComposite(
   return { grapesJson, html };
 }
 
+/* Compose header/body/footer into a single image and return composite metadata/url */
 async function makeCompositeAndCleanMask({
   headerPath,
   bodyPath,
@@ -379,6 +391,7 @@ async function makeCleanedComposite({
   return { cleanedPath, cleanedUrl, cleanedMeta };
 }
 
+/* High-level pipeline: accepts header/body/footer paths and returns grapes/html & preview */
 async function processScanToTemplate({
   orgId,
   userId,
@@ -401,27 +414,18 @@ async function processScanToTemplate({
 
   async function moveToUploads(tmpPath, originalName, uploadsDir) {
     if (!tmpPath) return null;
-
     const destUploads =
       uploadsDir || path.join(__dirname, "..", "..", "..", "public", "uploads");
     await fs.ensureDir(destUploads);
-
     const destName = `${Date.now()}_${path
       .basename(originalName || tmpPath)
       .replace(/\s/g, "_")}`;
     const destPath = path.join(destUploads, destName);
-
     await fs.ensureDir(path.dirname(destPath));
-
     await fs.move(tmpPath, destPath, { overwrite: true });
-
     const meta = await sharp(destPath)
       .metadata()
-      .catch((e) => {
-        console.warn("sharp metadata failed", e);
-        return {};
-      });
-
+      .catch(() => ({}));
     return { destName, destPath, meta };
   }
 
@@ -439,17 +443,7 @@ async function processScanToTemplate({
     process.env.BACKEND_BASE_URL ||
     `http://localhost:${process.env.PORT || 5000}`;
 
-  const headerUrl = headerInfo
-    ? `${backendBase}/api/orgs/${orgId}/uploads/${headerInfo.destName}`
-    : null;
-  const bodyUrl = bodyInfo
-    ? `${backendBase}/api/orgs/${orgId}/uploads/${bodyInfo.destName}`
-    : null;
-  const footerUrl = footerInfo
-    ? `${backendBase}/api/orgs/${orgId}/uploads/${footerInfo.destName}`
-    : null;
-
-  const { compositePath, compositeUrl, compositeMeta, resizedBuffers } =
+  const { compositePath, compositeUrl, compositeMeta } =
     await makeCompositeAndCleanMask({
       headerPath: headerInfo?.destPath || null,
       bodyPath: bodyInfo?.destPath || null,
@@ -478,7 +472,7 @@ async function processScanToTemplate({
 
   const lines = groupWordsIntoLines(words, 10);
 
-  const { cleanedPath, cleanedUrl, cleanedMeta } = await makeCleanedComposite({
+  const { cleanedPath, cleanedUrl } = await makeCleanedComposite({
     compositePath,
     words,
     compositeMeta,
@@ -508,7 +502,12 @@ async function processScanToTemplate({
   };
 }
 
+/* Persist template in tenant DB (and version) */
 const saveTemplate = async (orgId, userId, payload) => {
+  if (!orgId) throw new Error("orgId required");
+
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+
   try {
     const name = payload.name || payload.page?.name || "Untitled";
     const template_type = payload.template_type || "generic";
@@ -521,7 +520,7 @@ const saveTemplate = async (orgId, userId, payload) => {
     const thumbnail_url = payload.thumbnail_url || null;
     const meta = payload.meta || null;
 
-    const [result] = await db.query(INSERT_TEMPLATE, [
+    const [result] = await tenantPool.query(queries.INSERT_TEMPLATE, [
       orgId,
       name,
       template_type,
@@ -537,7 +536,7 @@ const saveTemplate = async (orgId, userId, payload) => {
     const insertId = result.insertId || (result && result.insertId) || null;
 
     try {
-      await db.query(INSERT_TEMPLATE_VERSION, [
+      await tenantPool.query(queries.INSERT_TEMPLATE_VERSION, [
         insertId,
         grapes_json,
         html,
@@ -559,8 +558,12 @@ const saveTemplate = async (orgId, userId, payload) => {
 };
 
 const getTemplates = async (orgId) => {
+  if (!orgId) throw new Error("orgId required");
+  const tenantPool = await getTenantPoolForOrgId(orgId);
   try {
-    const [rows] = await db.query(GET_TEMPLATES_BY_ORG, [orgId]);
+    const [rows] = await tenantPool.query(queries.GET_TEMPLATES_BY_ORG, [
+      orgId,
+    ]);
     return rows;
   } catch (error) {
     throw error;

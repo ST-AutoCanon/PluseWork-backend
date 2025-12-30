@@ -777,17 +777,16 @@ exports.editFullEmployee = async (data) => {
   }
 };
 
-exports.getFullEmployee = async (employeeId) => {
-  const [maybe] = await db.execute(queries.GET_EMPLOYEE, [employeeId]);
-  if (!maybe || maybe.length === 0) throw new Error("Not found");
-  const orgId = maybe[0].Org_id || maybe[0].org_id;
-  if (!orgId) throw new Error("orgId not found for employee");
+exports.getFullEmployee = async (employeeId, orgId) => {
+  if (!orgId) throw new Error("orgId required");
 
   const tenantPool = await getTenantPoolForOrgId(orgId);
   const [rows] = await tenantPool.query(queries.GET_FULL_EMPLOYEE, [
     employeeId,
   ]);
+
   if (!rows.length) throw new Error("Not found");
+
   const row = rows[0];
 
   row.additional_certs = tryParseJSON(row.additional_certs) || [];
@@ -810,24 +809,6 @@ exports.getFullEmployee = async (employeeId) => {
 
   for (const k of fileFields) {
     if (k in row) row[k] = ensureArrayField(row[k]);
-  }
-
-  if (Array.isArray(row.additional_certs)) {
-    row.additional_certs = row.additional_certs.map((cert) => {
-      if (!cert) return cert;
-      cert.files = ensureArrayField(cert.files || cert.file_urls || cert.file);
-      return cert;
-    });
-  }
-
-  if (Array.isArray(row.experience)) {
-    row.experience = row.experience.map((exp) => {
-      if (!exp) return exp;
-      exp.files = ensureArrayField(
-        exp.files || exp.doc_url || exp.doc_urls || exp.doc
-      );
-      return exp;
-    });
   }
 
   return row;
@@ -908,26 +889,19 @@ exports.searchEmployees = async (search, fromDate, toDate, orgId) => {
   }
 };
 
-exports.deactivateEmployee = async (employeeId) => {
-  try {
-    const [maybe] = await db.execute(queries.GET_EMPLOYEE, [employeeId]);
-    if (!maybe || maybe.length === 0) throw new Error("Employee not found");
-    const orgId = maybe[0].Org_id || maybe[0].org_id;
-    const tenantPool = await getTenantPoolForOrgId(orgId);
+exports.deactivateEmployee = async (employeeId, orgId) => {
+  if (!orgId) throw new Error("orgId required");
 
-    const [result] = await tenantPool.execute(queries.UPDATE_EMPLOYEE_STATUS, [
-      employeeId,
-    ]);
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  const [result] = await tenantPool.execute(queries.UPDATE_EMPLOYEE_STATUS, [
+    employeeId,
+  ]);
 
-    if (result.affectedRows === 0) {
-      throw new Error("Employee not found or already deactivated");
-    }
-
-    return { message: "Employee deactivated successfully" };
-  } catch (error) {
-    console.error("Error in deactivateEmployee:", error.message);
-    throw error;
+  if (!result.affectedRows) {
+    throw new Error("Employee not found or already deactivated");
   }
+
+  return { message: "Employee deactivated successfully" };
 };
 
 exports.getEmployee = async (employeeId) => {
@@ -997,13 +971,17 @@ exports.getSupervisorsByPosition = async (position, department_id, orgId) => {
   return rows;
 };
 
-exports.assignSupervisor = async (employeeId, supervisorId, startDate) => {
-  const [maybe] = await db.execute(queries.GET_EMPLOYEE, [employeeId]);
-  if (!maybe || maybe.length === 0) throw new Error("Employee not found");
-  const orgId = maybe[0].Org_id || maybe[0].org_id;
-  const tenantPool = await getTenantPoolForOrgId(orgId);
+exports.assignSupervisor = async (
+  employeeId,
+  supervisorId,
+  startDate,
+  orgId
+) => {
+  if (!orgId) throw new Error("orgId required");
 
+  const tenantPool = await getTenantPoolForOrgId(orgId);
   const conn = await tenantPool.getConnection();
+
   try {
     await conn.beginTransaction();
     await conn.execute(queries.UPDATE_SUPERVISOR_ASSIGNMENT_END, [
@@ -1025,12 +1003,9 @@ exports.assignSupervisor = async (employeeId, supervisorId, startDate) => {
   }
 };
 
-exports.getSupervisorHistory = async (employeeId) => {
-  const [maybe] = await db.execute(queries.GET_EMPLOYEE, [employeeId]);
-  if (!maybe || maybe.length === 0) throw new Error("Employee not found");
-  const orgId = maybe[0].Org_id || maybe[0].org_id;
+exports.getSupervisorHistory = async (employeeId, orgId) => {
+  if (!orgId) throw new Error("orgId required");
   const tenantPool = await getTenantPoolForOrgId(orgId);
-
   const [rows] = await tenantPool.execute(queries.GET_SUPERVISOR_HISTORY, [
     employeeId,
   ]);
