@@ -18,6 +18,145 @@ const getWebPath = (fullPath) => {
   return path.posix.join("/EmployeeDetails", relPath);
 };
 
+const mapUploadedFilesToData = (req, data) => {
+  if (!req.files) return;
+
+  // multer({}).any() yields an array of files; normalize to an object keyed by fieldname
+  const filesByField = Array.isArray(req.files)
+    ? req.files.reduce((acc, f) => {
+        // normalize base fieldname: remove trailing [] and patterns like [0][file]
+        const raw = String(f.fieldname || "");
+        const base = raw
+          .replace(/\[\]$/, "")
+          .replace(/\[\d+\]\[(?:doc|file)\]$/, "");
+        // always push into the canonical base key once
+        acc[base] = acc[base] || [];
+        acc[base].push(f);
+        // keep original fieldname mapping only if different from base
+        if (raw !== base) {
+          acc[raw] = acc[raw] || [];
+          acc[raw].push(f);
+        }
+        return acc;
+      }, {})
+    : req.files;
+
+  // Handle bracketed fields like additional_certs[0][file] and experience[0][doc]
+  if (Array.isArray(req.files)) {
+    for (const f of req.files) {
+      try {
+        const bm = String(f.fieldname || "").match(
+          /^(experience|additional_certs)\[(\d+)\]\[(doc|file)\]$/
+        );
+        if (bm) {
+          const type = bm[1];
+          const idx = Number(bm[2]);
+          const web = getWebPath(f.path);
+          if (!Array.isArray(data[type])) data[type] = [];
+          if (!data[type][idx]) data[type][idx] = {};
+          if (type === "experience") {
+            data[type][idx].doc_urls = data[type][idx].doc_urls || [];
+            data[type][idx].doc_urls.push(web);
+          } else if (type === "additional_certs") {
+            data[type][idx].file_urls = data[type][idx].file_urls || [];
+            data[type][idx].file_urls.push(web);
+          }
+        }
+      } catch (e) {
+        console.warn(
+          "[mapUploadedFilesToData] bracket mapping failed",
+          e && e.message
+        );
+      }
+    }
+  }
+
+  const single = (key) =>
+    filesByField[key]?.[0] ? getWebPath(filesByField[key][0].path) : null;
+
+  const multiple = (key) => {
+    const arr = filesByField[key];
+    if (!arr || !arr.length) return null;
+    // map to web paths and dedupe
+    const mapped = arr.map((f) => getWebPath(f.path));
+    return Array.from(new Set(mapped));
+  };
+
+  data.photo_url = multiple("photo") || data.photo_url;
+  data.aadhaar_doc_url = multiple("aadhaar_doc") || data.aadhaar_doc_url;
+  data.pan_doc_url = multiple("pan_doc") || data.pan_doc_url;
+  data.passport_doc_url = multiple("passport_doc") || data.passport_doc_url;
+  data.driving_license_doc_url =
+    multiple("driving_license_doc") || data.driving_license_doc_url;
+  data.voter_id_doc_url = multiple("voter_id_doc") || data.voter_id_doc_url;
+
+  data.spouse_gov_doc_url =
+    multiple("spouse_gov_doc") || data.spouse_gov_doc_url;
+  data.father_gov_doc_url =
+    multiple("father_gov_doc") || data.father_gov_doc_url;
+  data.mother_gov_doc_url =
+    multiple("mother_gov_doc") || data.mother_gov_doc_url;
+  data.child1_gov_doc_url =
+    multiple("child1_gov_doc") || data.child1_gov_doc_url;
+  data.child2_gov_doc_url =
+    multiple("child2_gov_doc") || data.child2_gov_doc_url;
+  data.child3_gov_doc_url =
+    multiple("child3_gov_doc") || data.child3_gov_doc_url;
+
+  data.resume_url = multiple("resume") || data.resume_url;
+  data.other_docs_urls = multiple("other_docs") || data.other_docs_urls;
+
+  // Generic mapping: for any uploaded field not explicitly handled above,
+  // try to set a sensible data property (e.g. `tenth_cert` -> `tenth_cert_url`).
+  try {
+    console.debug(
+      "[mapUploadedFilesToData] filesByField keys:",
+      Object.keys(filesByField)
+    );
+    for (const rawKey of Object.keys(filesByField)) {
+      const baseKey = String(rawKey)
+        .replace(/\[\]$/, "")
+        .replace(/\[\d+\]\[(?:doc|file)\]$/, "");
+      const arr = multiple(rawKey);
+      if (!arr || !arr.length) continue;
+
+      const candidateKeys = [];
+      if (baseKey === "other_docs") candidateKeys.push("other_docs_urls");
+      if (baseKey === "resume") candidateKeys.push("resume_url");
+      if (baseKey === "photo") candidateKeys.push("photo_url");
+      candidateKeys.push(
+        `${baseKey}_url`,
+        `${baseKey}_doc_url`,
+        `${baseKey}_cert_url`,
+        baseKey
+      );
+
+      for (const ck of candidateKeys) {
+        if (!ck) continue;
+        // treat undefined, null, empty-array or empty-string as empty and allow overwrite
+        const cur = data[ck];
+        const isEmptyString = typeof cur === "string" && cur.trim() === "";
+        if (
+          cur === undefined ||
+          cur === null ||
+          isEmptyString ||
+          (Array.isArray(cur) && cur.length === 0)
+        ) {
+          data[ck] = arr;
+          break;
+        }
+      }
+    }
+    console.debug("[mapUploadedFilesToData] mapped data file fields", {
+      photo_url: data.photo_url,
+      resume_url: data.resume_url,
+      other_docs_urls: data.other_docs_urls,
+    });
+  } catch (e) {
+    console.warn("[mapUploadedFilesToData] mapping error", e && e.message);
+  }
+};
+
 const resolveOrgIdFromReq = (req) => {
   const header =
     req.headers && (req.headers["x-org-id"] || req.headers["x_org_id"]);
@@ -120,6 +259,8 @@ exports.createFullEmployee = async (req, res) => {
   try {
     const data = { ...req.body };
     const raw = req.body || {};
+
+    mapUploadedFilesToData(req, data);
 
     const orgId = resolveOrgIdFromReq(req);
     if (orgId) {
@@ -227,6 +368,8 @@ exports.updateFullEmployee = async (req, res) => {
   try {
     const raw = req.body || {};
     const data = { employee_id: req.params.employeeId, ...raw };
+
+    mapUploadedFilesToData(req, data);
 
     const orgId = resolveOrgIdFromReq(req);
     if (orgId) {
@@ -423,7 +566,8 @@ exports.listUserRoles = async (req, res) => {
 exports.listPositions = async (req, res) => {
   try {
     const { role } = req.query;
-    const positions = await employeeService.getPositions(role);
+    const orgId = req.headers["x-org-id"] || req.query.orgId;
+    const positions = await employeeService.getPositions(role, orgId);
     return res.status(200).json({ status: "success", data: positions });
   } catch (err) {
     console.error("listPositions error:", err);

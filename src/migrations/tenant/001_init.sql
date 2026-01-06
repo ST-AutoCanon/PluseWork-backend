@@ -315,8 +315,9 @@ CREATE TABLE IF NOT EXISTS emp_attendence (
 );
 
 CREATE TABLE IF NOT EXISTS leavequeries (
-  id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  id int NOT NULL AUTO_INCREMENT,
   employee_id varchar(20) NOT NULL,
+  org_id int unsigned DEFAULT NULL,
   start_date date NOT NULL,
   end_date date NOT NULL,
   reason text,
@@ -331,11 +332,12 @@ CREATE TABLE IF NOT EXISTS leavequeries (
   loss_of_pay_days decimal(5,2) DEFAULT '0.00',
   preserved_leave_days decimal(5,2) DEFAULT '0.00',
   is_defaulted tinyint(1) NOT NULL DEFAULT '0',
+  PRIMARY KEY (id),
   KEY idx_leavequeries_employee (employee_id),
   KEY idx_leavequeries_status (status),
   KEY idx_leavequeries_start_date (start_date),
   KEY idx_leavequeries_end_date (end_date)
-   );
+);
 
 CREATE TABLE IF NOT EXISTS reimbursement (
   id int NOT NULL AUTO_INCREMENT,
@@ -560,3 +562,46 @@ CREATE TABLE IF NOT EXISTS holidays (
   type enum('Optional','Company') DEFAULT NULL,
   PRIMARY KEY (id)
   );
+
+  CREATE TABLE IF NOT EXISTS positions (
+  id int NOT NULL AUTO_INCREMENT,
+  name varchar(255) DEFAULT NULL,
+  department_id int DEFAULT NULL,
+  rank tinyint DEFAULT NULL,
+  PRIMARY KEY (id),
+  KEY department_id (department_id),
+  CONSTRAINT positions_ibfk_1 FOREIGN KEY (department_id) REFERENCES departments (id)
+);
+
+CREATE TABLE IF NOT EXISTS supervisor_assignments (
+  id int NOT NULL AUTO_INCREMENT,
+  employee_id varchar(20) NOT NULL,
+  supervisor_id varchar(20) NOT NULL,
+  start_date date NOT NULL,
+  end_date date DEFAULT NULL,
+  created_at datetime DEFAULT CURRENT_TIMESTAMP,
+  updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY supervisor_assignments_ibfk_1 (employee_id),
+  KEY supervisor_assignments_ibfk_2 (supervisor_id),
+  CONSTRAINT supervisor_assignments_ibfk_1 FOREIGN KEY (employee_id) REFERENCES employees (employee_id) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT supervisor_assignments_ibfk_2 FOREIGN KEY (supervisor_id) REFERENCES employees (employee_id) ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS leave_policy (
+  id int unsigned NOT NULL AUTO_INCREMENT,
+  org_id int unsigned DEFAULT NULL,
+  period enum('yearly','half','quarter') NOT NULL DEFAULT 'yearly',
+  year_start date NOT NULL,
+  year_end date NOT NULL,
+  leave_settings json DEFAULT NULL,
+  created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  emp_lop int NOT NULL DEFAULT '0',
+  leave_type varchar(255) DEFAULT NULL,
+  PRIMARY KEY (id),
+  KEY idx_leave_policy_period (period),
+  KEY idx_leave_policy_year_start (year_start),
+  KEY idx_leave_policy_year_end (year_end),
+  CONSTRAINT leave_policy_chk_1 CHECK ((year_start <= year_end))
+);

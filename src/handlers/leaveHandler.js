@@ -1,3 +1,4 @@
+// handlers/leaveHandler.js
 const LeaveService = require("../services/leaveService");
 const ErrorHandler = require("../utils/errorHandler");
 
@@ -12,6 +13,18 @@ const parseBoolFlexible = (v) => {
   return false;
 };
 
+const resolveOrgId = (req) =>
+  req.headers["x-org-id"] ||
+  req.headers["x_org_id"] ||
+  req.headers["org_id"] ||
+  req.headers["org-id"] ||
+  req.query?.orgId ||
+  req.query?.org_id ||
+  req.body?.orgId ||
+  req.body?.org_id ||
+  (req.user && (req.user.orgId || req.user.org_id)) ||
+  null;
+
 class LeaveHandler {
   static async getLeaveQueries(req, res) {
     try {
@@ -22,11 +35,7 @@ class LeaveHandler {
         to_date = "",
       } = req.query;
 
-      const org_id =
-        req.headers["org_id"] ||
-        req.headers["org-id"] ||
-        req.headers["x-org-id"] ||
-        req.headers["x-org_id"];
+      const org_id = resolveOrgId(req);
 
       if (!org_id) {
         return res
@@ -86,10 +95,6 @@ class LeaveHandler {
       } = req.body || {};
 
       if (!["Approved", "Rejected"].includes(status)) {
-        console.warn(
-          "[LeaveHandler.updateLeaveRequest] VALIDATION FAILED - invalid status:",
-          status
-        );
         return res
           .status(400)
           .json(
@@ -101,9 +106,6 @@ class LeaveHandler {
       }
 
       if (status === "Rejected" && !comments) {
-        console.warn(
-          "[LeaveHandler.updateLeaveRequest] VALIDATION FAILED - rejection without comments"
-        );
         return res
           .status(400)
           .json(
@@ -112,8 +114,6 @@ class LeaveHandler {
               "Rejection reason is required when rejecting a leave request."
             )
           );
-      }
-      if (status === "Rejected") {
       }
 
       const actorIdFromBody =
@@ -138,6 +138,13 @@ class LeaveHandler {
 
       const is_defaulted = parseBoolFlexible(rawIsDefault);
 
+      const orgId = resolveOrgId(req);
+      if (!orgId) {
+        return res
+          .status(400)
+          .json(ErrorHandler.generateErrorResponse(400, "Missing org_id"));
+      }
+
       const payload = {
         leaveId,
         status,
@@ -151,7 +158,7 @@ class LeaveHandler {
         is_defaulted,
       };
 
-      await LeaveService.updateLeaveRequest(payload);
+      await LeaveService.updateLeaveRequest(payload, orgId);
 
       const message = `Leave request ${String(
         status
@@ -164,18 +171,11 @@ class LeaveHandler {
       console.error("[LeaveHandler.updateLeaveRequest] Caught error:", err);
 
       if (err && err.isBadRequest) {
-        console.warn(
-          "[LeaveHandler.updateLeaveRequest] Returning 400 due to controlled error:",
-          err.message
-        );
         return res
           .status(400)
           .json(ErrorHandler.generateErrorResponse(400, err.message));
       }
 
-      console.error(
-        "[LeaveHandler.updateLeaveRequest] Returning 500 - internal server error"
-      );
       return res
         .status(500)
         .json(
@@ -186,12 +186,7 @@ class LeaveHandler {
 
   static async submitLeaveRequestHandler(req, res) {
     try {
-      const orgId =
-        req.headers["x-org-id"] ||
-        req.query?.orgId ||
-        req.body?.orgId ||
-        (req.user && req.user.orgId) ||
-        null;
+      const orgId = resolveOrgId(req);
       const { employeeId, reason, leavetype, h_f_day, startDate, endDate } =
         req.body;
 
@@ -239,7 +234,13 @@ class LeaveHandler {
         }
       }
 
-      const existingLeaves = await LeaveService.getLeaveRequests(employeeId);
+      const existingLeaves = await LeaveService.getLeaveRequests(
+        employeeId,
+        null,
+        null,
+        orgId
+      );
+
       const newStart = new Date(startDate);
       const newEnd = new Date(endDate);
       const newDayStr = newStart.toISOString().split("T")[0];
@@ -313,6 +314,7 @@ class LeaveHandler {
     try {
       const { employeeId } = req.params;
       const { from_date, to_date } = req.query;
+      const orgId = resolveOrgId(req);
 
       if (!employeeId) {
         return res
@@ -325,7 +327,8 @@ class LeaveHandler {
       const leaveRequests = await LeaveService.getLeaveRequests(
         employeeId,
         from_date,
-        to_date
+        to_date,
+        orgId
       );
 
       return res
@@ -353,6 +356,7 @@ class LeaveHandler {
   static async editLeaveRequestHandler(req, res) {
     try {
       const { leaveId } = req.params;
+      const orgId = resolveOrgId(req);
 
       const { employeeId, startDate, endDate, h_f_day, reason, leavetype } =
         req.body;
@@ -402,7 +406,12 @@ class LeaveHandler {
         }
       }
 
-      const existingLeaves = await LeaveService.getLeaveRequests(employeeId);
+      const existingLeaves = await LeaveService.getLeaveRequests(
+        employeeId,
+        null,
+        null,
+        orgId
+      );
       const newStart = new Date(startDate);
       const newEnd = new Date(endDate);
       const newDayStr = newStart.toISOString().split("T")[0];
@@ -411,7 +420,7 @@ class LeaveHandler {
         h_f_day === "Half Day";
 
       const hasOverlap = existingLeaves.some((leave) => {
-        if (leave.id == leaveId) return false;
+        if (String(leave.id) === String(leaveId)) return false;
         const existingStart = new Date(leave.start_date);
         const existingEnd = new Date(leave.end_date);
         const existingStartStr = existingStart.toISOString().split("T")[0];
@@ -447,6 +456,7 @@ class LeaveHandler {
         h_f_day,
         reason,
         leavetype,
+        orgId,
       });
 
       return res
@@ -469,6 +479,7 @@ class LeaveHandler {
   static async cancelLeaveRequestHandler(req, res) {
     try {
       const { leaveId, employeeId } = req.params;
+      const orgId = resolveOrgId(req);
 
       if (!leaveId || !employeeId) {
         return res
@@ -483,7 +494,8 @@ class LeaveHandler {
 
       const message = await LeaveService.cancelLeaveRequest(
         leaveId,
-        employeeId
+        employeeId,
+        orgId
       );
 
       return res
@@ -501,10 +513,18 @@ class LeaveHandler {
     try {
       const { teamLeadId } = req.params;
       const filters = req.query;
+      const orgId = resolveOrgId(req);
+
+      if (!orgId) {
+        return res
+          .status(400)
+          .json(ErrorHandler.generateErrorResponse(400, "Missing org_id"));
+      }
 
       const leaveRequests = await LeaveService.getLeaveQueriesForTeamLead(
         filters,
-        teamLeadId
+        teamLeadId,
+        orgId
       );
       return res
         .status(200)

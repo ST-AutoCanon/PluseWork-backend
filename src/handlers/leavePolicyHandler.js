@@ -1,12 +1,35 @@
+// handlers/leavePolicyHandler.js
 const LeavePolicyService = require("../services/leavePolicyService");
 const ErrorHandler = require("../utils/errorHandler");
+
+const resolveOrgId = (req) =>
+  req.headers?.["x-org-id"] ||
+  req.headers?.["x_org_id"] ||
+  req.query?.orgId ||
+  req.query?.org_id ||
+  req.body?.orgId ||
+  req.body?.org_id ||
+  (req.user && (req.user.orgId || req.user.org_id)) ||
+  null;
 
 class LeavePolicyHandler {
   static async autoExtendHandler(req, res) {
     try {
       const actorFromHeader = req.headers["x-employee-id"];
       const actorId = actorFromHeader || req.body?.actorId || "system";
-      const orgId = req.headers["x-org-id"];
+      const orgId = resolveOrgId(req);
+
+      if (!orgId) {
+        return res
+          .status(400)
+          .json(
+            ErrorHandler.generateErrorResponse(
+              400,
+              "Missing orgId (x-org-id header or orgId in body/query)."
+            )
+          );
+      }
+
       const extensionDays = Number(req.body?.extensionDays) || 90;
 
       const created = await LeavePolicyService.autoExtendRecentPolicies(
@@ -29,7 +52,18 @@ class LeavePolicyHandler {
 
   static async getAllPolicies(req, res) {
     try {
-      const orgId = req.headers["x-org-id"];
+      const orgId = resolveOrgId(req);
+      if (!orgId) {
+        return res
+          .status(400)
+          .json(
+            ErrorHandler.generateErrorResponse(
+              400,
+              "Missing orgId (x-org-id header or orgId in body/query)."
+            )
+          );
+      }
+
       const policies = await LeavePolicyService.getAllPolicies(orgId);
       return res
         .status(200)
@@ -52,7 +86,7 @@ class LeavePolicyHandler {
 
   static async createPolicy(req, res) {
     try {
-      const orgId = req.headers["x-org-id"];
+      const orgId = resolveOrgId(req);
       const { period, year_start, year_end, leave_settings } = req.body;
 
       if (
@@ -101,11 +135,12 @@ class LeavePolicyHandler {
 
   static async updatePolicy(req, res) {
     try {
-      const orgId = req.headers["x-org-id"];
+      const orgId = resolveOrgId(req);
       const { id } = req.params;
       const { period, year_start, year_end, leave_settings } = req.body;
 
       if (
+        !orgId ||
         !id ||
         !period ||
         !year_start ||
@@ -117,7 +152,7 @@ class LeavePolicyHandler {
           .json(
             ErrorHandler.generateErrorResponse(
               400,
-              "id, period, year_start, year_end and leave_settings[] are required."
+              "orgId, id, period, year_start, year_end and leave_settings[] are required."
             )
           );
       }
@@ -144,8 +179,18 @@ class LeavePolicyHandler {
 
   static async deletePolicy(req, res) {
     try {
-      const orgId = req.headers["x-org-id"];
+      const orgId = resolveOrgId(req);
       const { id } = req.params;
+      if (!orgId) {
+        return res
+          .status(400)
+          .json(
+            ErrorHandler.generateErrorResponse(
+              400,
+              "Missing orgId (x-org-id header or orgId in body/query)."
+            )
+          );
+      }
       if (!id) {
         return res
           .status(400)
@@ -167,8 +212,18 @@ class LeavePolicyHandler {
 
   static async getLeaveBalanceHandler(req, res) {
     try {
-      const orgId = req.headers["x-org-id"];
+      const orgId = resolveOrgId(req);
       const { employeeId } = req.params;
+      if (!orgId) {
+        return res
+          .status(400)
+          .json(
+            ErrorHandler.generateErrorResponse(
+              400,
+              "Missing orgId (x-org-id header or orgId in body/query)."
+            )
+          );
+      }
       if (!employeeId) {
         return res
           .status(400)
@@ -198,7 +253,18 @@ class LeavePolicyHandler {
 
   static async getMonthlyLOPHandler(req, res) {
     try {
+      const orgId = resolveOrgId(req);
       const { employeeId } = req.params;
+      if (!orgId) {
+        return res
+          .status(400)
+          .json(
+            ErrorHandler.generateErrorResponse(
+              400,
+              "Missing orgId (x-org-id header or orgId in body/query)."
+            )
+          );
+      }
       if (!employeeId) {
         return res
           .status(400)
@@ -218,7 +284,8 @@ class LeavePolicyHandler {
       const data = await LeavePolicyService.getMonthlyLOP(
         employeeId,
         month,
-        year
+        year,
+        orgId
       );
 
       return res
@@ -242,8 +309,18 @@ class LeavePolicyHandler {
 
   static async computeMonthlyLOPHandler(req, res) {
     try {
-      const orgId = req.headers["x-org-id"];
+      const orgId = resolveOrgId(req);
       const { employeeId } = req.params;
+      if (!orgId) {
+        return res
+          .status(400)
+          .json(
+            ErrorHandler.generateErrorResponse(
+              400,
+              "Missing orgId (x-org-id header or orgId in body/query)."
+            )
+          );
+      }
       if (!employeeId) {
         return res
           .status(400)

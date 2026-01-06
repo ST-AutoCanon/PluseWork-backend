@@ -1,11 +1,7 @@
-// services/chatService.js
-const db = require("../config"); // master DB (only if you need org master lookups)
+const db = require("../config");
 const Q = require("../constants/chatQueries");
 const { getTenantPool, sanitizeDbName } = require("../db/tenantPoolManager");
 
-/**
- * Resolve tenant pool for an orgId; throws if orgId missing.
- */
 async function getTenantPoolForOrgId(orgId) {
   if (!orgId) {
     const err = new Error("orgId required to get tenant pool");
@@ -16,15 +12,10 @@ async function getTenantPoolForOrgId(orgId) {
   return getTenantPool(dbName);
 }
 
-/**
- * Create a room (tenant DB). For private 1:1 rooms, reuse existing private room if present.
- * members array should contain employee IDs (strings or numbers).
- */
 async function createRoom(orgId, name, isGroup, creatorId, memberIds = []) {
   if (!orgId) throw new Error("orgId required");
   const tenantPool = await getTenantPoolForOrgId(orgId);
 
-  // check private room reuse
   if (!isGroup && Array.isArray(memberIds) && memberIds.length === 1) {
     const otherId = memberIds[0];
     const [existing] = await tenantPool.query(Q.FIND_PRIVATE_ROOM, [
@@ -65,9 +56,6 @@ async function createRoom(orgId, name, isGroup, creatorId, memberIds = []) {
   }
 }
 
-/**
- * Get rooms for a user (tenant DB).
- */
 async function getUserRooms(orgId, userId) {
   if (!orgId) throw new Error("orgId required");
   const tenantPool = await getTenantPoolForOrgId(orgId);
@@ -75,9 +63,6 @@ async function getUserRooms(orgId, userId) {
   return rows;
 }
 
-/**
- * Save a message (tenant DB). Returns saved message object.
- */
 async function saveMessage(
   orgId,
   roomId,
@@ -106,9 +91,6 @@ async function saveMessage(
   return row;
 }
 
-/**
- * Get messages for a room (tenant DB).
- */
 async function getMessages(orgId, roomId) {
   if (!orgId) throw new Error("orgId required");
   const tenantPool = await getTenantPoolForOrgId(orgId);
@@ -116,9 +98,6 @@ async function getMessages(orgId, roomId) {
   return rows;
 }
 
-/**
- * Get room members (tenant DB).
- */
 async function getRoomMembers(orgId, roomId) {
   if (!orgId) throw new Error("orgId required");
   const tenantPool = await getTenantPoolForOrgId(orgId);
@@ -126,9 +105,6 @@ async function getRoomMembers(orgId, roomId) {
   return rows;
 }
 
-/**
- * Add / remove members (tenant DB).
- */
 async function addMemberToRoom(orgId, roomId, employeeId) {
   if (!orgId) throw new Error("orgId required");
   const tenantPool = await getTenantPoolForOrgId(orgId);
@@ -141,9 +117,6 @@ async function removeMemberFromRoom(orgId, roomId, employeeId) {
   await tenantPool.execute(Q.REMOVE_MEMBER_FROM_ROOM, [roomId, employeeId]);
 }
 
-/**
- * Delete room / message (tenant DB).
- */
 async function deleteRoom(orgId, roomId) {
   if (!orgId) throw new Error("orgId required");
   const tenantPool = await getTenantPoolForOrgId(orgId);
@@ -167,9 +140,6 @@ async function deleteMessage(orgId, messageId, roomId, userId) {
   }
 }
 
-/**
- * Mark messages as read for a user in a room (tenant DB).
- */
 async function markMessagesRead(orgId, roomId, userId) {
   if (!orgId) throw new Error("orgId required");
   const tenantPool = await getTenantPoolForOrgId(orgId);
@@ -181,9 +151,6 @@ async function markMessagesRead(orgId, roomId, userId) {
   ]);
 }
 
-/**
- * Get messages with read status included (tenant DB).
- */
 async function getMessagesWithRead(orgId, roomId, userId) {
   if (!orgId) throw new Error("orgId required");
   const tenantPool = await getTenantPoolForOrgId(orgId);
@@ -194,9 +161,6 @@ async function getMessagesWithRead(orgId, roomId, userId) {
   return rows;
 }
 
-/**
- * Rooms with unread counts (tenant DB).
- */
 async function getRoomsWithUnreadCounts(orgId, userId) {
   if (!orgId) throw new Error("orgId required");
   const tenantPool = await getTenantPoolForOrgId(orgId);

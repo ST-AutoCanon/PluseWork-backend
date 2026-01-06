@@ -1,4 +1,5 @@
-const db = require("../config");
+// services/leavePolicyService.js
+const { getTenantPool, sanitizeDbName } = require("../db/tenantPoolManager");
 const queries = require("../constants/leavePolicyQueries");
 const dayjs = require("dayjs");
 
@@ -41,13 +42,22 @@ function parseLocalDate(dateInput) {
   return null;
 }
 
-async function getEmployeeCarryForwards(employeeId, year) {
+async function getTenantPoolForOrgId(orgId) {
+  if (!orgId) throw new Error("orgId required");
+  // derive database name tenant_<org id>, then sanitize and obtain pool
+  const dbName = sanitizeDbName(`tenant_${orgId}`);
+  return getTenantPool(dbName);
+}
+
+/* Replace previous getTenantPool usage with getTenantPoolForOrgId */
+async function getEmployeeCarryForwards(employeeId, year, orgId) {
   if (!employeeId) return {};
   try {
-    const [rows] = await db.execute(queries.GET_EMPLOYEE_CARRY_FORWARD, [
-      employeeId,
-      year,
-    ]);
+    const tenantPool = await getTenantPoolForOrgId(orgId);
+    const [rows] = await tenantPool.execute(
+      queries.GET_EMPLOYEE_CARRY_FORWARD,
+      [employeeId, year]
+    );
     const map = {};
     (rows || []).forEach((r) => {
       if (!r || r.leave_type == null) return;
@@ -61,7 +71,8 @@ async function getEmployeeCarryForwards(employeeId, year) {
 }
 
 const getAllPolicies = async (orgId) => {
-  const [rows] = await db.execute(queries.getAll, [orgId]);
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  const [rows] = await tenantPool.execute(queries.getAll, [orgId]);
   return (rows || []).map((r) => ({
     ...r,
     leave_settings: safeParseSettings(r.leave_settings),
@@ -75,14 +86,17 @@ const createPolicy = async ({
   leave_settings,
   orgId,
 }) => {
-  const [result] = await db.execute(queries.create, [
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  const [result] = await tenantPool.execute(queries.create, [
     orgId,
     period,
     year_start,
     year_end,
     JSON.stringify(leave_settings),
   ]);
-  const [newRows] = await db.execute(queries.getById, [result.insertId]);
+  const [newRows] = await tenantPool.execute(queries.getById, [
+    result.insertId,
+  ]);
   const policy = newRows[0];
   if (policy) policy.leave_settings = safeParseSettings(policy.leave_settings);
   return policy;
@@ -93,7 +107,8 @@ const updatePolicy = async (
   orgId,
   { period, year_start, year_end, leave_settings }
 ) => {
-  await db.execute(queries.update, [
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  await tenantPool.execute(queries.update, [
     period,
     year_start,
     year_end,
@@ -104,11 +119,13 @@ const updatePolicy = async (
 };
 
 const deletePolicy = async (id, orgId) => {
-  await db.execute(queries.remove, [id, orgId]);
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  await tenantPool.execute(queries.remove, [id, orgId]);
 };
 
-async function getWorkedDays(employeeId, periodStart, periodEnd) {
-  const [rows] = await db.execute(queries.GET_WORKED_DAYS, [
+async function getWorkedDays(employeeId, periodStart, periodEnd, orgId) {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  const [rows] = await tenantPool.execute(queries.GET_WORKED_DAYS, [
     employeeId,
     periodStart,
     periodEnd,
@@ -116,7 +133,13 @@ async function getWorkedDays(employeeId, periodStart, periodEnd) {
   return Number(rows[0]?.worked_days || 0);
 }
 
-const getUsedLeavesInPeriod = async (employeeId, periodStart, periodEnd) => {
+const getUsedLeavesInPeriod = async (
+  employeeId,
+  periodStart,
+  periodEnd,
+  orgId
+) => {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
   const params = [
     employeeId,
     periodStart,
@@ -127,7 +150,10 @@ const getUsedLeavesInPeriod = async (employeeId, periodStart, periodEnd) => {
     periodEnd,
   ];
   try {
-    const [rows] = await db.execute(queries.GET_USED_LEAVES_IN_PERIOD, params);
+    const [rows] = await tenantPool.execute(
+      queries.GET_USED_LEAVES_IN_PERIOD,
+      params
+    );
     const map = {};
     (rows || []).forEach(
       (r) =>
@@ -139,10 +165,7 @@ const getUsedLeavesInPeriod = async (employeeId, periodStart, periodEnd) => {
     );
     return map;
   } catch (err) {
-    console.error(
-      "getUsedLeavesInPeriod failed:",
-      err && err.message ? err.message : err
-    );
+    console.error("getUsedLeavesInPeriod failed:", err);
     return {};
   }
 };
@@ -161,6 +184,9 @@ function computeEarnedLeavesFromWorked(
 
 async function computeAndStoreMonthlyLOP(employeeId, month, year, orgId) {
   if (!employeeId) throw new Error("employeeId required");
+  if (!orgId) throw new Error("orgId required");
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+
   const m = Number(month);
   const y = Number(year);
   if (!Number.isFinite(m) || m < 1 || m > 12 || !Number.isFinite(y))
@@ -171,13 +197,13 @@ async function computeAndStoreMonthlyLOP(employeeId, month, year, orgId) {
     lastDay
   ).padStart(2, "0")}`;
 
-  const [lopRows] = await db.execute(
+  const [lopRows] = await tenantPool.execute(
     `SELECT SUM(loss_of_pay_days) AS total_lop_days FROM leavequeries WHERE employee_id = ? AND status = 'Approved' AND start_date <= ? AND end_date >= ?`,
     [employeeId, periodEnd, periodStart]
   );
   const explicitLOP = Number(lopRows[0]?.total_lop_days || 0);
   if (explicitLOP > 0) {
-    await db.execute(queries.UPSERT_EMPLOYEE_MONTHLY_LOP, [
+    await tenantPool.execute(queries.UPSERT_EMPLOYEE_MONTHLY_LOP, [
       employeeId,
       m,
       y,
@@ -204,7 +230,7 @@ async function computeAndStoreMonthlyLOP(employeeId, month, year, orgId) {
   }
 
   if (!active) {
-    await db.execute(queries.UPSERT_EMPLOYEE_MONTHLY_LOP, [
+    await tenantPool.execute(queries.UPSERT_EMPLOYEE_MONTHLY_LOP, [
       employeeId,
       m,
       y,
@@ -216,17 +242,20 @@ async function computeAndStoreMonthlyLOP(employeeId, month, year, orgId) {
   const usedByType = await getUsedLeavesInPeriod(
     employeeId,
     periodStart,
-    periodEnd
+    periodEnd,
+    orgId
   ).catch(() => ({}));
   const workedUntilMonthEnd = await getWorkedDays(
     employeeId,
     active.year_start,
-    periodEnd
+    periodEnd,
+    orgId
   ).catch(() => 0);
   const policyYear = new Date(active.year_start).getFullYear();
   const employeeCFMap = await getEmployeeCarryForwards(
     employeeId,
-    policyYear
+    policyYear,
+    orgId
   ).catch(() => ({}));
   const settings = Array.isArray(active.leave_settings)
     ? active.leave_settings
@@ -270,7 +299,7 @@ async function computeAndStoreMonthlyLOP(employeeId, month, year, orgId) {
   }
 
   total_lop = Number(total_lop.toFixed(2));
-  await db.execute(queries.UPSERT_EMPLOYEE_MONTHLY_LOP, [
+  await tenantPool.execute(queries.UPSERT_EMPLOYEE_MONTHLY_LOP, [
     employeeId,
     m,
     y,
@@ -279,11 +308,13 @@ async function computeAndStoreMonthlyLOP(employeeId, month, year, orgId) {
   return { month: m, year: y, total_lop };
 }
 
-const getMonthlyLOP = async (employeeId, month, year) => {
+const getMonthlyLOP = async (employeeId, month, year, orgId) => {
   if (!employeeId) throw new Error("employeeId required");
+  if (!orgId) throw new Error("orgId required");
+  const tenantPool = await getTenantPoolForOrgId(orgId);
   const m = Number(month),
     y = Number(year);
-  const [rows] = await db.execute(queries.GET_EMPLOYEE_MONTHLY_LOP, [
+  const [rows] = await tenantPool.execute(queries.GET_EMPLOYEE_MONTHLY_LOP, [
     employeeId,
     m,
     y,
@@ -295,7 +326,7 @@ const getMonthlyLOP = async (employeeId, month, year) => {
       total_lop: Number(rows[0].lop || 0),
       computed_at: rows[0].computed_at,
     };
-  return await computeAndStoreMonthlyLOP(employeeId, m, y);
+  return await computeAndStoreMonthlyLOP(employeeId, m, y, orgId);
 };
 
 const getLeaveBalance = async (employeeId, orgId) => {
@@ -314,15 +345,21 @@ const getLeaveBalance = async (employeeId, orgId) => {
   const workedDays = await getWorkedDays(
     employeeId,
     active.year_start,
-    upToDate
+    upToDate,
+    orgId
   );
   const usedMap = await getUsedLeavesInPeriod(
     employeeId,
     active.year_start,
-    active.year_end
+    active.year_end,
+    orgId
   );
   const policyYear = new Date(active.year_start).getFullYear();
-  const employeeCFMap = await getEmployeeCarryForwards(employeeId, policyYear);
+  const employeeCFMap = await getEmployeeCarryForwards(
+    employeeId,
+    policyYear,
+    orgId
+  );
   const settings = Array.isArray(active.leave_settings)
     ? active.leave_settings
     : safeParseSettings(active.leave_settings);
@@ -370,6 +407,7 @@ async function autoExtendRecentPolicies(
   actorId = "system",
   orgId
 ) {
+  if (!orgId) throw new Error("orgId required");
   const policies = await getAllPolicies(orgId);
   if (!Array.isArray(policies) || policies.length === 0) {
     return [];
@@ -403,7 +441,8 @@ async function autoExtendRecentPolicies(
     return [];
   }
 
-  const conn = await db.getConnection();
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  const conn = await tenantPool.getConnection();
   try {
     await conn.beginTransaction();
     const updated = [];
@@ -419,10 +458,10 @@ async function autoExtendRecentPolicies(
         newEnd.getMonth() + 1
       ).padStart(2, "0")}-${String(newEnd.getDate()).padStart(2, "0")}`;
 
-      await conn.execute(`UPDATE leave_policy SET year_end = ? WHERE id = ?`, [
-        newEndStr,
-        p.id,
-      ]);
+      await conn.execute(
+        `UPDATE leave_policy SET year_end = ? WHERE id = ? AND org_id = ?`,
+        [newEndStr, p.id, orgId]
+      );
 
       const detailsObj = {
         action: "auto_extend_policy",
@@ -441,30 +480,18 @@ async function autoExtendRecentPolicies(
           actorId || "system",
           "policy_auto_extend",
           details,
+          orgId,
         ]);
       } catch (auditErr) {
         console.warn(
-          "[autoExtendRecentPolicies] failed to insert audit with leave_id=null, trying 0:",
+          "[autoExtendRecentPolicies] failed to insert audit with leave_id=null:",
           auditErr && auditErr.message ? auditErr.message : auditErr
         );
-        try {
-          await conn.execute(queries.INSERT_LEAVE_AUDIT, [
-            0,
-            actorId || "system",
-            "policy_auto_extend",
-            details,
-          ]);
-        } catch (auditErr2) {
-          console.error(
-            "[autoExtendRecentPolicies] failed to insert audit fallback (0):",
-            auditErr2
-          );
-        }
       }
 
       const [rows] = await conn.execute(
-        `SELECT id, period, DATE_FORMAT(year_start, '%Y-%m-%d') AS year_start, DATE_FORMAT(year_end, '%Y-%m-%d') AS year_end, leave_settings FROM leave_policy WHERE id = ?`,
-        [p.id]
+        `SELECT id, period, DATE_FORMAT(year_start, '%Y-%m-%d') AS year_start, DATE_FORMAT(year_end, '%Y-%m-%d') AS year_end, leave_settings FROM leave_policy WHERE id = ? AND org_id = ?`,
+        [p.id, orgId]
       );
       if (rows && rows[0]) {
         const row = rows[0];

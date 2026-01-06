@@ -1,4 +1,5 @@
-const db = require("../config");
+// services/leaveService.js
+const { getTenantPoolByOrgId } = require("../db/tenantPoolManager");
 const queries = require("../constants/leaveQueries");
 const LeavePolicyService = require("./leavePolicyService");
 
@@ -43,14 +44,22 @@ const computeInclusiveDays = (startDateStr, endDateStr, h_f_day = "") => {
   return dayCount;
 };
 
+const getTenantPool = async (orgId) => {
+  if (!orgId) throw new Error("orgId required");
+  return getTenantPoolByOrgId(orgId);
+};
+
+/**
+ * Get leave queries (admin view). Requires org_id.
+ */
 const getLeaveQueries = async (filters = {}) => {
   const { status, search, from_date, to_date, org_id } = filters;
 
-  try {
-    if (!org_id) {
-      throw new Error("org_id is required in request headers");
-    }
+  if (!org_id) throw new Error("org_id is required in request headers");
 
+  const tenantPool = await getTenantPool(org_id);
+
+  try {
     let query = queries.GET_LEAVE_QUERIES;
     const params = [];
     const whereConditions = [];
@@ -80,22 +89,22 @@ const getLeaveQueries = async (filters = {}) => {
       query += ` AND ${whereConditions.join(" AND ")}`;
     }
 
-    const [rows] = await db.execute(query, params);
+    const [rows] = await tenantPool.execute(query, params);
     rows.forEach((r) => {
       r.start_date = toLocalDateString(r.start_date);
       r.end_date = toLocalDateString(r.end_date);
     });
     return rows;
   } catch (err) {
-    console.error(
-      "Error fetching leave queries:",
-      err && err.message ? err.message : err
-    );
+    console.error("Error fetching leave queries:", err);
     throw new Error("Failed to fetch leave queries.");
   }
 };
 
-const updateLeaveRequest = async (payload) => {
+/**
+ * updateLeaveRequest(payload, orgId)
+ */
+const updateLeaveRequest = async (payload, orgId) => {
   const {
     leaveId,
     status,
@@ -109,12 +118,16 @@ const updateLeaveRequest = async (payload) => {
     is_defaulted = false,
   } = payload;
 
+  if (!orgId) throw new Error("orgId required");
+
   const bind = (v) => (v === undefined ? null : v);
+
+  const tenantPool = await getTenantPool(orgId);
 
   let conn = null;
   let transactionStarted = false;
   try {
-    const [leaveRows] = await db.execute(queries.GET_LEAVE_BY_LEAVEID, [
+    const [leaveRows] = await tenantPool.execute(queries.GET_LEAVE_BY_LEAVEID, [
       leaveId,
     ]);
     if (!leaveRows || leaveRows.length === 0) {
@@ -159,7 +172,7 @@ const updateLeaveRequest = async (payload) => {
 
     let remaining = 0;
     try {
-      const [balRows] = await db.execute(
+      const [balRows] = await tenantPool.execute(
         `SELECT remaining FROM employee_leave_balances WHERE employee_id = ? AND leave_type = ? LIMIT 1`,
         [leave.employee_id, leave.leave_type]
       );
@@ -186,7 +199,7 @@ const updateLeaveRequest = async (payload) => {
         throw err;
       }
 
-      conn = await db.getConnection();
+      conn = await tenantPool.getConnection();
       try {
         await conn.beginTransaction();
         transactionStarted = true;
@@ -248,7 +261,6 @@ const updateLeaveRequest = async (payload) => {
             l_write,
             `LoP for leave ${leaveId}`,
           ]);
-        } else {
         }
 
         try {
@@ -281,19 +293,12 @@ const updateLeaveRequest = async (payload) => {
 
         await conn.commit();
       } catch (txErr) {
-        console.error(
-          "[updateLeaveRequest] transaction error, attempting rollback:",
-          txErr && txErr.message ? txErr.message : txErr
-        );
         try {
           if (transactionStarted && conn) {
             await conn.rollback();
           }
         } catch (rbErr) {
-          console.error(
-            "[updateLeaveRequest] rollback failed:",
-            rbErr && rbErr.message ? rbErr.message : rbErr
-          );
+          console.error("[updateLeaveRequest] rollback failed:", rbErr);
         }
         throw txErr;
       } finally {
@@ -306,11 +311,12 @@ const updateLeaveRequest = async (payload) => {
         } catch (releaseErr) {
           console.warn(
             "[updateLeaveRequest] conn.release() failed:",
-            releaseErr && releaseErr.message ? releaseErr.message : releaseErr
+            releaseErr
           );
         }
       }
 
+      // recompute monthly LOP for months spanned by leave
       try {
         const leaveStart = parseDateOnly(leave.start_date);
         const leaveEnd = parseDateOnly(leave.end_date);
@@ -332,7 +338,8 @@ const updateLeaveRequest = async (payload) => {
               await LeavePolicyService.computeAndStoreMonthlyLOP(
                 leave.employee_id,
                 month,
-                year
+                year,
+                orgId
               );
             } catch (recomputeErr) {
               console.warn(
@@ -371,7 +378,10 @@ const updateLeaveRequest = async (payload) => {
         bind(leaveId),
       ];
 
-      await db.execute(queries.UPDATE_LEAVE_STATUS_EXTENDED, paramsReject);
+      await tenantPool.execute(
+        queries.UPDATE_LEAVE_STATUS_EXTENDED,
+        paramsReject
+      );
       return;
     }
   } catch (err) {
@@ -406,8 +416,17 @@ const submitLeaveRequest = async ({
   leavetype,
   orgId,
 }) => {
+  if (!orgId) throw new Error("orgId required");
+
+  const tenantPool = await getTenantPool(orgId);
+
   try {
-    const existingLeaves = await getLeaveRequests(employeeId);
+    const existingLeaves = await getLeaveRequests(
+      employeeId,
+      null,
+      null,
+      orgId
+    );
     const newStartStr = startDate;
     const newEndStr = endDate;
     const isSingleOrHalf = newStartStr === newEndStr || h_f_day === "Half Day";
@@ -428,7 +447,8 @@ const submitLeaveRequest = async ({
       throw new Error(
         "You already have a leave request on the selected date(s)."
       );
-    const [result] = await db.execute(queries.INSERT_LEAVE_REQUEST, [
+
+    const [result] = await tenantPool.execute(queries.INSERT_LEAVE_REQUEST, [
       employeeId,
       startDate,
       endDate,
@@ -461,8 +481,13 @@ const submitLeaveRequest = async ({
 const getLeaveRequests = async (
   employeeId,
   from_date = null,
-  to_date = null
+  to_date = null,
+  orgId
 ) => {
+  if (!orgId) throw new Error("orgId required");
+
+  const tenantPool = await getTenantPool(orgId);
+
   try {
     let baseQuery = (
       queries.SELECT_LEAVE_REQUESTS ||
@@ -503,6 +528,11 @@ const getLeaveRequests = async (
       filterConditions.push("lq.end_date <= ?");
       filterParams.push(to_date);
     }
+    // Ensure tenant filter (org_id) if queries use leavequeries table
+    if (!/\blq\.org_id\b/i.test(baseQuery)) {
+      filterConditions.push("lq.org_id = ?");
+      filterParams.push(orgId);
+    }
     let finalQuery = baseQuery;
     if (filterConditions.length)
       finalQuery +=
@@ -510,7 +540,7 @@ const getLeaveRequests = async (
     if (!/\border\s+by\b/i.test(finalQuery))
       finalQuery += " ORDER BY lq.created_at DESC";
     const finalParams = initialParams.concat(filterParams);
-    const [rows] = await db.execute(finalQuery, finalParams);
+    const [rows] = await tenantPool.execute(finalQuery, finalParams);
     rows.forEach((row) => {
       row.start_date = toLocalDateString(row.start_date);
       row.end_date = toLocalDateString(row.end_date);
@@ -533,7 +563,9 @@ const editLeaveRequest = async ({
   h_f_day,
   reason,
   leavetype,
+  orgId,
 }) => {
+  if (!orgId) throw new Error("orgId required");
   try {
     if (
       !leaveId ||
@@ -545,17 +577,22 @@ const editLeaveRequest = async ({
       !leavetype
     )
       throw new Error("All fields are required.");
-    const [existingLeave] = await db.execute(queries.GET_LEAVE_BY_ID, [
-      leaveId,
-      employeeId,
-    ]);
-    if (existingLeave.length === 0)
+
+    const tenantPool = await getTenantPool(orgId);
+
+    const [existingLeaveRows] = await tenantPool.execute(
+      queries.GET_LEAVE_BY_ID,
+      [leaveId, employeeId]
+    );
+    if (!existingLeaveRows || existingLeaveRows.length === 0)
       throw new Error("Leave request not found or not accessible.");
-    if (existingLeave[0].status !== "pending")
+    const existingLeave = existingLeaveRows[0];
+    if (existingLeave.status !== "pending")
       throw new Error(
         "Leave request cannot be edited after approval or rejection."
       );
-    const [result] = await db.execute(queries.UPDATE_LEAVE_REQUEST, [
+
+    const [result] = await tenantPool.execute(queries.UPDATE_LEAVE_REQUEST, [
       startDate,
       endDate,
       h_f_day,
@@ -585,17 +622,19 @@ const editLeaveRequest = async ({
   }
 };
 
-const cancelLeaveRequest = async (leaveId, employeeId) => {
+const cancelLeaveRequest = async (leaveId, employeeId, orgId) => {
+  if (!orgId) throw new Error("orgId required");
   try {
-    const [existingLeave] = await db.execute(queries.GET_LEAVE_BY_ID, [
-      leaveId,
-      employeeId,
-    ]);
-    if (existingLeave.length === 0)
+    const tenantPool = await getTenantPool(orgId);
+    const [existingLeaveRows] = await tenantPool.execute(
+      queries.GET_LEAVE_BY_ID,
+      [leaveId, employeeId]
+    );
+    if (!existingLeaveRows || existingLeaveRows.length === 0)
       throw new Error("Leave request not found or not accessible.");
-    if (existingLeave[0].status !== "pending")
+    if (existingLeaveRows[0].status !== "pending")
       throw new Error("Only pending leave requests can be canceled.");
-    const [result] = await db.execute(queries.DELETE_LEAVE_REQUEST, [
+    const [result] = await tenantPool.execute(queries.DELETE_LEAVE_REQUEST, [
       leaveId,
       employeeId,
     ]);
@@ -650,9 +689,12 @@ const constructWhereClause = (
   return { whereConditions, params };
 };
 
-const getLeaveQueriesForTeamLead = async (filters = {}, teamLeadId) => {
+const getLeaveQueriesForTeamLead = async (filters = {}, teamLeadId, orgId) => {
+  if (!orgId) throw new Error("orgId required");
   try {
-    const [profRows] = await db.execute(queries.GET_EMP_PROF_BY_ID, [
+    const tenantPool = await getTenantPool(orgId);
+
+    const [profRows] = await tenantPool.execute(queries.GET_EMP_PROF_BY_ID, [
       teamLeadId,
     ]);
     if (!profRows || profRows.length === 0)
@@ -669,7 +711,7 @@ const getLeaveQueriesForTeamLead = async (filters = {}, teamLeadId) => {
     const managerOrAbove = new Set(["manager", "admin", "ceo", "super admin"]);
     const employeeIdSet = new Set();
     if (supervisorOrAbove.has(roleName)) {
-      const [directRows] = await db.execute(
+      const [directRows] = await tenantPool.execute(
         queries.GET_EMPLOYEES_BY_SUPERVISOR,
         [teamLeadId]
       );
@@ -679,7 +721,7 @@ const getLeaveQueriesForTeamLead = async (filters = {}, teamLeadId) => {
     }
     if (managerOrAbove.has(roleName) && prof.department_id) {
       try {
-        const [deptRows] = await db.execute(
+        const [deptRows] = await tenantPool.execute(
           queries.GET_EMPLOYEES_BY_DEPARTMENT,
           [prof.department_id]
         );
@@ -687,10 +729,7 @@ const getLeaveQueriesForTeamLead = async (filters = {}, teamLeadId) => {
           if (r && r.employee_id) employeeIdSet.add(r.employee_id);
         });
       } catch (err) {
-        console.warn(
-          "Warning: failed to fetch department employees:",
-          err && err.message ? err.message : err
-        );
+        console.warn("Warning: failed to fetch department employees:", err);
       }
     }
     const employeeIds = Array.from(employeeIdSet);
@@ -699,20 +738,31 @@ const getLeaveQueriesForTeamLead = async (filters = {}, teamLeadId) => {
       employeeIds,
       "lq"
     );
-    const query =
-      queries.GET_LEAVE_QUERIES_FOR_TEAM +
+
+    // ensure tenant filter
+    let query = queries.GET_LEAVE_QUERIES_FOR_TEAM;
+    const tenantFilter = " lq.org_id = ? ";
+    const tenantIndexInsertPos = query.toUpperCase().indexOf("WHERE");
+    if (tenantIndexInsertPos !== -1) {
+      query = query.replace(/WHERE/i, `WHERE ${tenantFilter} AND `);
+    } else {
+      query += ` WHERE ${tenantFilter}`;
+    }
+    const finalParams = [orgId].concat(params);
+
+    const finalQuery =
+      query +
       (whereConditions.length ? " AND " + whereConditions.join(" AND ") : "");
-    const [rows] = await db.execute(query, params);
+
+    const [rows] = await tenantPool.execute(finalQuery, finalParams);
+
     rows.forEach((row) => {
       row.start_date = toLocalDateString(row.start_date);
       row.end_date = toLocalDateString(row.end_date);
     });
     return rows;
   } catch (err) {
-    console.error(
-      "Error fetching leave queries for team lead:",
-      err && err.message ? err.message : err
-    );
+    console.error("Error fetching leave queries for team lead:", err);
     throw new Error("Failed to fetch leave queries for team lead.");
   }
 };

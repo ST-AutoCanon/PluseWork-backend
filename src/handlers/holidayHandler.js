@@ -33,17 +33,51 @@ const getHolidays = async (req, res) => {
 
 const downloadTemplate = async (req, res) => {
   try {
-    const csv =
-      ["date", "occasion", "type"].join(",") +
-      "\n" +
-      ["2025-01-26", "Republic Day", "Company"].join(",") +
-      "\n";
-    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    // build an XLSX workbook with a data-validation dropdown for the `type` column
+    const wb = XLSX.utils.book_new();
+    const aoa = [
+      ["date", "occasion", "type"],
+      ["2025-01-26", "Republic Day", "Company"],
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+    // Add data validation for column C (type) on rows 2..1000 to restrict values
+    // formula1 expects a quoted comma-separated list
+    ws["!dataValidation"] = [
+      {
+        sqref: "C2:C1000",
+        type: "list",
+        allowBlank: false,
+        showInputMessage: true,
+        showErrorMessage: true,
+        formula1: '"Company,Optional"',
+      },
+    ];
+
+    XLSX.utils.book_append_sheet(wb, ws, "Template");
+
+    // Add a small instructions sheet to make allowed values obvious to users
+    const instr = [
+      ["INSTRUCTIONS"],
+      [
+        "The 'type' column (third column) accepts only two values: Company or Optional.",
+      ],
+      ["Please do not modify the header row. Leave other columns unchanged."],
+    ];
+    const wsInstr = XLSX.utils.aoa_to_sheet(instr);
+    XLSX.utils.book_append_sheet(wb, wsInstr, "INSTRUCTIONS");
+
+    const buf = XLSX.write(wb, { bookType: "xlsx", type: "buffer" });
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename="holiday_template.csv"`
+      `attachment; filename="holiday_template.xlsx"`
     );
-    res.status(200).send(csv);
+    res.status(200).send(buf);
   } catch (err) {
     console.error("downloadTemplate error:", err);
     res.status(500).json({

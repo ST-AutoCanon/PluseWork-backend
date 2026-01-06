@@ -69,7 +69,9 @@ async function getTenantPoolByOrgId(orgId) {
     throw new Error(`Tenant database not found for org_id ${orgId}`);
   }
 
-  return getTenantPool(rows[0].db_name);
+  const dbName = rows[0].db_name;
+  console.info(`getTenantPoolByOrgId: orgId=${orgId} -> db_name=${dbName}`);
+  return getTenantPool(dbName);
 }
 
 module.exports = {

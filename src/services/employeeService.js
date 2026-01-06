@@ -214,6 +214,24 @@ async function addFullEmployeeUsingConnection(conn, data, options = {}) {
 
   const eid = employeeId;
 
+  console.debug("[addFullEmployeeUsingConnection] saving employee", {
+    employeeId: eid,
+    org: resolvedOrg,
+  });
+  console.debug("[addFullEmployeeUsingConnection] file fields", {
+    photo_url: data.photo_url,
+    aadhaar_doc_url: data.aadhaar_doc_url,
+    pan_doc_url: data.pan_doc_url,
+    passport_doc_url: data.passport_doc_url,
+    driving_license_doc_url: data.driving_license_doc_url,
+    voter_id_doc_url: data.voter_id_doc_url,
+    spouse_gov_doc_url: data.spouse_gov_doc_url,
+    father_gov_doc_url: data.father_gov_doc_url,
+    mother_gov_doc_url: data.mother_gov_doc_url,
+    child1_gov_doc_url: data.child1_gov_doc_url,
+    resume_url: data.resume_url,
+    other_docs_urls: data.other_docs_urls || data.other_docs,
+  });
   const personalParams = [
     eid,
     data.address || null,
@@ -930,7 +948,7 @@ exports.getUserRoles = async (orgId) => {
 };
 
 exports.getPositions = async (role, orgId) => {
-  const executor = orgId ? await getTenantPoolForOrgId(orgId) : db;
+  const executor = await getTenantPoolForOrgId(orgId);
   const [rows] = (await executor.execute)
     ? await executor.execute(queries.GET_POSITIONS_BY_ROLE_AND_DEPT, [
         role,

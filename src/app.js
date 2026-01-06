@@ -342,8 +342,6 @@ app.use((req, res, next) => {
     app.use("/api", salaryPeriodRoutes);
     app.use("/api/compensations", compensationRoutes);
     app.use("/api", employeeProjectsRoute);
-    app.use("/api/leave-policies", leavePolicy);
-
     app.use("/", vendorRoutes);
     app.use("/", oldEmployeeRoutes);
     app.use("/api", letterRoutes);
