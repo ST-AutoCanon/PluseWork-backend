@@ -1,20 +1,28 @@
-const db = require("../config");
-const queries = require("../constants/taskMessagesQueries");
 
-const createTaskMessage = async (taskId, messageObj) => {
+
+const queries = require("../constants/taskMessagesQueries");
+const { getTenantPoolByOrgId } = require("../db/tenantPoolManager");
+
+const createTaskMessage = async (orgId, taskId, messageObj) => {
+  const pool = await getTenantPoolByOrgId(orgId);
   const jsonData = JSON.stringify({ messages: [messageObj] });
-  await db.query(queries.INSERT_NEW_TASK_MESSAGE, [taskId, jsonData]);
+
+  await pool.query(queries.INSERT_NEW_TASK_MESSAGE, [taskId, jsonData]);
 };
 
-const appendTaskMessage = async (taskId, messageObj) => {
-  await db.query(queries.APPEND_TASK_MESSAGE, [
+const appendTaskMessage = async (orgId, taskId, messageObj) => {
+  const pool = await getTenantPoolByOrgId(orgId);
+
+  await pool.query(queries.APPEND_TASK_MESSAGE, [
     JSON.stringify(messageObj),
     taskId,
   ]);
 };
 
-const getTaskMessages = async (taskId) => {
-  const [rows] = await db.query(queries.GET_TASK_MESSAGES, [taskId]);
+const getTaskMessages = async (orgId, taskId) => {
+  const pool = await getTenantPoolByOrgId(orgId);
+  const [rows] = await pool.query(queries.GET_TASK_MESSAGES, [taskId]);
+
   if (rows.length === 0) return null;
 
   const data = rows[0].message_data;
@@ -26,3 +34,4 @@ module.exports = {
   appendTaskMessage,
   getTaskMessages,
 };
+

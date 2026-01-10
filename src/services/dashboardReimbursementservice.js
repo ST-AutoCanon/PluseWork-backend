@@ -1,8 +1,19 @@
-const db = require("../config");
 const queries = require("../constants/loginQueries");
+const { getTenantPool, sanitizeDbName } = require("../db/tenantPoolManager");
 
-const getReimbursementStats = async (employeeId) => {
+async function getTenantPoolForOrgId(orgId) {
+  if (!orgId) {
+    const err = new Error("orgId required to get tenant pool");
+    err.code = "ORG_REQUIRED";
+    throw err;
+  }
+  const dbName = sanitizeDbName(`tenant_${orgId}`);
+  return getTenantPool(dbName);
+}
+
+const getReimbursementStats = async (employeeId, orgId) => {
   try {
+    const db = await getTenantPoolForOrgId(orgId);
     const [rows] = await db.execute(queries.GET_REIMBURSEMENT_STATS, [
       employeeId,
     ]);

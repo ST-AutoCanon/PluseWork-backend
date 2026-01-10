@@ -1,68 +1,122 @@
 const moment = require("moment");
 const {
   getAllFaces,
+  getLastPunchRecordByEmpId,
   insertPunchIn,
   updatePunchOut,
-  getLastPunchRecordByEmpId,
 } = require("../services/face_adminpageServices");
 const { compareDescriptors } = require("../utils/compareDescriptors");
+const ErrorHandler = require("../utils/errorHandler");
 
-exports.handleFacePunch = async (req, res) => {
+/** 🔑 EXACT SAME org resolver style */
+const resolveOrgId = (req) =>
+  req.headers?.["x-org-id"] ||
+  req.headers?.["x_org_id"] ||
+  req.query?.orgId ||
+  req.query?.org_id ||
+  req.body?.orgId ||
+  req.body?.org_id ||
+  (req.user && (req.user.orgId || req.user.org_id)) ||
+  null;
+
+const handleFacePunch = async (req, res) => {
   try {
     const { descriptor, device, location } = req.body;
+    const orgId = resolveOrgId(req);
 
-    const faces = await getAllFaces();
-    let bestMatch = null;
-    let bestDistance = Infinity;
-    const threshold = 0.35;
-    let matchedFace = null;
-
-    for (const face of faces) {
-      let storedDescriptors;
-
-      if (typeof face.descriptors === "string") {
-        storedDescriptors = JSON.parse(face.descriptors);
-      } else {
-        storedDescriptors = face.descriptors;
-      }
-
-      for (const stored of storedDescriptors) {
-        const distance = compareDescriptors(descriptor, stored);
-        if (distance < bestDistance) {
-          bestDistance = distance;
-          bestMatch = face.employee_id;
-          matchedFace = face;
-        }
-      }
+    if (!orgId) {
+      return res
+        .status(400)
+        .json(
+          ErrorHandler.generateErrorResponse(
+            400,
+            "Missing orgId (x-org-id header or orgId in body/query)."
+          )
+        );
     }
 
-    if (bestDistance >= threshold || !matchedFace) {
+    if (!descriptor || !Array.isArray(descriptor)) {
+      return res
+        .status(400)
+        .json(ErrorHandler.generateErrorResponse(400, "Invalid face descriptor"));
+    }
+
+    /** 🔹 Get all faces from TENANT DB */
+    const faces = await getAllFaces(orgId);
+
+   let bestDistance = Infinity;
+let matchedFace = null;
+const threshold = 0.35;
+
+for (const face of faces) {
+  if (!face.descriptors) continue;
+
+  const descriptorList =
+    typeof face.descriptors === "string"
+      ? JSON.parse(face.descriptors)
+      : face.descriptors;
+
+  if (!Array.isArray(descriptorList)) continue;
+
+  for (const stored of descriptorList) {
+    const storedDescriptor = Array.isArray(stored)
+      ? stored
+      : Object.values(stored);
+
+    if (storedDescriptor.length !== 128) continue;
+
+    const distance = compareDescriptors(descriptor, storedDescriptor);
+
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      matchedFace = face;
+    }
+  }
+}
+
+
+
+    if (!matchedFace || bestDistance >= threshold) {
       return res.status(404).json({ message: "Face not recognized" });
     }
 
-    const matchedEmployee = bestMatch;
+    const employeeId = matchedFace.employee_id;
     const employeeName = matchedFace.label;
     const now = moment().format("YYYY-MM-DD HH:mm:ss");
 
-    const lastPunchRecord = await getLastPunchRecordByEmpId(matchedEmployee);
+    /** 🔹 Get last punch from TENANT DB */
+    const lastPunch = await getLastPunchRecordByEmpId(employeeId, orgId);
 
-    if (!lastPunchRecord || lastPunchRecord.punch_status === "Punch Out") {
-      await insertPunchIn(matchedEmployee, now, device, location);
-      return res.status(200).json({
+    if (!lastPunch || lastPunch.punch_status === "Punch Out") {
+      await insertPunchIn(employeeId, now, device, location, orgId);
+      return res.json({
         message: "Punch In successful",
-        employee_id: matchedEmployee,
+        employee_id: employeeId,
         employee_name: employeeName,
-      });
-    } else {
-      await updatePunchOut(lastPunchRecord.punch_id, now, device, location);
-      return res.status(200).json({
-        message: "Punch Out successful",
-        employee_id: matchedEmployee,
-        employee_name: employeeName,
+        punchType: "punch-in",
       });
     }
-  } catch (err) {
-    console.error("❌ Error in handling face punch:", err);
-    res.status(500).json({ message: "Internal server error" });
+
+    await updatePunchOut(
+      lastPunch.punch_id,
+      now,
+      device,
+      location,
+      orgId
+    );
+
+    return res.json({
+      message: "Punch Out successful",
+      employee_id: employeeId,
+      employee_name: employeeName,
+      punchType: "punch-out",
+    });
+  } catch (error) {
+    console.error("❌ Face punch error:", error);
+    return res.status(500).json({ message: "Internal server error" });
   }
+};
+
+module.exports = {
+  handleFacePunch,
 };

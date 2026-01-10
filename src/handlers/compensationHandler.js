@@ -9,37 +9,7 @@ const {
   getEmployeesByDepartmentId,
 } = require("../services/compensationService");
 
-// Add compensation record
 
-// const addCompensationHandler = async (req, res) => {
-//   try {
-//     const { compensation_plan_name, plan_data, org_id } = req.body;
-
-//     if (!org_id || !compensation_plan_name || typeof plan_data !== "object") {
-//       return res.status(400).json({
-//         error: "Missing org_id, compensation_plan_name or invalid plan_data",
-//       });
-//     }
-
-//     const result = await addCompensation({
-//       compensationPlanName: compensation_plan_name,
-//       formData: plan_data,
-//       org_id,
-//     });
-
-//     res.status(201).json({
-//       success: true,
-//       message: "Compensation plan added successfully",
-//       data: result,
-//     });
-//   } catch (error) {
-//     console.error("Error adding compensation plan:", error);
-//     res.status(500).json({
-//       error: "Failed to add compensation plan",
-//       details: error.message,
-//     });
-//   }
-// };
 
 const addCompensationHandler = async (req, res) => {
   try {
@@ -75,29 +45,7 @@ const addCompensationHandler = async (req, res) => {
   }
 };
 
-// Get all compensation records
-// const getAllCompensationsHandler = async (req, res) => {
-//   try {
-//     const { org_id } = req.query;
 
-//     if (!org_id) {
-//       return res.status(400).json({ error: "org_id missing" });
-//     }
-
-//     const compensations = await getAllCompensations(org_id);
-
-//     res.status(200).json({
-//       success: true,
-//       data: compensations,
-//     });
-//   } catch (error) {
-//     console.error("Error fetching compensations:", error);
-//     res.status(500).json({
-//       error: "Failed to fetch compensations",
-//       details: error.message,
-//     });
-//   }
-// };
 const getAllCompensationsHandler = async (req, res) => {
   try {
     const org_id = req.headers['x-org-id'];
@@ -147,8 +95,7 @@ const getCompensationByEmployeeIdHandler = async (req, res) => {
   }
 };
 
-// Update compensation
-// handlers/compensationHandler.js
+
 const updateCompensationHandler = async (req, res) => {
   try {
     const { id } = req.params;
@@ -182,7 +129,7 @@ const { compensationPlanName, formData, org_id } = req.body;
   }
 };
 
-// Delete compensation
+
 const deleteCompensationHandler = async (req, res) => {
   try {
     const { employeeId } = req.params;

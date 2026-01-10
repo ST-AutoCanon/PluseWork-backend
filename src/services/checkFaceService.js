@@ -1,4 +1,5 @@
-// services/checkFaceService.js
+
+
 const { getTenantPoolByOrgId } = require("../db/tenantPoolManager");
 const { CHECK_FACE_EXISTS } = require("../constants/checkFaceQuery");
 

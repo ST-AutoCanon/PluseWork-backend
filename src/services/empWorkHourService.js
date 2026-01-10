@@ -1,18 +1,27 @@
-const pool = require("../config");
+
+
+const { getTenantPool } = require("../db/tenantPoolManager");
 const { workHourSummaryQuery } = require("../constants/attendanceQueries");
 
-async function getWorkHourSummary(employeeId) {
+
+const getWorkHourSummary = async (employeeId) => {
   try {
-    const [rows] = await pool.execute(workHourSummaryQuery, [
+    // Get the tenant-specific pool (adjust 'tenant_1' if needed, or make it dynamic later)
+    const tenantPool = await getTenantPool("tenant_1");
+
+    const [rows] = await tenantPool.execute(workHourSummaryQuery, [
       employeeId,
       employeeId,
       employeeId,
     ]);
+
     return rows;
   } catch (error) {
-    console.error("❌ Error fetching work hour summary:", error);
-    throw error;
+    console.error("❌ Database error in getWorkHourSummary:", error);
+    throw error; // Let the controller handle the response
   }
-}
+};
 
-module.exports = { getWorkHourSummary };
+module.exports = {
+  getWorkHourSummary,
+};

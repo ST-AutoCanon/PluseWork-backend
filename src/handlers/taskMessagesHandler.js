@@ -1,8 +1,28 @@
+
+
+
 const service = require("../services/taskMessagesService");
+
+const getOrgIdFromHeaders = (req) => {
+  return (
+    req.headers["x-org-id"] ||
+    req.headers["x_org_id"] ||
+    req.headers["org-id"] ||
+    req.headers["orgid"] ||
+    null
+  );
+};
 
 const sendMessage = async (req, res) => {
   try {
+    const orgId = getOrgIdFromHeaders(req);
     const { taskId, type, text, sender } = req.body;
+
+    if (!orgId) {
+      return res
+        .status(400)
+        .json({ success: false, message: "org_id is required" });
+    }
 
     const messageObj = {
       type,
@@ -11,12 +31,12 @@ const sendMessage = async (req, res) => {
       sender,
     };
 
-    const messages = await service.getTaskMessages(taskId);
+    const messages = await service.getTaskMessages(orgId, taskId);
 
     if (!messages) {
-      await service.createTaskMessage(taskId, messageObj);
+      await service.createTaskMessage(orgId, taskId, messageObj);
     } else {
-      await service.appendTaskMessage(taskId, messageObj);
+      await service.appendTaskMessage(orgId, taskId, messageObj);
     }
 
     res.status(200).json({ success: true, message: "Message saved" });
@@ -28,8 +48,16 @@ const sendMessage = async (req, res) => {
 
 const getMessages = async (req, res) => {
   try {
+    const orgId = getOrgIdFromHeaders(req);
     const { taskId } = req.params;
-    const messages = await service.getTaskMessages(taskId);
+
+    if (!orgId) {
+      return res
+        .status(400)
+        .json({ success: false, message: "org_id is required" });
+    }
+
+    const messages = await service.getTaskMessages(orgId, taskId);
 
     if (!messages) {
       return res

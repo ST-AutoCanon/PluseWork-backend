@@ -1,11 +1,22 @@
-const db = require("../config");
+
+
+const {
+  getTenantPoolByOrgId,
+} = require("../db/tenantPoolManager");
+
 const {
   getTodayAndYesterdayPunchDataQuery,
 } = require("../constants/employeeloginQueries");
 
 const fetchTodayAndYesterdayData = async (org_id) => {
   try {
-    const [rows] = await db.query(getTodayAndYesterdayPunchDataQuery, [org_id]);
+    const tenantDb = await getTenantPoolByOrgId(org_id);
+
+    const [rows] = await tenantDb.query(
+      getTodayAndYesterdayPunchDataQuery,
+      [org_id]
+    );
+
     return rows;
   } catch (error) {
     console.error("Error fetching punch data:", error);

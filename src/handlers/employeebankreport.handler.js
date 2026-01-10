@@ -1,9 +1,8 @@
-// employeebankreport.handler.js
 const { getEmployeePersonalDetails } = require('./../services/employeebankreport.service');
 
 async function fetchEmployeeBankDetails(req, res) {
   try {
-    const { employeeIds } = req.body; // Expect array of employee IDs in request body
+    const { employeeIds } = req.body; 
     if (!employeeIds || !Array.isArray(employeeIds)) {
       return res.status(400).json({ error: 'Invalid or missing employeeIds array' });
     }

@@ -2,20 +2,41 @@
 
 const taskService = require("../services/tasksServices");
 
+// Reuse the same flexible orgId extraction as other modules
+const getOrgIdFromHeaders = (req) => {
+  return (
+    req.headers["x-org-id"] ||
+    req.headers["x_org_id"] ||
+    req.headers["org-id"] ||
+    req.headers["orgid"] ||
+    null
+  );
+};
+
 const taskHandler = {
   createTask: async (req, res) => {
     try {
-      const taskId = await taskService.createTask(req.body);
+      const orgId = getOrgIdFromHeaders(req);
+      if (!orgId) {
+        return res.status(400).json({ error: "Missing required header: x-org-id" });
+      }
+
+      const taskId = await taskService.createTask(req.body, orgId);
       res.status(201).json({ message: "Task created successfully", taskId });
     } catch (error) {
       console.error("Error creating task:", error);
-      res.status(500).json({ error: "Internal Server Error" });
+      res.status(500).json({ error: "Internal Server Error", details: error.message });
     }
   },
 
   getAllTasks: async (req, res) => {
     try {
-      const tasks = await taskService.getAllTasks();
+      const orgId = getOrgIdFromHeaders(req);
+      if (!orgId) {
+        return res.status(400).json({ error: "Missing required header: x-org-id" });
+      }
+
+      const tasks = await taskService.getAllTasks(orgId);
       res.json(tasks);
     } catch (error) {
       console.error("Error fetching tasks:", error);
@@ -25,7 +46,12 @@ const taskHandler = {
 
   getTaskById: async (req, res) => {
     try {
-      const task = await taskService.getTaskById(req.params.id);
+      const orgId = getOrgIdFromHeaders(req);
+      if (!orgId) {
+        return res.status(400).json({ error: "Missing required header: x-org-id" });
+      }
+
+      const task = await taskService.getTaskById(req.params.id, orgId);
       if (!task) {
         return res.status(404).json({ error: "Task not found" });
       }
@@ -36,12 +62,15 @@ const taskHandler = {
     }
   },
 
-  
-
   deleteTask: async (req, res) => {
     try {
-      const affectedRows = await taskService.deleteTask(req.params.id);
-      if (!affectedRows) {
+      const orgId = getOrgIdFromHeaders(req);
+      if (!orgId) {
+        return res.status(400).json({ error: "Missing required header: x-org-id" });
+      }
+
+      const affectedRows = await taskService.deleteTask(req.params.id, orgId);
+      if (affectedRows === 0) {
         return res.status(404).json({ error: "Task not found" });
       }
       res.json({ message: "Task deleted successfully" });
@@ -49,7 +78,7 @@ const taskHandler = {
       console.error("Error deleting task:", error);
       res.status(500).json({ error: "Internal Server Error" });
     }
-  }
+  },
 };
 
 module.exports = taskHandler;

@@ -1,18 +1,54 @@
-const { saveFaceData, getEmployeeName } = require('../services/faceService');
+const { saveFaceData, getEmployeeName } = require("../services/faceService");
+
+/**
+ * Extract org_id safely (same pattern you use elsewhere)
+ */
+function getOrgId(req) {
+  return (
+    req.headers["x-org-id"] ||
+    req.headers["x_org_id"] ||
+    req.body.org_id ||
+    null
+  );
+}
 
 async function handleSaveFaceData(req, res) {
-  const { employee_id, descriptors } = req.body;
   try {
-    const first_name = await getEmployeeName(employee_id);
-    if (!first_name) {
-      return res.status(404).json({ error: 'Employee not found.' });
+    const orgId = getOrgId(req);
+    const { employee_id, descriptors } = req.body;
+
+    if (!orgId) {
+      return res
+        .status(400)
+        .json({ success: false, message: "org_id is required" });
     }
 
-    await saveFaceData(employee_id, first_name, descriptors);
-    res.json({ message: 'Face data saved successfully.' });
+    if (!employee_id || !descriptors) {
+      return res
+        .status(400)
+        .json({ success: false, message: "employee_id and descriptors required" });
+    }
+
+    const first_name = await getEmployeeName(orgId, employee_id);
+
+    if (!first_name) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Employee not found" });
+    }
+
+    await saveFaceData(orgId, employee_id, first_name, descriptors);
+
+    res.json({
+      success: true,
+      message: "Face data saved successfully",
+    });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Failed to save face data.' });
+    console.error("handleSaveFaceData error:", err);
+    res.status(500).json({
+      success: false,
+      message: "Failed to save face data",
+    });
   }
 }
 

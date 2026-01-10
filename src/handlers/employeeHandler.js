@@ -21,18 +21,14 @@ const getWebPath = (fullPath) => {
 const mapUploadedFilesToData = (req, data) => {
   if (!req.files) return;
 
-  // multer({}).any() yields an array of files; normalize to an object keyed by fieldname
   const filesByField = Array.isArray(req.files)
     ? req.files.reduce((acc, f) => {
-        // normalize base fieldname: remove trailing [] and patterns like [0][file]
         const raw = String(f.fieldname || "");
         const base = raw
           .replace(/\[\]$/, "")
           .replace(/\[\d+\]\[(?:doc|file)\]$/, "");
-        // always push into the canonical base key once
         acc[base] = acc[base] || [];
         acc[base].push(f);
-        // keep original fieldname mapping only if different from base
         if (raw !== base) {
           acc[raw] = acc[raw] || [];
           acc[raw].push(f);
@@ -41,7 +37,6 @@ const mapUploadedFilesToData = (req, data) => {
       }, {})
     : req.files;
 
-  // Handle bracketed fields like additional_certs[0][file] and experience[0][doc]
   if (Array.isArray(req.files)) {
     for (const f of req.files) {
       try {
@@ -77,7 +72,6 @@ const mapUploadedFilesToData = (req, data) => {
   const multiple = (key) => {
     const arr = filesByField[key];
     if (!arr || !arr.length) return null;
-    // map to web paths and dedupe
     const mapped = arr.map((f) => getWebPath(f.path));
     return Array.from(new Set(mapped));
   };
@@ -106,8 +100,6 @@ const mapUploadedFilesToData = (req, data) => {
   data.resume_url = multiple("resume") || data.resume_url;
   data.other_docs_urls = multiple("other_docs") || data.other_docs_urls;
 
-  // Generic mapping: for any uploaded field not explicitly handled above,
-  // try to set a sensible data property (e.g. `tenth_cert` -> `tenth_cert_url`).
   try {
     console.debug(
       "[mapUploadedFilesToData] filesByField keys:",
@@ -133,7 +125,6 @@ const mapUploadedFilesToData = (req, data) => {
 
       for (const ck of candidateKeys) {
         if (!ck) continue;
-        // treat undefined, null, empty-array or empty-string as empty and allow overwrite
         const cur = data[ck];
         const isEmptyString = typeof cur === "string" && cur.trim() === "";
         if (

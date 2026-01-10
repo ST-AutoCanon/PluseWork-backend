@@ -1,3 +1,5 @@
+
+
 const {
   fetchEmployeesBySupervisor,
   fetchAllEmployees,
@@ -10,17 +12,31 @@ const {
   fetchHolidays,
 } = require("../services/weekly_task_supervisor_service");
 
-const getSupervisorId = (req) => {
-  return req.headers["x-employee-id"] || req.params.supervisorId;
+
+// Flexible orgId extraction (same as holiday upload)
+const getOrgIdFromHeaders = (req) => {
+  return (
+    req.headers["x-org-id"] ||
+    req.headers["x_org_id"] ||
+    req.headers["org-id"] ||
+    req.headers["orgid"] ||
+    null
+  );
 };
 
+// Supervisor ID: from header or route param
+const getSupervisorId = (req) => {
+  return req.headers["x-employee-id"] || req.params.supervisorId || req.params.employeeId;
+};
 const getEmployees = async (req, res) => {
   try {
-    const supervisorId = getSupervisorId(req);
-    if (!supervisorId)
-      return res.status(400).json({ error: "Supervisor ID required" });
+    const orgId = getOrgIdFromHeaders(req);
+    const supervisorId = req.headers["x-employee-id"];  // ← changed
 
-    const employees = await fetchEmployeesBySupervisor(supervisorId);
+    if (!orgId) return res.status(400).json({ error: "Missing x-org-id header" });
+    if (!supervisorId) return res.status(400).json({ error: "Supervisor ID required" });
+
+    const employees = await fetchEmployeesBySupervisor(supervisorId, orgId);
     res.json({ success: true, employees });
   } catch (err) {
     console.error("Error fetching employees:", err);
@@ -30,22 +46,28 @@ const getEmployees = async (req, res) => {
 
 const getAllEmployees = async (req, res) => {
   try {
-    const supervisorId = getSupervisorId(req);
-    if (!supervisorId)
-      return res.status(400).json({ error: "Supervisor ID required" });
+    const orgId = getOrgIdFromHeaders(req);
+    const supervisorId = req.headers["x-employee-id"];  // ← changed
 
-    const employees = await fetchAllEmployees(supervisorId);
+    if (!orgId) return res.status(400).json({ error: "Missing x-org-id header" });
+    if (!supervisorId) return res.status(400).json({ error: "Supervisor ID required" });
+
+    const employees = await fetchAllEmployees(supervisorId, orgId);
     res.json({ success: true, employees });
   } catch (err) {
     console.error("Error fetching all employees:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 };
-
 const getTasks = async (req, res) => {
   try {
-    const supervisorId = req.params.supervisorId;
-    const tasks = await fetchTasksBySupervisor(supervisorId);
+    const orgId = getOrgIdFromHeaders(req);
+    const supervisorId = req.headers["x-employee-id"];  // exact header your frontend sends
+
+    if (!orgId) return res.status(400).json({ error: "Missing x-org-id header" });
+    if (!supervisorId) return res.status(400).json({ error: "Supervisor ID required" });
+
+    const tasks = await fetchTasksBySupervisor(supervisorId, orgId);
     res.json({ success: true, data: tasks });
   } catch (err) {
     console.error("Error fetching tasks:", err);
@@ -53,13 +75,16 @@ const getTasks = async (req, res) => {
   }
 };
 
+
 const getAllTasks = async (req, res) => {
   try {
+    const orgId = getOrgIdFromHeaders(req);
     const supervisorId = getSupervisorId(req);
-    if (!supervisorId)
-      return res.status(400).json({ error: "Supervisor ID required" });
 
-    const tasks = await fetchAllTasks(supervisorId);
+    if (!orgId) return res.status(400).json({ error: "Missing x-org-id header" });
+    if (!supervisorId) return res.status(400).json({ error: "Supervisor ID required" });
+
+    const tasks = await fetchAllTasks(supervisorId, orgId);
     res.json({ success: true, data: tasks });
   } catch (err) {
     console.error("Error fetching all tasks:", err);
@@ -69,9 +94,13 @@ const getAllTasks = async (req, res) => {
 
 const updateTask = async (req, res) => {
   try {
+    const orgId = getOrgIdFromHeaders(req);
+    if (!orgId) return res.status(400).json({ error: "Missing x-org-id header" });
+
     const taskId = req.params.taskId;
     const updateData = req.body;
-    const result = await updateTaskById(taskId, updateData);
+
+    const result = await updateTaskById(taskId, updateData, orgId);
     if (result.affectedRows === 0) {
       return res.status(404).json({ error: "Task not found" });
     }
@@ -84,11 +113,12 @@ const updateTask = async (req, res) => {
 
 const createTask = async (req, res) => {
   try {
+    const orgId = getOrgIdFromHeaders(req);
+    if (!orgId) return res.status(400).json({ error: "Missing x-org-id header" });
+
     const taskData = req.body;
-    const newTask = await insertNewTask(taskData);
-    res
-      .status(201)
-      .json({ success: true, message: "Task created successfully", newTask });
+    const newTask = await insertNewTask(taskData, orgId);
+    res.status(201).json({ success: true, message: "Task created successfully", newTask });
   } catch (err) {
     console.error("Error creating task:", err);
     res.status(500).json({ error: "Internal server error" });
@@ -97,9 +127,13 @@ const createTask = async (req, res) => {
 
 const getConfig = async (req, res) => {
   try {
+    const orgId = getOrgIdFromHeaders(req);
     const supervisorId = getSupervisorId(req);
-    const rows = await fetchConfig(supervisorId);
 
+    if (!orgId) return res.status(400).json({ error: "Missing x-org-id header" });
+    if (!supervisorId) return res.status(400).json({ error: "Supervisor ID required" });
+
+    const rows = await fetchConfig(supervisorId, orgId);
     const configData = rows.reduce((acc, row) => {
       acc[row.key] = row.value;
       return acc;
@@ -114,9 +148,14 @@ const getConfig = async (req, res) => {
 
 const updateConfigValue = async (req, res) => {
   try {
-    const { key, value } = req.body;
+    const orgId = getOrgIdFromHeaders(req);
     const supervisorId = getSupervisorId(req);
-    await updateConfig(key, value, supervisorId);
+    const { key, value } = req.body;
+
+    if (!orgId) return res.status(400).json({ error: "Missing x-org-id header" });
+    if (!supervisorId) return res.status(400).json({ error: "Supervisor ID required" });
+
+    await updateConfig(key, value, supervisorId, orgId);
     res.json({ success: true, message: "Config updated successfully" });
   } catch (err) {
     console.error("Error updating config:", err);
@@ -126,11 +165,13 @@ const updateConfigValue = async (req, res) => {
 
 const getHolidays = async (req, res) => {
   try {
+    const orgId = getOrgIdFromHeaders(req);
     const supervisorId = getSupervisorId(req);
-    if (!supervisorId)
-      return res.status(400).json({ error: "Supervisor ID required" });
 
-    const holidays = await fetchHolidays(supervisorId);
+    if (!orgId) return res.status(400).json({ error: "Missing x-org-id header" });
+    if (!supervisorId) return res.status(400).json({ error: "Supervisor ID required" });
+
+    const holidays = await fetchHolidays(supervisorId, orgId);
     res.json({ success: true, holidays });
   } catch (err) {
     console.error("Error fetching holidays:", err);

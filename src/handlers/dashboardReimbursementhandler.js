@@ -1,9 +1,20 @@
 const reimbursementService = require("../services/dashboardReimbursementservice");
 
+const extractOrgId = (req) =>
+  req.headers["x-org-id"] ||
+  req.query.orgId ||
+  (req.user && (req.user.orgId || req.user.Org_id || req.user.org_id));
+
 const getReimbursementStats = async (req, res) => {
   try {
     const { employeeId } = req.params;
-    const stats = await reimbursementService.getReimbursementStats(employeeId);
+    const orgId = extractOrgId(req);
+
+    if (!orgId) {
+      return res.status(400).json({ message: "orgId is required" });
+    }
+
+    const stats = await reimbursementService.getReimbursementStats(employeeId, orgId);
 
     const formattedResponse = {
       currentMonth: {

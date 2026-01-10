@@ -1,4 +1,5 @@
-// handlers/checkFaceHandler.js
+
+
 const { checkFaceExists } = require("../services/checkFaceService");
 const ErrorHandler = require("../utils/errorHandler");
 

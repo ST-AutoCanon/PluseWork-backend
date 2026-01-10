@@ -1,13 +1,10 @@
-// handlers/employeeQueries.js
 const EmployeeQueries = require("../services/employeeQueries");
 const ErrorHandler = require("../utils/errorHandler");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 
-/**
- * Resolve orgId helper (checks headers, query, body, user)
- */
+
 const resolveOrgIdFromReq = (req) => {
   return (
     req.headers["x-org-id"] ||

@@ -1,7 +1,11 @@
-const db = require("../config");
-const queries = require("../constants/weekTaskQueries");
 
-exports.createWeekTask = async (taskData) => {
+
+const queries = require("../constants/weekTaskQueries");
+const { getTenantPoolByOrgId } = require("../db/tenantPoolManager");
+
+exports.createWeekTask = async (orgId, taskData) => {
+  const db = await getTenantPoolByOrgId(orgId);
+
   const [result] = await db.query(queries.INSERT_WEEK_TASK, [
     taskData.week_id,
     taskData.task_date,
@@ -16,22 +20,28 @@ exports.createWeekTask = async (taskData) => {
     taskData.employee_id || null,
     taskData.star_rating || null,
   ]);
+
   return result.insertId;
 };
 
-exports.getWeekTasksByWeek = async (week_id) => {
+exports.getWeekTasksByWeek = async (orgId, week_id) => {
+  const db = await getTenantPoolByOrgId(orgId);
   const [rows] = await db.query(queries.GET_WEEK_TASKS_BY_WEEK, [week_id]);
   return rows;
 };
 
-exports.getWeekTasksByEmployee = async (employee_id) => {
-  const [rows] = await db.query(queries.GET_WEEK_TASKS_BY_EMPLOYEE, [
-    employee_id,
-  ]);
+exports.getWeekTasksByEmployee = async (orgId, employee_id) => {
+  const db = await getTenantPoolByOrgId(orgId);
+  const [rows] = await db.query(
+    queries.GET_WEEK_TASKS_BY_EMPLOYEE,
+    [employee_id]
+  );
   return rows;
 };
 
-exports.updateWeekTask = async (task_id, taskData) => {
+exports.updateWeekTask = async (orgId, task_id, taskData) => {
+  const db = await getTenantPoolByOrgId(orgId);
+
   const [result] = await db.query(queries.UPDATE_WEEK_TASK, [
     taskData.project_id,
     taskData.project_name,
@@ -45,10 +55,12 @@ exports.updateWeekTask = async (task_id, taskData) => {
     taskData.star_rating || null,
     task_id,
   ]);
+
   return result.affectedRows;
 };
 
-exports.deleteWeekTask = async (task_id) => {
+exports.deleteWeekTask = async (orgId, task_id) => {
+  const db = await getTenantPoolByOrgId(orgId);
   const [result] = await db.query(queries.DELETE_WEEK_TASK, [task_id]);
   return result.affectedRows;
 };

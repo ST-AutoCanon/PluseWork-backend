@@ -8,6 +8,7 @@ const session = require("express-session");
 const { Server } = require("socket.io");
 const webpush = require("web-push");
 const cron = require("node-cron");
+const configRoutes = require("./routes/configRoutes");
 
 const supervisorEmployeesRoutes = require("./routes/supervisorEmployeesRoutes");
 const supervisorRoutes = require("./routes/supervisorRoutes");
@@ -17,7 +18,6 @@ const taskMessagesRoutes = require("./routes/taskMessagesRoutes");
 const employeeTaskRoutes = require("./routes/employeeTaskUpdateRoutes");
 const weeklyTaskSupervisorRoutes = require("./routes/weekly_task_supervisor");
 const weekTaskRoutes = require("./routes/weekTaskRoutes");
-const configRoutes = require("./routes/configRoutes");
 
 const compensationRoutes = require("./routes/compensationRoutes");
 const assignCompensationRoutes = require("./routes/assignCompensationRoute");
@@ -88,6 +88,7 @@ const sidebarRoutes = require("./routes/sidebarRoutes");
 const policyNotificationService = require("./services/policyNotificationService");
 const { scheduleJob } = require("./jobs/profileMissingNotifier");
 const organizationTableRoutes = require("./routes/organizationTableRoutes");
+const subordinateRoutes = require("./routes/subordinateRoutes");
 
 const app = express();
 const server = http.createServer(app);
@@ -102,6 +103,7 @@ const allowedOrigins = [
   "capacitor://localhost",
   "https://sukalpatechsolutions.com",
   "https://sts-test.site",
+  
   "http://localhost:3001",
   "http://127.0.0.1:3001",
   "http://192.168.1.2:3001",
@@ -280,6 +282,18 @@ app.use((req, res, next) => {
 
     app.use("/api", organizationTableRoutes);
     app.use("/api", sidebarRoutes);
+    app.use("/api", configRoutes);
+
+    app.use("/api/weekly_task_supervisor", weeklyTaskSupervisorRoutes);
+    app.use("/api/week_tasks", weekTaskRoutes);
+    app.use("/api/tasks", taskRoutes);
+    app.use("/api/messages", taskMessagesRoutes);
+    app.use("/api/supervisor", supervisorRoutes);
+    app.use("/api/supervisor", supervisorEmployeesRoutes);
+    app.use("/api/task-emp-emp", taskEmployeesRoutes);
+    app.use("/api/employee-tasks", employeeTaskRoutes);
+app.use("/api/subordinate", subordinateRoutes);
+app.use("/face-punch", face_admin_page);
 
     app.use("/", holidayRoutes);
     app.use("/", loginRoutes);
@@ -328,14 +342,13 @@ app.use((req, res, next) => {
     app.use("/api/overtime", overtimeRoutes);
     app.use("/api/overtime-summary", overtimeSummaryRoutes);
     app.use("/api", salaryPeriodRoutes);
-    app.use("/api/compensations", compensationRoutes);
+   
     app.use("/api/compensation", assignCompensationRoutes);
     app.use("/api", employeeRoutesforsalarybreakup);
     app.use("/api/salary-details", salaryDetailsRoutes);
     app.use("/api/compensation", employeeBankReportRoutes);
     app.use("/api/lop", lossofPayCalculationRoutes);
 
-    app.use("/api/compensations", compensationRoutes);
     app.use("/api/compensation", assignCompensationRoutes);
     app.use("/api/overtime", overtimeRoutes);
     app.use("/api/overtime-summary", overtimeSummaryRoutes);
@@ -348,7 +361,6 @@ app.use((req, res, next) => {
     app.use("/api", letterheadRoutes);
     app.use("/api", letterheadTemplateRoutes);
     app.use("/api/templates", letterheadTemplateRoutes);
-    app.use("/api/compensations", compensationRoutes);
     app.use("/api/compensation", assignCompensationRoutes);
     app.use("/api/overtime", overtimeRoutes);
     app.use("/api/overtime-summary", overtimeSummaryRoutes);
@@ -356,15 +368,7 @@ app.use((req, res, next) => {
     app.use("/api/lop", lossofPayCalculationRoutes);
     app.use("/api/leave-policies", leavePolicy);
 
-    app.use("/api/weekly_task_supervisor", weeklyTaskSupervisorRoutes);
-    app.use("/api/week_tasks", weekTaskRoutes);
-    app.use("/api/tasks", taskRoutes);
-    app.use("/api/messages", taskMessagesRoutes);
-    app.use("/api/supervisor", supervisorRoutes);
-    app.use("/api/supervisor", supervisorEmployeesRoutes);
-    app.use("/api", configRoutes);
-    app.use("/api/task-emp-emp", taskEmployeesRoutes);
-    app.use("/api/employee-tasks", employeeTaskRoutes);
+    app.use("/api/compensations", compensationRoutes);
 
     app.get("/", (req, res) => res.send("Employee Face Recognition API"));
 
@@ -452,8 +456,7 @@ app.use((req, res, next) => {
         `[socket] connected ${socket.id} userId=${socket.userId} via=${socket.authenticatedBy} orgId=${socketOrgId}`
       );
 
-      // If orgId present, join tenant rooms;
-      // otherwise log and continue — tenant chat calls will be skipped.
+  
       if (socket.userId && socketOrgId) {
         (async () => {
           try {
@@ -476,7 +479,7 @@ app.use((req, res, next) => {
         );
       }
 
-      // Threads (EmployeeQueries) still use master DB; keep joining
+
       if (socket.userId) {
         EmployeeQueries.getThreadsByEmployee(socket.userId)
           .then((threads) => {
@@ -495,7 +498,6 @@ app.use((req, res, next) => {
         }
       });
 
-      // Query messages (employee queries): unchanged
       socket.on("sendQueryMessage", async (payload, callback) => {
         try {
           if (!payload || !payload.thread_id) {
@@ -557,7 +559,6 @@ app.use((req, res, next) => {
         }
       });
 
-      // Regular chat messages (tenant-scoped) - now include orgId param
       socket.on("send_message", async (payload = {}, ack) => {
         try {
           const orgId = socketOrgId || resolveOrgIdFromSocket(socket);
@@ -639,7 +640,6 @@ app.use((req, res, next) => {
         }
       });
 
-      // create_room — pass orgId into service
       socket.on(
         "create_room",
         async ({ name, isGroup, members } = {}, callback) => {

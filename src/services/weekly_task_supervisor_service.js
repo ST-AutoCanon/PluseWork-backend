@@ -1,4 +1,6 @@
-const db = require("../config");
+
+
+const { getTenantPool, sanitizeDbName } = require("../db/tenantPoolManager");
 const {
   GET_EMPLOYEES_BY_SUPERVISOR,
   GET_ALL_EMPLOYEES,
@@ -11,33 +13,53 @@ const {
   GET_HOLIDAYS,
 } = require("../constants/weeklyTaskSupervisorConstants");
 
-const fetchEmployeesBySupervisor = async (supervisorId) => {
-  const [rows] = await db.query(GET_EMPLOYEES_BY_SUPERVISOR, [
+/**
+ * Get tenant pool for given orgId
+ */
+async function getTenantPoolForOrgId(orgId) {
+  if (!orgId) {
+    const err = new Error("orgId required to get tenant pool");
+    err.code = "ORG_REQUIRED";
+    throw err;
+  }
+  const dbName = sanitizeDbName(`tenant_${orgId}`);
+  return getTenantPool(dbName);
+}
+
+const fetchEmployeesBySupervisor = async (supervisorId, orgId) => {
+  if (!orgId) throw new Error("orgId is required");
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  const [rows] = await tenantPool.query(GET_EMPLOYEES_BY_SUPERVISOR, [
     supervisorId,
     supervisorId,
   ]);
   return rows;
 };
 
-const fetchAllEmployees = async (supervisorId) => {
-  const [rows] = await db.query(GET_ALL_EMPLOYEES, [supervisorId]);
+const fetchAllEmployees = async (supervisorId, orgId) => {
+  if (!orgId) throw new Error("orgId is required");
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  const [rows] = await tenantPool.query(GET_ALL_EMPLOYEES, [supervisorId]);
   return rows;
 };
 
-const fetchTasksBySupervisor = async (supervisorId) => {
-  const [rows] = await db.query(GET_TASKS_BY_SUPERVISOR, [
-    supervisorId,
-    supervisorId,
-  ]);
+const fetchTasksBySupervisor = async (supervisorId, orgId) => {
+  if (!orgId) throw new Error("orgId is required");
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  const [rows] = await tenantPool.query(GET_TASKS_BY_SUPERVISOR, [supervisorId]); // ← ONLY ONE!
   return rows;
 };
 
-const fetchAllTasks = async (supervisorId) => {
-  const [rows] = await db.query(GET_ALL_TASKS, [supervisorId]);
+const fetchAllTasks = async (supervisorId, orgId) => {
+  if (!orgId) throw new Error("orgId is required");
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  const [rows] = await tenantPool.query(GET_ALL_TASKS, [supervisorId]);
   return rows;
 };
 
-const updateTaskById = async (taskId, updateData) => {
+const updateTaskById = async (taskId, updateData, orgId) => {
+  if (!orgId) throw new Error("orgId is required");
+
   const {
     sup_status,
     sup_comment,
@@ -48,21 +70,35 @@ const updateTaskById = async (taskId, updateData) => {
     project_name,
   } = updateData;
 
-  const [result] = await db.query(UPDATE_TASK_BY_ID, [
-    sup_status || "incomplete",
-    sup_comment || null,
-    sup_review_status || "pending",
-    replacement_task || null,
-    star_rating || 0,
-    project_id,
-    project_name,
-    taskId,
-  ]);
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  const conn = await tenantPool.getConnection();
 
-  return result;
+  try {
+    await conn.beginTransaction();
+    const [result] = await conn.query(UPDATE_TASK_BY_ID, [
+      sup_status || "incomplete",
+      sup_comment || null,
+      sup_review_status || "pending",
+      replacement_task || null,
+      star_rating || 0,
+      project_id,
+      project_name,
+      taskId,
+    ]);
+    await conn.commit();
+    return result;
+  } catch (err) {
+    await conn.rollback();
+    console.error("❌ updateTaskById error:", err);
+    throw err;
+  } finally {
+    conn.release();
+  }
 };
 
-const insertNewTask = async (taskData) => {
+const insertNewTask = async (taskData, orgId) => {
+  if (!orgId) throw new Error("orgId is required");
+
   const {
     week_id,
     task_date,
@@ -79,51 +115,69 @@ const insertNewTask = async (taskData) => {
     parent_task_id,
   } = taskData;
 
-  const [result] = await db.query(INSERT_NEW_TASK, [
-    week_id,
-    task_date,
-    project_id,
-    project_name,
-    task_name,
-    employee_id,
-    emp_status || "not started",
-    sup_status || "incomplete",
-    emp_comment || null,
-    sup_comment || null,
-    sup_review_status || "pending",
-    star_rating || 0,
-    parent_task_id || null,
-  ]);
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  const conn = await tenantPool.getConnection();
 
-  return {
-    task_id: result.insertId,
-    week_id,
-    task_date,
-    project_id,
-    project_name,
-    task_name,
-    employee_id,
-    emp_status: emp_status || "not started",
-    sup_status: sup_status || "incomplete",
-    emp_comment,
-    sup_comment,
-    sup_review_status: sup_review_status || "pending",
-    star_rating: star_rating || 0,
-    parent_task_id,
-  };
+  try {
+    await conn.beginTransaction();
+    const [result] = await conn.query(INSERT_NEW_TASK, [
+      week_id,
+      task_date,
+      project_id,
+      project_name,
+      task_name,
+      employee_id,
+      emp_status || "not started",
+      sup_status || "incomplete",
+      emp_comment || null,
+      sup_comment || null,
+      sup_review_status || "pending",
+      star_rating || 0,
+      parent_task_id || null,
+    ]);
+    await conn.commit();
+
+    return {
+      task_id: result.insertId,
+      week_id,
+      task_date,
+      project_id,
+      project_name,
+      task_name,
+      employee_id,
+      emp_status: emp_status || "not started",
+      sup_status: sup_status || "incomplete",
+      emp_comment,
+      sup_comment,
+      sup_review_status: sup_review_status || "pending",
+      star_rating: star_rating || 0,
+      parent_task_id,
+    };
+  } catch (err) {
+    await conn.rollback();
+    console.error("❌ insertNewTask error:", err);
+    throw err;
+  } finally {
+    conn.release();
+  }
 };
-
-const fetchConfig = async (supervisorId) => {
-  const [rows] = await db.query(GET_CONFIG, [supervisorId]);
+// FIXED fetchConfig
+const fetchConfig = async (supervisorId, orgId) => {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  const [rows] = await tenantPool.query(GET_CONFIG, [orgId]);
   return rows;
 };
 
-const updateConfig = async (key, value, supervisorId) => {
-  await db.query(UPDATE_CONFIG, [value, key, supervisorId]);
+// FIXED updateConfig
+const updateConfig = async (key, value, supervisorId, orgId) => {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  await tenantPool.query(UPDATE_CONFIG, [value, key, orgId]);
 };
 
-const fetchHolidays = async (supervisorId) => {
-  const [rows] = await db.query(GET_HOLIDAYS, [supervisorId]);
+// FIXED fetchHolidays
+const fetchHolidays = async (supervisorId, orgId) => {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  const [rows] = await tenantPool.query(GET_HOLIDAYS, [orgId]);
   return rows;
 };
 

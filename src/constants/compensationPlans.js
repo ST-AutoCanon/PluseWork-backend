@@ -8,11 +8,7 @@ const INSERT_COMPENSATION_WORKING_DAYS = `
   INSERT INTO compensation_working_days (compensation_plan_id, sunday, monday, tuesday, wednesday, thursday, friday, saturday)
   VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 `;
-////
 
-//
-
-//compensationplans
 
 const GET_ALL_COMPENSATION_PLANS = `
   SELECT *
@@ -86,22 +82,18 @@ const GET_EMPLOYEES_BY_DEPARTMENT_ID = `
   ORDER BY e.first_name ASC;
 `;
 
-/* ------------------- TDS Slab Queries ------------------- */
 
-// Insert new TDS slab
 const INSERT_TDS_SLAB = `
   INSERT INTO emp_tds_slabs (slab_from, slab_to, percentage, month, year)
   VALUES (?, ?, ?, ?, ?);
 `;
 
-// Get all TDS slabs for a given month/year
 const GET_TDS_SLABS_BY_MONTH_YEAR = `
   SELECT * FROM emp_tds_slabs
   WHERE month = ? AND year = ?
   ORDER BY slab_from ASC;
 `;
 
-// Get previous TDS slabs before a given month/year
 const GET_PREVIOUS_TDS_SLABS = `
   SELECT * FROM emp_tds_slabs
   WHERE (year < ?)

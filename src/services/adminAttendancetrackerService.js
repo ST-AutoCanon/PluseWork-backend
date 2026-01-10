@@ -1,8 +1,19 @@
-const db = require("../config");
 const queries = require("../constants/adminAttendancetracker");
+const { getTenantPool, sanitizeDbName } = require("../db/tenantPoolManager");
 
-const getMissingPunchInEmployees = async () => {
+async function getTenantPoolForOrgId(orgId) {
+  if (!orgId) {
+    const err = new Error("orgId required to get tenant pool");
+    err.code = "ORG_REQUIRED";
+    throw err;
+  }
+  const dbName = sanitizeDbName(`tenant_${orgId}`);
+  return getTenantPool(dbName);
+}
+
+const getMissingPunchInEmployees = async (orgId) => {
   try {
+    const db = await getTenantPoolForOrgId(orgId);
     const [rows] = await db.query(queries.GET_MISSING_PUNCH_IN_EMPLOYEES);
     return rows;
   } catch (error) {
@@ -11,8 +22,9 @@ const getMissingPunchInEmployees = async () => {
   }
 };
 
-const getEmployeesWithPunchInNotPunchedOut = async () => {
+const getEmployeesWithPunchInNotPunchedOut = async (orgId) => {
   try {
+    const db = await getTenantPoolForOrgId(orgId);
     const [rows] = await db.query(
       queries.GET_EMPLOYEES_WITH_PUNCH_IN_NOT_PUNCHED_OUT
     );
@@ -28,8 +40,9 @@ const getEmployeesWithPunchInNotPunchedOut = async () => {
   }
 };
 
-const getEmployeesWorkedLessThan8Hours = async () => {
+const getEmployeesWorkedLessThan8Hours = async (orgId) => {
   try {
+    const db = await getTenantPoolForOrgId(orgId);
     const [rows] = await db.query(
       queries.GET_EMPLOYEES_WORKED_LESS_THAN_8_HOURS
     );
@@ -43,8 +56,9 @@ const getEmployeesWorkedLessThan8Hours = async () => {
   }
 };
 
-const getEmployeesWorked8To10Hours = async () => {
+const getEmployeesWorked8To10Hours = async (orgId) => {
   try {
+    const db = await getTenantPoolForOrgId(orgId);
     const [rows] = await db.query(queries.GET_EMPLOYEES_WORKED_8_TO_10_HOURS);
     return rows;
   } catch (error) {
@@ -53,8 +67,9 @@ const getEmployeesWorked8To10Hours = async () => {
   }
 };
 
-const getApprovedLeavesCurrentMonth = async () => {
+const getApprovedLeavesCurrentMonth = async (orgId) => {
   try {
+    const db = await getTenantPoolForOrgId(orgId);
     const [rows] = await db.query(queries.GET_APPROVED_LEAVES_CURRENT_MONTH);
     return rows;
   } catch (error) {

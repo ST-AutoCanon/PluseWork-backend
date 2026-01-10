@@ -430,7 +430,7 @@ const handleApproveOvertimeRow = async (req, res) => {
 
 const handleRejectOvertimeRow = async (req, res) => {
   try {
-    const row = req.body; // expects a single overtime row object
+    const row = req.body;
     const result = await rejectOvertimeRow(row);
     res.status(200).json({
       success: true,

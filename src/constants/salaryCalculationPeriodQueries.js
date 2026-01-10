@@ -1,5 +1,4 @@
-// Raw SQL queries for salary_calculation_period table
-// Use parameterized queries to avoid SQL injection
+
 
 const ADD_SALARY_PERIOD = `
   INSERT INTO salary_calculation_period (cutoff_date) VALUES (?) 

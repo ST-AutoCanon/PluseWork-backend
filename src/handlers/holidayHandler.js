@@ -33,7 +33,6 @@ const getHolidays = async (req, res) => {
 
 const downloadTemplate = async (req, res) => {
   try {
-    // build an XLSX workbook with a data-validation dropdown for the `type` column
     const wb = XLSX.utils.book_new();
     const aoa = [
       ["date", "occasion", "type"],
@@ -41,8 +40,7 @@ const downloadTemplate = async (req, res) => {
     ];
     const ws = XLSX.utils.aoa_to_sheet(aoa);
 
-    // Add data validation for column C (type) on rows 2..1000 to restrict values
-    // formula1 expects a quoted comma-separated list
+
     ws["!dataValidation"] = [
       {
         sqref: "C2:C1000",

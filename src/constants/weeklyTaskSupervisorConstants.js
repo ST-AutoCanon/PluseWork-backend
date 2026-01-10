@@ -1,3 +1,5 @@
+
+
 module.exports = {
   GET_EMPLOYEES_BY_SUPERVISOR: `
     SELECT 
@@ -8,7 +10,6 @@ module.exports = {
     FROM employees e
     JOIN employee_professional p ON e.employee_id = p.employee_id
     WHERE p.supervisor_id = ?
-      AND e.org_id = (SELECT org_id FROM employees WHERE employee_id = ?)
       AND e.status = 'Active'
     ORDER BY e.first_name, e.last_name;
   `,
@@ -20,66 +21,79 @@ module.exports = {
       e.last_name,
       CONCAT(e.first_name, ' ', e.last_name) AS employee_name
     FROM employees e
-    WHERE e.org_id = (SELECT org_id FROM employees WHERE employee_id = ?)
-      AND e.status = 'Active'
+    WHERE e.status = 'Active'
     ORDER BY e.first_name, e.last_name;
   `,
 
   GET_TASKS_BY_SUPERVISOR: `
-    SELECT 
-      t.task_id,
-      t.week_id,
-      t.task_date,
-      t.project_id,
-      t.project_name,
-      t.task_name,
-      t.replacement_task,
-      t.employee_id,
-      CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
-      t.emp_status,
-      t.emp_comment,
-      t.sup_status,
-      t.sup_comment,
-      t.sup_review_status,
-      t.star_rating,
-      t.created_at,
-      t.updated_at,
-      t.parent_task_id
-    FROM weekly_tasks t
-    JOIN employee_professional p ON t.employee_id = p.employee_id
-    JOIN employees e ON t.employee_id = e.employee_id
-    WHERE p.supervisor_id = ?
-      AND e.org_id = (SELECT org_id FROM employees WHERE employee_id = ?)
-      AND e.status = 'Active'
-    ORDER BY t.task_date DESC, t.task_id ASC;
-  `,
+  WITH RECURSIVE employee_tree AS (
+    SELECT employee_id
+    FROM employee_professional
+    WHERE supervisor_id = ? COLLATE utf8mb4_0900_ai_ci
+
+    UNION ALL
+
+    SELECT p.employee_id
+    FROM employee_professional p
+    JOIN employee_tree et
+      ON p.supervisor_id = et.employee_id
+  )
+  SELECT 
+    t.task_id,
+    t.week_id,
+    t.task_date,
+    t.project_id,
+    t.project_name,
+    t.task_name,
+    t.replacement_task,
+    t.employee_id,
+    CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
+    t.emp_status,
+    t.emp_comment,
+    t.sup_status,
+    t.sup_comment,
+    t.sup_review_status,
+    t.star_rating,
+    t.created_at,
+    t.updated_at,
+    t.parent_task_id
+  FROM weekly_tasks t
+  JOIN employee_tree et 
+    ON t.employee_id = et.employee_id COLLATE utf8mb4_0900_ai_ci
+  JOIN employees e 
+    ON t.employee_id = e.employee_id COLLATE utf8mb4_0900_ai_ci
+  WHERE e.status = 'Active'
+  ORDER BY t.task_date DESC, t.task_id ASC;
+`,
 
   GET_ALL_TASKS: `
-    SELECT 
-      t.task_id,
-      t.week_id,
-      t.task_date,
-      t.project_id,
-      t.project_name,
-      t.task_name,
-      t.replacement_task,
-      t.employee_id,
-      CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
-      t.emp_status,
-      t.emp_comment,
-      t.sup_status,
-      t.sup_comment,
-      t.sup_review_status,
-      t.star_rating,
-      t.created_at,
-      t.updated_at,
-      t.parent_task_id
-    FROM weekly_tasks t
-    JOIN employees e ON t.employee_id = e.employee_id
-    WHERE e.org_id = (SELECT org_id FROM employees WHERE employee_id = ?)
-      AND e.status = 'Active'
-    ORDER BY t.task_date DESC, t.task_id ASC;
-  `,
+  SELECT 
+    t.task_id,
+    t.week_id,
+    t.task_date,
+    t.project_id,
+    t.project_name,
+    t.task_name,
+    t.replacement_task,
+    t.employee_id,
+    CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
+    t.emp_status,
+    t.emp_comment,
+    t.sup_status,
+    t.sup_comment,
+    t.sup_review_status,
+    t.star_rating,
+    t.created_at,
+    t.updated_at,
+    t.parent_task_id
+  FROM weekly_tasks t
+  JOIN employees e 
+    ON t.employee_id COLLATE utf8mb4_0900_ai_ci
+     = e.employee_id COLLATE utf8mb4_0900_ai_ci
+  WHERE e.status = 'Active'
+  ORDER BY t.task_date DESC, t.task_id ASC;
+`,
+
 
   UPDATE_TASK_BY_ID: `
     UPDATE weekly_tasks
@@ -103,21 +117,18 @@ module.exports = {
 
   GET_CONFIG: `
     SELECT \`key\`, \`value\`
-    FROM config
-    WHERE org_id IS NULL OR org_id = ?;
+    FROM config;
   `,
 
   UPDATE_CONFIG: `
     UPDATE config
     SET value = ?
-    WHERE \`key\` = ?
-      AND (org_id IS NULL OR org_id = ?);
+    WHERE \`key\` = ?;
   `,
 
   GET_HOLIDAYS: `
     SELECT id, date, occasion, type
     FROM holidays
-    WHERE org_id IS NULL OR org_id = ?
     ORDER BY date ASC;
   `,
 };

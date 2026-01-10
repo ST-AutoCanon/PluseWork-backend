@@ -1,6 +1,7 @@
 const ErrorHandler = require("../utils/errorHandler");
 
 const PUBLIC_PATHS = [
+  "/me",
   "/orgs",
   "/login",
   "/forgot-password",

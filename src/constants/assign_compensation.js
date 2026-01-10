@@ -51,7 +51,7 @@ module.exports = {
       )
   `,
 
- // In ../constants/assign_compensation.js
+ 
 GET_ASSIGNED_COMPENSATION_DETAILS: `
 SELECT 
     ac.id,
@@ -145,63 +145,7 @@ ADD_EMPLOYEE_BONUS_BULK: `
   LIMIT 0, 1000
 `,
 
-//   GET_EMPLOYEE_EXTRA_HOURS: `
-//   SELECT 
-//     ea.punch_id,
-//     ea.employee_id,
-//     CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
-//     DATE(ea.punchin_time) AS work_date,
-//     ea.punchin_time,
-//     ea.punchout_time,
 
-//     -- ✅ Total worked hours (handles overnight correctly)
-//     ROUND(TIMESTAMPDIFF(SECOND, ea.punchin_time, ea.punchout_time) / 3600, 2) AS total_worked_hours,
-
-//     -- ✅ Default working hours (from compensation plan)
-//     CAST(
-//       JSON_UNQUOTE(
-//         JSON_EXTRACT(cp.plan_data, '$.defaultWorkingHours')
-//       ) AS DECIMAL(5,2)
-//     ) AS default_working_hours,
-
-//     -- ✅ Extra hours only if worked > default
-//     GREATEST(
-//       ROUND(TIMESTAMPDIFF(SECOND, ea.punchin_time, ea.punchout_time) / 3600, 2)
-//       - CAST(JSON_UNQUOTE(JSON_EXTRACT(cp.plan_data, '$.defaultWorkingHours')) AS DECIMAL(5,2)),
-//       0
-//     ) AS extra_hours,
-
-//     COALESCE(od.status, 'Pending') AS status,
-//     COALESCE(od.rate, 0) AS rate,
-//     od.project,
-//     CONCAT(sup.first_name, ' ', sup.last_name) AS supervisor_name,
-//     od.comments
-
-//   FROM emp_attendence ea
-//   LEFT JOIN overtime_details od 
-//     ON ea.punch_id = od.punch_id
-//   LEFT JOIN employees e 
-//     ON ea.employee_id = e.employee_id
-//   LEFT JOIN employee_professional ep 
-//     ON e.employee_id = ep.employee_id
-//   LEFT JOIN employees sup 
-//     ON ep.supervisor_id = sup.employee_id
-
-//   -- ✅ Compensation plan joins
-//   LEFT JOIN assigned_compensations ac 
-//     ON JSON_UNQUOTE(JSON_EXTRACT(ac.assigned_data, '$.employee_id')) = e.employee_id
-//   LEFT JOIN compensation_plans cp 
-//     ON ac.compensation_plan_name = cp.compensation_plan_name
-
-//   WHERE 
-//     ea.punchin_time IS NOT NULL
-//     AND ea.punchout_time IS NOT NULL
-//     AND ea.punchin_time >= ?
-//     AND ea.punchin_time < DATE_ADD(?, INTERVAL 1 DAY)
-
-//   ORDER BY ea.employee_id, DATE(ea.punchin_time), ea.punchin_time
-
-// `
 
 GET_EMPLOYEE_EXTRA_HOURS: `
   SELECT 
