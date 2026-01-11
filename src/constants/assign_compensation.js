@@ -51,7 +51,7 @@ module.exports = {
       )
   `,
 
- 
+ // In ../constants/assign_compensation.js
 GET_ASSIGNED_COMPENSATION_DETAILS: `
 SELECT 
     ac.id,
@@ -89,17 +89,12 @@ LIMIT 0, 1000;
 
 
 ADD_EMPLOYEE_BONUS_BULK: `
-  INSERT INTO employee_bonus_details (
-    org_id,
-    percentage_ctc,
-    percentage_monthly_salary,
-    fixed_amount,
-    applicable_month,
-    created_at
-  )
-  VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-`
-,
+  INSERT INTO employee_bonus_details 
+  (org_id, percentage_ctc, percentage_monthly_salary, fixed_amount, applicable_month)
+  VALUES 
+  (?, ?, ?, ?, ?)
+`,
+
 
   GET_EMPLOYEE_BONUS_DETAILS: `
   SELECT 
@@ -143,6 +138,18 @@ ADD_EMPLOYEE_BONUS_BULK: `
   WHERE e.status = 'Active'
   ORDER BY ead.created_at DESC
   LIMIT 0, 1000
+`,
+ GET_ALL_OVERTIME_DETAILS : `
+  SELECT 
+    employee_id,
+    work_date,
+    overtime_hours,
+    status,
+    approved_by,
+    remarks
+  FROM employee_overtime
+  WHERE org_id = ?
+  ORDER BY work_date DESC
 `,
 
 

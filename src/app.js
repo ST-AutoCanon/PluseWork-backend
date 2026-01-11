@@ -89,7 +89,9 @@ const policyNotificationService = require("./services/policyNotificationService"
 const { scheduleJob } = require("./jobs/profileMissingNotifier");
 const organizationTableRoutes = require("./routes/organizationTableRoutes");
 const subordinateRoutes = require("./routes/subordinateRoutes");
-
+const salaryCalculationPeriodRoutes = require("./routes/salaryCalculationPeriodRoutes");
+const salaryPreferenceRoutes = require("./routes/salaryPreferenceRoutes");
+const payrollTemplateRoutes = require("./routes/payrollTemplateRoutes");
 const app = express();
 const server = http.createServer(app);
 
@@ -281,6 +283,8 @@ app.use((req, res, next) => {
     })();
 
     app.use("/api", organizationTableRoutes);
+    app.use("/api", payrollTemplateRoutes);
+    app.use("/api/salary-prefe", salaryPreferenceRoutes); 
     app.use("/api", sidebarRoutes);
     app.use("/api", configRoutes);
 
@@ -294,7 +298,7 @@ app.use((req, res, next) => {
     app.use("/api/employee-tasks", employeeTaskRoutes);
 app.use("/api/subordinate", subordinateRoutes);
 app.use("/face-punch", face_admin_page);
-
+require("./cron/autoPunchCron");
     app.use("/", holidayRoutes);
     app.use("/", loginRoutes);
     app.use("/", meRoute);
@@ -348,6 +352,11 @@ app.use("/face-punch", face_admin_page);
     app.use("/api/salary-details", salaryDetailsRoutes);
     app.use("/api/compensation", employeeBankReportRoutes);
     app.use("/api/lop", lossofPayCalculationRoutes);
+    app.use(
+  "/api/salaryCalculationperiods",
+  salaryCalculationPeriodRoutes
+);
+app.use("api/compensation", salaryRoutes2);
 
     app.use("/api/compensation", assignCompensationRoutes);
     app.use("/api/overtime", overtimeRoutes);

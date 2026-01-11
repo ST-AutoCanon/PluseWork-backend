@@ -1,21 +1,35 @@
+const moment = require("moment");
 
-
-const db = require("../config");
 const {
   checkIfTableExists,
   createTableQuery,
   insertSalaryData,
   getApprovedIdsQuery,
+  SALARY_COLUMNS,
+  MONETARY_COLUMNS,
 } = require("../constants/salaryDetailsQueries");
-const moment = require("moment");
 
-const tableExists = async (tableName) => {
-  const [result] = await db.query(checkIfTableExists(tableName));
-  return result[0].count > 0;
+const {
+  getTenantPool,
+  sanitizeDbName,
+} = require("../db/tenantPoolManager");
+
+/* ------------------------------------------------------------------
+   TENANT POOL RESOLVER (same pattern as assets module)
+------------------------------------------------------------------- */
+const getTenantPoolForOrgId = async (orgId) => {
+  if (!orgId) {
+    const err = new Error("orgId required to get tenant pool");
+    err.code = "ORG_REQUIRED";
+    throw err;
+  }
+  const dbName = sanitizeDbName(`tenant_${orgId}`);
+  return getTenantPool(dbName);
 };
 
-// ... rest unchanged ...
-
+/* ------------------------------------------------------------------
+   TABLE NAME GENERATOR
+------------------------------------------------------------------- */
 const generateTableName = (orgId, month = null, year = null) => {
   const now = moment();
   const m = (month || now.format("MMM")).toLowerCase();
@@ -24,111 +38,138 @@ const generateTableName = (orgId, month = null, year = null) => {
   return `${safeOrgId}_${m}_${y}`;
 };
 
-// ... rest of file unchanged (no throw) ...
-
-const getApprovedEmployeeIds = async (orgId) => {
-  const tableName = generateTableName(orgId);
-  if (!(await tableExists(tableName))) return [];
-
-  const [rows] = await db.query(getApprovedIdsQuery(tableName));
-  return rows.map((r) => r.employee_id);
+/* ------------------------------------------------------------------
+   CHECK TABLE EXISTS (TENANT DB)
+------------------------------------------------------------------- */
+const tableExists = async (orgId, tableName) => {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  const [rows] = await tenantPool.query(checkIfTableExists(tableName));
+  return rows[0]?.count > 0;
 };
 
-const getMonthlySalaryData = async (month, year, orgId) => {
-  const tableName = generateTableName(orgId, month, year);
-  if (!(await tableExists(tableName))) return [];
-
-  const [rows] = await db.query(`SELECT * FROM \`${tableName}\``);
-  return rows;
-};
-
-const createTableIfNotExists = async (tableName) => {
+/* ------------------------------------------------------------------
+   CREATE TABLE (TENANT DB)
+------------------------------------------------------------------- */
+const createTableIfNotExists = async (orgId, tableName) => {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
   const query = createTableQuery(tableName);
-  try {
-    await db.query(query);
-    return true;
-  } catch (error) {
-    console.error("Error creating table:", error);
-    throw new Error("Failed to create table.");
-  }
+  await tenantPool.query(query);
+  return true;
 };
 
-const ensureColumns = async (tableName) => {
-  const OTHER_COLUMNS =
-    require("../constants/salaryDetailsQueries").SALARY_COLUMNS.slice(1);
-  const ALL_COLUMNS = ["employee_id", ...OTHER_COLUMNS];
-  const MONETARY_COLUMNS =
-    require("../constants/salaryDetailsQueries").MONETARY_COLUMNS;
+/* ------------------------------------------------------------------
+   ENSURE ALL REQUIRED COLUMNS EXIST
+------------------------------------------------------------------- */
+const ensureColumns = async (orgId, tableName) => {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+
+  const ALL_COLUMNS = ["employee_id", ...SALARY_COLUMNS.slice(1)];
 
   for (const col of ALL_COLUMNS) {
-    try {
-      const [rows] = await db.query(
-        `SHOW COLUMNS FROM \`${tableName}\` LIKE '${col.replace(/`/g, "\\`")}';`
-      );
-      if (rows.length === 0) {
-        let type;
-        if (col === "employee_id") {
-          type = "VARCHAR(50) UNIQUE NOT NULL";
-        } else if (col === "status") {
-          type = "VARCHAR(20) DEFAULT 'Pending'";
-        } else {
-          type = MONETARY_COLUMNS.includes(col)
-            ? "DECIMAL(12,2) DEFAULT NULL"
-            : "VARCHAR(255) DEFAULT NULL";
-        }
+    const [rows] = await tenantPool.query(
+      `SHOW COLUMNS FROM \`${tableName}\` LIKE ?`,
+      [col]
+    );
 
-        await db.query(
-          `ALTER TABLE \`${tableName}\` ADD COLUMN \`${col}\` ${type};`
-        );
+    if (rows.length === 0) {
+      let columnType;
+
+      if (col === "employee_id") {
+        columnType = "VARCHAR(50) UNIQUE NOT NULL";
+      } else if (col === "status") {
+        columnType = "VARCHAR(20) DEFAULT 'Pending'";
+      } else if (MONETARY_COLUMNS.includes(col)) {
+        columnType = "DECIMAL(12,2) DEFAULT NULL";
+      } else {
+        columnType = "VARCHAR(255) DEFAULT NULL";
       }
-    } catch (error) {
-      console.error(`Error ensuring column ${col}:`, error);
-      if (col === "employee_id") throw error;
+
+      await tenantPool.query(
+        `ALTER TABLE \`${tableName}\` ADD COLUMN \`${col}\` ${columnType}`
+      );
     }
   }
 };
 
+/* ------------------------------------------------------------------
+   INSERT SALARY RECORDS (TENANT DB)
+------------------------------------------------------------------- */
+const insertSalaryRecords = async (orgId, tableName, rows) => {
+  if (!rows || rows.length === 0) return 0;
+
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  const { query, values } = insertSalaryData(tableName, rows);
+
+  if (!query) return 0;
+
+  const [result] = await tenantPool.query(query, values);
+  return result.affectedRows || 0;
+};
+
+/* ------------------------------------------------------------------
+   SAVE SALARY DETAILS (MAIN ENTRY)
+------------------------------------------------------------------- */
 const saveSalaryDetails = async (salaryData, month, year, orgId) => {
   const tableName = generateTableName(orgId, month, year);
 
-  if (!(await tableExists(tableName))) {
-    await createTableIfNotExists(tableName);
+  if (!(await tableExists(orgId, tableName))) {
+    await createTableIfNotExists(orgId, tableName);
   }
 
-  await ensureColumns(tableName);
-  
-  const affectedRows = await insertSalaryRecords(tableName, salaryData);
+  await ensureColumns(orgId, tableName);
 
-  return { success: true, tableName, rowsAffected: affectedRows };
+  const affectedRows = await insertSalaryRecords(
+    orgId,
+    tableName,
+    salaryData
+  );
+
+  return {
+    success: true,
+    tableName,
+    rowsAffected: affectedRows,
+  };
 };
 
-const insertSalaryRecords = async (tableName, rows) => {
-  try {
-    if (rows.length === 0) {
-      console.warn("No rows to insert.");
-      return 0;
-    }
+/* ------------------------------------------------------------------
+   GET MONTHLY SALARY DATA (TENANT DB)
+------------------------------------------------------------------- */
+const getMonthlySalaryData = async (month, year, orgId) => {
+  const tableName = generateTableName(orgId, month, year);
 
-    const { query, values } = insertSalaryData(tableName, rows);
-    if (query) {
-      const [result] = await db.query(query, values);
-      console.log(`Affected rows: ${result.affectedRows}`);
-      return result.affectedRows || 0;
-    }
-    return 0;
-  } catch (error) {
-    console.error("Error inserting data:", error);
-    throw error;
-  }
+  if (!(await tableExists(orgId, tableName))) return [];
+
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  const [rows] = await tenantPool.query(
+    `SELECT * FROM \`${tableName}\``
+  );
+  return rows;
 };
 
+/* ------------------------------------------------------------------
+   GET APPROVED EMPLOYEE IDS (TENANT DB)
+------------------------------------------------------------------- */
+const getApprovedEmployeeIds = async (orgId) => {
+  const tableName = generateTableName(orgId);
+
+  if (!(await tableExists(orgId, tableName))) return [];
+
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  const [rows] = await tenantPool.query(getApprovedIdsQuery(tableName));
+
+  return rows.map((r) => r.employee_id);
+};
+
+/* ------------------------------------------------------------------
+   EXPORTS
+------------------------------------------------------------------- */
 module.exports = {
   saveSalaryDetails,
   generateTableName,
   tableExists,
   createTableIfNotExists,
-  insertSalaryRecords,
   ensureColumns,
+  insertSalaryRecords,
   getApprovedEmployeeIds,
   getMonthlySalaryData,
 };

@@ -9,10 +9,10 @@ const {
 } = require("../handlers/oldEmployeeDetailsHandler");
 
 router.post("/old-employee/save", saveOldEmployeeDetails);
-
 router.get("/old-employee/list", fetchOldEmployeeDetails);
-
 router.put("/old-employee/edit", editOldEmployeeDetails);
+
+// Payslip employee list (button column per row works)
 router.get("/payslip/employees", getEmployeeDetails);
 
 module.exports = router;

@@ -1,99 +1,177 @@
-const service = require("../services/oldEmployeeDetailsService");
-const ErrorHandler = require("../utils/errorHandler");
+// controllers/oldEmployeeController.js (or wherever your payslip/old-employee routes are)
 
-const saveOldEmployeeDetails = async (req, res) => {
+const { getTenantPoolByOrgId } = require("../db/tenantPoolManager");
+const queries = require("../constants/oldEmployeeDetails");
+const { getOrgId } = require("../utils/getOrgId");   // ← NEW: shared utility
+
+/**
+ * SAVE / CREATE
+ */
+exports.saveOldEmployeeDetails = async (req, res) => {
   try {
-    const orgId =
-      req.headers["x-org-id"] ||
-      req.headers["x-organization-id"] ||
-      (req.body && req.body.orgId) ||
-      null;
-
-    const result = await service.insertOldEmployeeDetails(req.body, orgId);
-    res.status(201).json({
-      message: "Employee details saved successfully",
-      insertId: result.insertId,
-    });
-  } catch (error) {
-    console.error("Save Error:", error);
-    res.status(500).json({
-      message: "Failed to save employee details",
-      error: error.message || "Unknown error",
-    });
-  }
-};
-
-const fetchOldEmployeeDetails = async (req, res) => {
-  try {
-    const orgId =
-      req.headers["x-org-id"] ||
-      req.headers["x-organization-id"] ||
-      (req.body && req.body.orgId) ||
-      null;
-    const data = await service.getAllOldEmployeeDetails(orgId);
-    res.status(200).json(data);
-  } catch (error) {
-    console.error("Fetch Error:", error);
-    res.status(500).json({
-      message: "Failed to fetch employee details",
-      error: error.message || "Unknown error",
-    });
-  }
-};
-
-const editOldEmployeeDetails = async (req, res) => {
-  try {
-    const orgId =
-      req.headers["x-org-id"] ||
-      req.headers["x-organization-id"] ||
-      (req.body && req.body.orgId) ||
-      null;
-    const result = await service.updateOldEmployeeDetails(req.body, orgId);
-    if (result.affectedRows === 0) {
-      return res
-        .status(404)
-        .json({ message: "Employee not found or no changes made" });
-    }
-    res.status(200).json({ message: "Employee details updated successfully" });
-  } catch (error) {
-    console.error("Edit Error:", error);
-    res.status(500).json({
-      message: "Failed to update employee details",
-      error: error.message || "Unknown error",
-    });
-  }
-};
-
-const getEmployeeDetails = async (req, res) => {
-  try {
-    const orgId = req.headers["x-org-id"] || req.query.orgId;
+    const orgId = getOrgId(req);
     if (!orgId) {
-      return res
-        .status(400)
-        .json(
-          ErrorHandler.generateErrorResponse(400, "Missing org id (x-org-id)")
-        );
+      return res.status(403).json({
+        status: "error",
+        code: 403,
+        message: "Forbidden: Invalid or missing credentials",
+      });
     }
 
-    const employees = await service.fetchEmployeeDetails(orgId);
+    const pool = await getTenantPoolByOrgId(orgId);
+    const data = req.body;
 
-    return res
-      .status(200)
-      .json(ErrorHandler.generateSuccessResponse(200, { data: employees }));
+    const values = [
+      orgId,
+      data.employee_name,
+      data.employee_id,
+      data.gender,
+      data.designation,
+      data.date_of_joining,
+      data.account_no,
+      data.working_days || 0,
+      data.leaves_taken || 0,
+      data.uin_no,
+      data.pan_number,
+      data.esi_number,
+      data.pf_number,
+      data.basic || 0,
+      data.hra || 0,
+      data.other_allowance || 0,
+      data.pf || 0,
+      data.esi_insurance || 0,
+      data.professional_tax || 0,
+      data.tds || 0,
+      data.gross_earnings || 0,
+      data.total_deductions || 0,
+      data.net_salary || 0,
+      data.month,
+      data.year,
+    ];
+
+    await pool.execute(queries.INSERT_OLD_EMPLOYEE_DETAILS, values);
+
+    res.status(201).json({ message: "Payslip data saved successfully" });
   } catch (error) {
-    console.error("Error fetching employees:", error);
-
-    return res
-      .status(500)
-      .json(
-        ErrorHandler.generateErrorResponse(500, "Failed to fetch employees")
-      );
+    console.error("Error saving old employee:", error);
+    res.status(500).json({
+      status: "error",
+      message: "Failed to save payslip data",
+      details: error.message,
+    });
   }
 };
 
-module.exports = {
-  saveOldEmployeeDetails,
-  fetchOldEmployeeDetails,
-  editOldEmployeeDetails,
-  getEmployeeDetails,
+/**
+ * LIST
+ */
+exports.fetchOldEmployeeDetails = async (req, res) => {
+  try {
+    const orgId = getOrgId(req);
+    if (!orgId) {
+      return res.status(403).json({
+        status: "error",
+        code: 403,
+        message: "Forbidden: Invalid or missing credentials",
+      });
+    }
+
+    const pool = await getTenantPoolByOrgId(orgId);
+    const [rows] = await pool.execute(queries.GET_ALL_OLD_EMPLOYEE_DETAILS, [orgId]);
+
+    res.json(rows);
+  } catch (error) {
+    console.error("Error fetching old employees:", error);
+    res.status(500).json({
+      status: "error",
+      message: "Failed to fetch payslip data",
+      details: error.message,
+    });
+  }
+};
+
+/**
+ * UPDATE / EDIT
+ */
+exports.editOldEmployeeDetails = async (req, res) => {
+  try {
+    const orgId = getOrgId(req);
+    if (!orgId) {
+      return res.status(403).json({
+        status: "error",
+        code: 403,
+        message: "Forbidden: Invalid or missing credentials",
+      });
+    }
+
+    const pool = await getTenantPoolByOrgId(orgId);
+    const data = req.body;
+
+    const values = [
+      data.employee_name,
+      data.gender,
+      data.designation,
+      data.date_of_joining,
+      data.account_no,
+      data.working_days || 0,
+      data.leaves_taken || 0,
+      data.uin_no,
+      data.pan_number,
+      data.esi_number,
+      data.pf_number,
+      data.basic || 0,
+      data.hra || 0,
+      data.other_allowance || 0,
+      data.pf || 0,
+      data.esi_insurance || 0,
+      data.professional_tax || 0,
+      data.tds || 0,
+      data.gross_earnings || 0,
+      data.total_deductions || 0,
+      data.net_salary || 0,
+      data.month,
+      data.year,
+      data.employee_id,
+      orgId,
+    ];
+
+    await pool.execute(queries.UPDATE_OLD_EMPLOYEE_DETAILS, values);
+
+    res.json({ message: "Payslip data updated successfully" });
+  } catch (error) {
+    console.error("Error updating old employee:", error);
+    res.status(500).json({
+      status: "error",
+      message: "Failed to update payslip data",
+      details: error.message,
+    });
+  }
+};
+
+/**
+ * PAYSLIP EMPLOYEE DROPDOWN
+ */
+exports.getEmployeeDetails = async (req, res) => {
+  try {
+    const orgId = getOrgId(req);
+    if (!orgId) {
+      return res.status(403).json({
+        status: "error",
+        code: 403,
+        message: "Forbidden: Invalid or missing credentials",
+      });
+    }
+
+    const pool = await getTenantPoolByOrgId(orgId);
+    const [rows] = await pool.execute(queries.GET_EMPLOYEES, [orgId]);
+
+    res.json(rows);
+  } catch (error) {
+    console.error("Error fetching employee dropdown list:", error);
+    res.status(500).json({
+      status: "error",
+      message: "Failed to fetch employee list",
+      details: error.message,
+    });
+  }
 };

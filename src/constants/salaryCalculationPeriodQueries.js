@@ -1,26 +1,60 @@
 
 
+// const ADD_SALARY_PERIOD = `
+//   INSERT INTO salary_calculation_period (cutoff_date) VALUES (?) 
+//   ON DUPLICATE KEY UPDATE cutoff_date = VALUES(cutoff_date), updated_at = CURRENT_TIMESTAMP
+// `;
+
+// const GET_ALL_SALARY_PERIODS = `
+//   SELECT id, cutoff_date, created_at, updated_at 
+//   FROM salary_calculation_period 
+//   ORDER BY id ASC
+// `;
+
+// const UPDATE_SALARY_PERIOD = `
+//   UPDATE salary_calculation_period 
+//   SET cutoff_date = ?, updated_at = CURRENT_TIMESTAMP 
+//   WHERE id = ?
+// `;
+
+// const GET_SALARY_PERIOD_BY_ID = `
+//   SELECT id, cutoff_date, created_at, updated_at 
+//   FROM salary_calculation_period 
+//   WHERE id = ?
+// `;
+
+// module.exports = {
+//   ADD_SALARY_PERIOD,
+//   GET_ALL_SALARY_PERIODS,
+//   UPDATE_SALARY_PERIOD,
+//   GET_SALARY_PERIOD_BY_ID,
+// };
+// File: constants/salaryCalculationPeriodQueries.js
 const ADD_SALARY_PERIOD = `
-  INSERT INTO salary_calculation_period (cutoff_date) VALUES (?) 
-  ON DUPLICATE KEY UPDATE cutoff_date = VALUES(cutoff_date), updated_at = CURRENT_TIMESTAMP
+  INSERT INTO salary_calculation_period (org_id, cutoff_date)
+  VALUES (?, ?)
+  ON DUPLICATE KEY UPDATE
+    cutoff_date = VALUES(cutoff_date),
+    updated_at = CURRENT_TIMESTAMP
 `;
 
 const GET_ALL_SALARY_PERIODS = `
-  SELECT id, cutoff_date, created_at, updated_at 
-  FROM salary_calculation_period 
-  ORDER BY id ASC
+  SELECT id, cutoff_date, created_at, updated_at
+  FROM salary_calculation_period
+  WHERE org_id = ?
+  ORDER BY id DESC
 `;
 
 const UPDATE_SALARY_PERIOD = `
-  UPDATE salary_calculation_period 
-  SET cutoff_date = ?, updated_at = CURRENT_TIMESTAMP 
-  WHERE id = ?
+  UPDATE salary_calculation_period
+  SET cutoff_date = ?, updated_at = CURRENT_TIMESTAMP
+  WHERE id = ? AND org_id = ?
 `;
 
 const GET_SALARY_PERIOD_BY_ID = `
-  SELECT id, cutoff_date, created_at, updated_at 
-  FROM salary_calculation_period 
-  WHERE id = ?
+  SELECT id, cutoff_date, created_at, updated_at
+  FROM salary_calculation_period
+  WHERE id = ? AND org_id = ?
 `;
 
 module.exports = {

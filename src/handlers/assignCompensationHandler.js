@@ -15,33 +15,62 @@ const {
   getEmployeeLopDetailsForCurrentPeriod,
   getWorkingDaysCurrentMonth,
 } = require("../services/assign_compensations");
-// const org_id = req.headers["x-org-id"];
+
+/**
+ * ✅ Unified orgId extractor
+ */
+const getOrgId = (req) =>
+  req.user?.org_id ||
+  req.headers["x-org-id"] ||
+  req.headers["org-id"] ||
+  null;
+
+/**
+ * ================================
+ * WORKING DAYS
+ * ================================
+ */
 const getWorkingDaysHandler = async (req, res) => {
   try {
-    const totalWorkingDays = await getWorkingDaysCurrentMonth();
+    const orgId = getOrgId(req);
+    if (!orgId) {
+      return res.status(400).json({
+        success: false,
+        message: "orgId is required",
+      });
+    }
+
+    const totalWorkingDays = await getWorkingDaysCurrentMonth(orgId);
+
     res.status(200).json({
       success: true,
-      message: `Total working days for current month: ${totalWorkingDays}`,
-      data: { totalWorkingDays }
+      message: "Working days fetched successfully",
+      data: { totalWorkingDays },
     });
   } catch (error) {
-    console.error("Error fetching working days:", error);
+    console.error("❌ Error fetching working days:", error);
     res.status(500).json({
       success: false,
-      error: "Failed to fetch working days",
-      details: error.message
+      message: "Failed to fetch working days",
+      error: error.message,
     });
   }
 };
-async function checkEmployeeAssignmentHandler(req, res) {
+
+/**
+ * ================================
+ * CHECK EMPLOYEE ASSIGNMENT
+ * ================================
+ */
+const checkEmployeeAssignmentHandler = async (req, res) => {
   try {
-    const orgId = req.headers["x-org-id"];
+    const orgId = getOrgId(req);
     const { employeeId } = req.body;
 
     if (!orgId || !employeeId) {
       return res.status(400).json({
         success: false,
-        message: "orgId and employeeId are required"
+        message: "orgId and employeeId are required",
       });
     }
 
@@ -49,33 +78,47 @@ async function checkEmployeeAssignmentHandler(req, res) {
 
     res.status(200).json({
       success: true,
-      data: result
+      data: result,
     });
   } catch (error) {
+    console.error("❌ Error checking employee assignment:", error);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
-}
+};
 
-
-async function assignCompensationHandler(req, res) {
+/**
+ * ================================
+ * ASSIGN COMPENSATION
+ * ================================
+ */
+const assignCompensationHandler = async (req, res) => {
   try {
-    const orgId = req.headers["x-org-id"];
+    const orgId = getOrgId(req);
 
     const {
-  compensationPlanName,
-  employeeId = [],
-  departmentIds = [],
-  assignedBy
-} = req.body;
-
+      compensationPlanName,
+      employeeId = [],
+      departmentIds = [],
+      assignedBy,
+    } = req.body;
 
     if (!orgId || !compensationPlanName || !assignedBy) {
       return res.status(400).json({
         success: false,
-        message: "orgId, compensationPlanName and assignedBy are required"
+        message: "orgId, compensationPlanName and assignedBy are required",
+      });
+    }
+
+    if (
+      (!employeeId || employeeId.length === 0) &&
+      (!departmentIds || departmentIds.length === 0)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Provide at least one employeeId or departmentId",
       });
     }
 
@@ -85,60 +128,69 @@ async function assignCompensationHandler(req, res) {
       departmentIds,
       compensationPlanName,
       assignedBy,
-      
     });
 
     res.status(201).json({
       success: true,
       message: "Compensation plan assigned successfully",
-      data: result
+      data: result,
     });
   } catch (error) {
+    console.error("❌ Error assigning compensation:", error);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
-}
+};
 
-
+/**
+ * ================================
+ * GET ASSIGNED COMPENSATIONS
+ * ================================
+ */
 const getAssignedCompensationDetailsHandler = async (req, res) => {
-  console.log("Handler: getAssignedCompensationDetailsHandler called");
-
-  // ✅ ADD THIS HERE
-  const orgId = req.headers["x-org-id"];
-
-  if (!orgId) {
-    console.error("❌ orgId missing in headers");
-    return res.status(400).json({
-      success: false,
-      message: "orgId is required",
-    });
-  }
-
   try {
+    const orgId = getOrgId(req);
+    if (!orgId) {
+      return res.status(400).json({
+        success: false,
+        message: "orgId is required",
+      });
+    }
+
     const data = await getAssignedCompensationDetails(orgId);
 
     res.status(200).json({
       success: true,
       message: data.length
-        ? "Assigned compensation data retrieved successfully"
+        ? "Assigned compensation data retrieved"
         : "No assigned compensations found",
       data,
     });
   } catch (error) {
-    console.error("❌ Error fetching assigned compensation details:", error);
+    console.error("❌ Error fetching assigned compensations:", error);
     res.status(500).json({
       success: false,
-      message: "Failed to fetch assigned compensation details",
+      message: "Failed to fetch assigned compensations",
     });
   }
 };
 
-
+/**
+ * ================================
+ * ADD BONUS (SINGLE)
+ * ================================
+ */
 const addEmployeeBonusHandler = async (req, res) => {
   try {
-    const org_id = req.headers['x-org-id'];
+    const orgId = getOrgId(req);
+    if (!orgId) {
+      return res.status(400).json({
+        success: false,
+        message: "orgId is required",
+      });
+    }
 
     const {
       percentageCtc = null,
@@ -147,22 +199,15 @@ const addEmployeeBonusHandler = async (req, res) => {
       applicableMonth,
     } = req.body;
 
-    if (!org_id) {
-      return res.status(400).json({
-        success: false,
-        error: "org_id missing",
-      });
-    }
-
     if (!applicableMonth) {
       return res.status(400).json({
         success: false,
-        error: "Missing required field: applicableMonth",
+        message: "applicableMonth is required",
       });
     }
 
     const result = await addEmployeeBonus({
-      org_id,
+      orgId,
       percentageCtc,
       percentageMonthlySalary,
       fixedAmount,
@@ -178,109 +223,87 @@ const addEmployeeBonusHandler = async (req, res) => {
     console.error("❌ Error adding bonus:", error);
     res.status(500).json({
       success: false,
-      error: "Failed to add bonus",
-      details: error.message,
+      error: error.message,
     });
   }
 };
 
-
+/**
+ * ================================
+ * ADD BONUS (BULK)
+ * ================================
+ */
 const addEmployeeBonusBulkHandler = async (req, res) => {
   try {
-    console.log("Received payload:", req.body);
-
-    const {
-      percentageCtc = null,
-      percentageMonthlySalary = null,
-      fixedAmount = null,
-      applicableMonth,
-    } = req.body;
-
-    // 🔑 GET org_id CORRECTLY
-    const org_id = req.user?.org_id || req.headers["x-org-id"];
-
-    if (!org_id) {
+    const orgId = getOrgId(req);
+    if (!orgId) {
       return res.status(400).json({
         success: false,
-        error: "org_id missing",
+        error: "orgId required",
       });
     }
 
-    // Require applicableMonth
-    if (!applicableMonth) {
-      return res.status(400).json({
-        success: false,
-        error: "Missing required field: applicableMonth",
-      });
+    let { bonusList } = req.body;
+
+    // If frontend sends single object, wrap it in array
+    if (!bonusList) {
+      // check if req.body is a single object
+      if (req.body.percentageCtc || req.body.percentageMonthlySalary || req.body.fixedAmount || req.body.applicableMonth) {
+        bonusList = [req.body];
+      } else {
+        return res.status(400).json({
+          success: false,
+          error: "bonusList is required and must be an array",
+        });
+      }
     }
 
-    // At least one bonus value required
-    if (
-      percentageCtc === null &&
-      percentageMonthlySalary === null &&
-      fixedAmount === null
-    ) {
-      return res.status(400).json({
-        success: false,
-        error:
-          "Please provide at least one bonus value (CTC %, Monthly Salary %, or Fixed Amount)",
-      });
+    if (!Array.isArray(bonusList)) {
+      bonusList = [bonusList];
     }
 
-    // Validation
-    if (percentageCtc !== null && (percentageCtc <= 0 || percentageCtc > 100)) {
-      return res.status(400).json({
-        success: false,
-        error: "percentageCtc must be between 1 and 100",
-      });
-    }
+    // Add orgId to each object
+    const payload = bonusList.map((b) => ({
+      org_id: orgId,
+      percentageCtc: b.percentageCtc ?? null,
+      percentageMonthlySalary: b.percentageMonthlySalary ?? null,
+      fixedAmount: b.fixedAmount ?? null,
+      applicableMonth: b.applicableMonth,
+    }));
 
-    if (
-      percentageMonthlySalary !== null &&
-      (percentageMonthlySalary <= 0 || percentageMonthlySalary > 100)
-    ) {
-      return res.status(400).json({
-        success: false,
-        error: "percentageMonthlySalary must be between 1 and 100",
-      });
-    }
-
-    const result = await addEmployeeBonusBulk({
-      org_id,
-      percentageCtc,
-      percentageMonthlySalary,
-      fixedAmount,
-      applicableMonth,
-    });
-
-    res.status(201).json({
+const result = await addEmployeeBonusBulk({ orgId, bonusList: payload });
+    res.status(200).json({
       success: true,
-      message: `Bonus added successfully for ${applicableMonth}`,
+      message: "Bonus added successfully",
       data: result,
     });
   } catch (error) {
-    console.error("❌ Error adding bulk bonus:", error);
+    console.error("❌ Bulk bonus error:", error);
     res.status(500).json({
       success: false,
-      error: "Failed to add bonus",
-      details: error.message,
+      error: error.message,
     });
   }
 };
 
 
+
+/**
+ * ================================
+ * GET BONUS DETAILS
+ * ================================
+ */
 const getEmployeeBonusDetailsHandler = async (req, res) => {
   try {
-    const org_id = req.headers["x-org-id"];
-
-    if (!org_id) {
+    const orgId = getOrgId(req);
+    if (!orgId) {
       return res.status(400).json({
         success: false,
-        error: "org_id missing",
+        message: "orgId is required",
       });
     }
 
-    const data = await getEmployeeBonusDetails(org_id);
+    const data = await getEmployeeBonusDetails(orgId);
 
     res.status(200).json({
       success: true,
@@ -288,65 +311,113 @@ const getEmployeeBonusDetailsHandler = async (req, res) => {
       data,
     });
   } catch (error) {
+    console.error("❌ Error fetching bonus details:", error);
     res.status(500).json({
       success: false,
-      error: "Failed to fetch bonus details",
-      details: error.message,
+      error: error.message,
     });
   }
 };
 
-
+/**
+ * ================================
+ * ADD EMPLOYEE ADVANCE
+ * ================================
+ */
+/**
+ * ================================
+ * ADD EMPLOYEE ADVANCE
+ * ================================
+ */
 const addEmployeeAdvanceHandler = async (req, res) => {
   try {
-    console.log("Received advance payload:", req.body);
+    const orgId = getOrgId(req);
+
+    if (!orgId) {
+      return res.status(400).json({
+        success: false,
+        message: "orgId is required",
+      });
+    }
 
     const {
       employeeId,
       advanceAmount,
       recoveryMonths,
-      applicableMonth, // Accept from frontend
+      applicableMonth, // can be string or Date
     } = req.body;
 
-    const applicableMonths = applicableMonth; // Map it internally
-
-    if (
-      !employeeId ||
-      !advanceAmount || advanceAmount <= 0 ||
-      !recoveryMonths || recoveryMonths <= 0 ||
-      !applicableMonths
-    ) {
+    // Validate required fields
+    if (!employeeId || !advanceAmount || !recoveryMonths || !applicableMonth) {
       return res.status(400).json({
         success: false,
-        error: "Missing or invalid required fields: employeeId, advanceAmount, recoveryMonths, or applicableMonths",
+        message: "Missing required fields",
       });
     }
 
-    const result = await addEmployeeAdvance({
+    // 🔹 Format applicableMonth as 'YYYY-MM' string
+    let formattedMonth;
+    if (typeof applicableMonth === "string") {
+      formattedMonth = applicableMonth;
+    } else if (applicableMonth instanceof Date) {
+      formattedMonth = applicableMonth.toISOString().slice(0, 7); // 'YYYY-MM'
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid applicableMonth format",
+      });
+    }
+
+    // Debug: log payload
+    console.log("Advance payload:", {
+      orgId,
       employeeId,
       advanceAmount,
       recoveryMonths,
-      applicableMonths, // Use mapped value
+      applicableMonth: formattedMonth,
+    });
+
+    // Call service
+    const result = await addEmployeeAdvance({
+      orgId,
+      employeeId,
+      advanceAmount,
+      recoveryMonths,
+      applicableMonth: formattedMonth, // ✅ pass formatted string
     });
 
     res.status(201).json({
       success: true,
-      message: `Advance of ₹${advanceAmount} added successfully for employee ${employeeId}`,
+      message: "Advance added successfully",
       data: result,
     });
   } catch (error) {
     console.error("❌ Error adding advance:", error);
     res.status(500).json({
       success: false,
-      error: "Failed to add advance",
-      details: error.message,
+      error: error.message,
     });
   }
 };
 
+
+
+/**
+ * ================================
+ * GET ADVANCE DETAILS
+ * ================================
+ */
 const getEmployeeAdvanceDetailsHandler = async (req, res) => {
   try {
-    const data = await getEmployeeAdvanceDetails();
+    const orgId = getOrgId(req);
+    if (!orgId) {
+      return res.status(400).json({
+        success: false,
+        message: "orgId is required",
+      });
+    }
+
+    const data = await getEmployeeAdvanceDetails(orgId);
 
     res.status(200).json({
       success: true,
@@ -357,134 +428,168 @@ const getEmployeeAdvanceDetailsHandler = async (req, res) => {
     console.error("❌ Error fetching advance details:", error);
     res.status(500).json({
       success: false,
-      error: "Failed to fetch advance details",
-      details: error.message,
+      error: error.message,
     });
   }
 };
 
+/**
+ * ================================
+ * EXTRA HOURS
+ * ================================
+ */
 const fetchEmployeeExtraHours = async (req, res) => {
   try {
+    const orgId = getOrgId(req);
     const { startDate, endDate } = req.query;
-    
-    if (!startDate || !endDate) {
+
+    if (!orgId || !startDate || !endDate) {
       return res.status(400).json({
         success: false,
-        error: "Missing required query parameters: startDate and endDate",
+        message: "orgId, startDate and endDate are required",
       });
     }
 
-    const data = await getEmployeeExtraHoursService(startDate, endDate);
+    const data = await getEmployeeExtraHoursService(
+      orgId,
+      startDate,
+      endDate
+    );
+
     res.status(200).json({
       success: true,
       message: "Extra hours retrieved successfully",
-      data
+      data,
     });
   } catch (error) {
-    console.error("Error fetching employee extra hours:", error);
+    console.error("❌ Error fetching extra hours:", error);
     res.status(500).json({
       success: false,
-      error: "Failed to fetch extra hours data",
-      details: error.message
+      error: error.message,
     });
   }
 };
 
+/**
+ * ================================
+ * OVERTIME
+ * ================================
+ */
 const handleAddOvertimeDetailsBulk = async (req, res) => {
   try {
-    const dataArray = req.body.data; // expects an array of overtime records
-    const result = await addOvertimeDetailsBulk(dataArray);
+    const orgId = getOrgId(req);
+    const dataArray = req.body.data;
+
+    if (!orgId || !Array.isArray(dataArray)) {
+      return res.status(400).json({
+        success: false,
+        message: "orgId and valid data array required",
+      });
+    }
+
+    const result = await addOvertimeDetailsBulk(orgId, dataArray);
+
     res.status(200).json({
       success: true,
       message: "Overtime details added successfully",
-      data: result
+      data: result,
     });
   } catch (error) {
-    console.error("Error in handleAddOvertimeDetailsBulk:", error);
+    console.error("❌ Error adding overtime:", error);
     res.status(500).json({
       success: false,
-      error: "Failed to add overtime details",
-      details: error.message
+      error: error.message,
     });
   }
 };
 
 const handleApproveOvertimeRow = async (req, res) => {
   try {
-    const row = req.body; // expects a single overtime row object
-    const result = await approveOvertimeRow(row);
+    const orgId = getOrgId(req);
+    const row = req.body;
+
+    const result = await approveOvertimeRow(orgId, row);
+
     res.status(200).json({
       success: true,
       message: "Overtime approved successfully",
-      data: result
+      data: result,
     });
   } catch (error) {
-    console.error("Error in handleApproveOvertimeRow:", error);
+    console.error("❌ Error approving overtime:", error);
     res.status(500).json({
       success: false,
-      error: "Failed to approve overtime",
-      details: error.message
+      error: error.message,
     });
   }
 };
 
 const handleRejectOvertimeRow = async (req, res) => {
   try {
+    const orgId = getOrgId(req);
     const row = req.body;
-    const result = await rejectOvertimeRow(row);
+
+    const result = await rejectOvertimeRow(orgId, row);
+
     res.status(200).json({
       success: true,
       message: "Overtime rejected successfully",
-      data: result
+      data: result,
     });
   } catch (error) {
-    console.error("Error in handleRejectOvertimeRow:", error);
+    console.error("❌ Error rejecting overtime:", error);
     res.status(500).json({
       success: false,
-      error: "Failed to reject overtime",
-      details: error.message
+      error: error.message,
     });
   }
 };
 
 const getOvertimeDetailsHandler = async (req, res) => {
   try {
-    console.log("⏳ Fetching all overtime details...");
-    const data = await getAllOvertimeDetails();
+    const orgId = getOrgId(req);
+    const data = await getAllOvertimeDetails(orgId);
+
     res.status(200).json({
       success: true,
-      message: "All overtime details retrieved successfully",
+      message: "Overtime details retrieved successfully",
       data,
     });
   } catch (error) {
-    console.error("❌ Error fetching overtime details:", error);
+    console.error("❌ Error fetching overtime:", error);
     res.status(500).json({
       success: false,
-      error: "Failed to fetch overtime details",
-      details: error.message,
+      error: error.message,
     });
   }
 };
 
+/**
+ * ================================
+ * LOP
+ * ================================
+ */
 const getEmployeeLopHandler = async (req, res) => {
   try {
-    const lopDetails = await getEmployeeLopDetailsForCurrentPeriod();
+    const orgId = getOrgId(req);
+    const data = await getEmployeeLopDetailsForCurrentPeriod(orgId);
+
     res.status(200).json({
       success: true,
       message: "LOP details fetched successfully",
-      data: lopDetails
+      data,
     });
   } catch (error) {
-    console.error("Error in getEmployeeLopHandler:", error);
+    console.error("❌ Error fetching LOP:", error);
     res.status(500).json({
       success: false,
-      message: "Failed to fetch LOP details",
-      error: error.message
+      error: error.message,
     });
   }
 };
 
 module.exports = {
+  getWorkingDaysHandler,
   checkEmployeeAssignmentHandler,
   assignCompensationHandler,
   getAssignedCompensationDetailsHandler,
@@ -499,6 +604,4 @@ module.exports = {
   handleRejectOvertimeRow,
   getOvertimeDetailsHandler,
   getEmployeeLopHandler,
-    getWorkingDaysHandler, // add this line
-
 };

@@ -140,6 +140,7 @@ class LoginHandler {
         gender: user.gender,
         email: user.email || null,
         employeeId: user.employee_id || null,
+        department_id: user.department_id || null,
       };
 
       if (redisClient && typeof redisClient.sadd === "function") {
@@ -174,6 +175,7 @@ class LoginHandler {
             org_id: user.Org_id,
             gender: user.gender,
             employeeId: user.employee_id,
+            department_id: user.department_id || null,
           },
         });
       });

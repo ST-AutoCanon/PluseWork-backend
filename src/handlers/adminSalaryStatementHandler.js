@@ -9,11 +9,8 @@ const adminSalaryStatementHandler = {
         req.headers["orgId"] ||
         req.headers["org-id"];
 
-      if (!orgId) {
-        return res
-          .status(400)
-          .json({ error: "Missing required header: orgId" });
-      }
+      if (!orgId)
+        return res.status(400).json({ error: "Missing required header: orgId" });
 
       const { month, year } = req.params;
 
@@ -42,6 +39,53 @@ const adminSalaryStatementHandler = {
     } catch (error) {
       res.status(500).json({
         error: "Failed to fetch employee bank details",
+        details: error.message,
+      });
+    }
+  },
+
+  updatePayslipStatus: async (req, res) => {
+    try {
+      const orgId =
+        req.headers.orgid ||
+        req.headers["x-org-id"] ||
+        req.headers["orgId"] ||
+        req.headers["org-id"];
+
+      if (!orgId)
+        return res.status(400).json({ error: "Missing required header: orgId" });
+
+      const { month, year, employeeId } = req.params;
+      const { payslip_generated } = req.body;
+
+      if (typeof payslip_generated === "undefined") {
+        return res.status(400).json({ error: "Missing payslip_generated in request body" });
+      }
+
+      const newValue = payslip_generated === 1 || payslip_generated === true ? 1 : 0;
+
+      const result = await adminSalaryStatementService.updatePayslipGenerated(
+        orgId,
+        month,
+        year,
+        employeeId,
+        newValue
+      );
+
+      if (result.affectedRows === 0) {
+        return res.status(404).json({
+          error: "Employee not found or no changes made in the salary statement",
+        });
+      }
+
+      res.json({
+        success: true,
+        message: `Payslip ${newValue === 1 ? "enabled" : "disabled"} successfully`,
+      });
+    } catch (error) {
+      console.error("Error in updatePayslipStatus handler:", error);
+      res.status(500).json({
+        error: "Failed to update payslip status",
         details: error.message,
       });
     }

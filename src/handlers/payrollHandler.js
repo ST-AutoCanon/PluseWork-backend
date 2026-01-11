@@ -1,19 +1,40 @@
 const payrollService = require("../services/payrollService");
-const {
-  getEmployeeBankDetails,
-  getEmployeeDetails,
-} = require("../services/payrollService");
+const { getTenantPoolByOrgId } = require("../db/tenantPoolManager");
+const payrollQueries = require("../constants/payrollQueries");
 
+/* ==============================
+   FETCH EMPLOYEE DETAILS
+============================== */
 const fetchEmployeeDetails = async (req, res) => {
   try {
     const { employee_id } = req.params;
-    const employeeData = await getEmployeeDetails(employee_id);
 
-    if (!employeeData) {
-      return res.status(404).json({ message: "Employee not found" });
+    const orgId =
+      req.headers["x-org-id"] ||
+      req.headers.orgid ||
+      req.headers["org-id"] ||
+      req.headers["orgId"];
+
+    if (!orgId) {
+      return res.status(400).json({
+        error: "Missing required header: x-org-id",
+      });
     }
 
-    res.status(200).json(employeeData);
+    const tenantPool = await getTenantPoolByOrgId(orgId);
+
+    const [rows] = await tenantPool.execute(
+      payrollQueries.GET_EMPLOYEE_DETAILS_QUERY,
+      [employee_id]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({
+        message: "Employee not found",
+      });
+    }
+
+    res.status(200).json(rows[0]);
   } catch (error) {
     console.error("Error fetching employee details:", error);
     res.status(500).json({
@@ -23,50 +44,100 @@ const fetchEmployeeDetails = async (req, res) => {
   }
 };
 
+/* ==============================
+   GET SALARY SLIP
+============================== */
 const getSalarySlipHandler = async (req, res) => {
   try {
-    const { month, year } = req.query;
-    const employeeId = req.user?.employee_id || req.query.employee_id;
+    const { employee_id, month, year } = req.query;
 
-    if (!month || !year) {
-      return res.status(400).json({ error: "Month and year are required." });
+    const orgId =
+      req.headers["x-org-id"] ||
+      req.headers.orgid ||
+      req.headers["org-id"] ||
+      req.headers["orgId"];
+
+    if (!orgId) {
+      return res.status(400).json({
+        error: "Missing required header: x-org-id",
+      });
     }
 
+    if (!employee_id || !month || !year) {
+      return res.status(400).json({
+        error: "employee_id, month and year are required",
+      });
+    }
+
+    const tenantPool = await getTenantPoolByOrgId(orgId);
+
     const salarySlip = await payrollService.getSalarySlip(
-      employeeId,
-      month,
-      year
+      tenantPool,
+      employee_id,
+      Number(month),
+      Number(year)
     );
 
     if (!salarySlip) {
-      return res.status(404).json({ message: "No salary data found" });
+      return res.status(404).json({
+        message: "No salary data found",
+      });
     }
 
-    res.json(salarySlip);
+    res.status(200).json(salarySlip);
   } catch (error) {
     console.error("Error in getSalarySlipHandler:", error);
-    res
-      .status(500)
-      .json({ error: "Internal server error", details: error.message });
+    res.status(500).json({
+      error: "Internal server error",
+      details: error.message,
+    });
   }
 };
 
+/* ==============================
+   GET BANK DETAILS
+============================== */
 const handleGetEmployeeBankDetails = async (req, res) => {
   try {
     const { employee_id } = req.params;
 
-    const bankDetails = await getEmployeeBankDetails(employee_id);
-    if (!bankDetails) {
-      return res
-        .status(404)
-        .json({ message: "No bank details found for this employee" });
+    const orgId =
+      req.headers["x-org-id"] ||
+      req.headers.orgid ||
+      req.headers["org-id"] ||
+      req.headers["orgId"];
+
+    if (!orgId) {
+      return res.status(400).json({
+        error: "Missing required header: x-org-id",
+      });
     }
 
-    return res.status(200).json(bankDetails);
+    const tenantPool = await getTenantPoolByOrgId(orgId);
+
+    const [rows] = await tenantPool.execute(
+      payrollQueries.GETEMPLOYEEBANKDETAILSQUERY,
+      [employee_id]
+    );
+
+    if (!rows.length) {
+      return res.status(200).json({
+        bank_name: "",
+        account_number: "",
+        ifsc_code: "",
+        branch_name: "",
+        employee_name: "",
+        pan_number: "",
+      });
+    }
+
+    res.status(200).json(rows[0]);
   } catch (error) {
-    return res
-      .status(500)
-      .json({ error: "Internal server error", details: error });
+    console.error("Error fetching bank details:", error);
+    res.status(500).json({
+      error: "Failed to fetch bank details",
+      details: error.message,
+    });
   }
 };
 

@@ -12,7 +12,7 @@ const getOrgIdFromHeaders = (req) => {
 const addAssetHandler = async (req, res) => {
   const orgId = getOrgIdFromHeaders(req);
   if (!orgId)
-    return res.status(400).json({ error: "org_id header is required" });
+    return res.status(400).json({ message: "org_id header is required" });
 
   let { assigned_to } = req.body;
   try {
@@ -40,7 +40,7 @@ const addAssetHandler = async (req, res) => {
     if (!status || !validStatuses.includes(status)) status = "In Use";
 
     if (!asset_name || !category || (category !== "Others" && !sub_category)) {
-      return res.status(400).json({ error: "Missing required fields" });
+      return res.status(400).json({ message: "Missing required fields" });
     }
 
     const assetData = {
@@ -69,33 +69,35 @@ const addAssetHandler = async (req, res) => {
       document_path: result.document_path,
     });
   } catch (error) {
-    console.error("❌ Database Error:", error);
-    res
-      .status(500)
-      .json({ error: "Failed to add asset", details: error.message });
+    console.error("❌ Error adding asset:", error);
+    if (error.message === "Organization not found") {
+      return res.status(404).json({ message: "Organization not found" });
+    }
+    res.status(500).json({ message: "Failed to add asset" });
   }
 };
 
 const getAssetsHandler = async (req, res) => {
   const orgId = getOrgIdFromHeaders(req);
   if (!orgId)
-    return res.status(400).json({ error: "org_id header is required" });
+    return res.status(400).json({ message: "org_id header is required" });
 
   try {
     const assets = await assetService.getAssets(orgId);
     res.status(200).json(assets);
   } catch (error) {
-    console.error("Error fetching assets:", error.message);
-    res
-      .status(500)
-      .json({ error: "Failed to retrieve assets", details: error.message });
+    console.error("Error fetching assets:", error);
+    if (error.message === "Organization not found") {
+      return res.status(404).json({ message: "Organization not found" });
+    }
+    res.status(500).json({ message: "Failed to retrieve assets" });
   }
 };
 
 const assignAsset = async (req, res) => {
   const orgId = getOrgIdFromHeaders(req);
   if (!orgId)
-    return res.status(400).json({ error: "org_id header is required" });
+    return res.status(400).json({ message: "org_id header is required" });
 
   try {
     const {
@@ -108,7 +110,7 @@ const assignAsset = async (req, res) => {
       status,
     } = req.body;
     if (!assetId || !assignedTo || !startDate || !status) {
-      return res.status(400).json({ error: "Missing required fields" });
+      return res.status(400).json({ message: "Missing required fields" });
     }
 
     const assignedData = {
@@ -129,27 +131,27 @@ const assignAsset = async (req, res) => {
     if (result === "not_found")
       return res
         .status(404)
-        .json({ error: `Asset not found for ID: ${assetId}` });
-    if (result === "updated")
-      return res
-        .status(200)
-        .json({ success: true, message: "Return date updated successfully" });
-    if (result === "inserted")
-      return res
-        .status(200)
-        .json({ success: true, message: "New assignment added successfully" });
+        .json({ message: `Asset not found for ID: ${assetId}` });
 
-    res.status(500).json({ error: "Unknown operation result" });
+    const msg =
+      result === "updated"
+        ? "Assignment updated successfully"
+        : "New assignment added successfully";
+
+    return res.status(200).json({ success: true, message: msg });
   } catch (error) {
     console.error("❌ Error assigning asset:", error);
-    res.status(500).json({ error: "Failed to assign asset" });
+    if (error.message === "Organization not found") {
+      return res.status(404).json({ message: "Organization not found" });
+    }
+    res.status(500).json({ message: "Failed to assign asset" });
   }
 };
 
 const getAssetAssignmentHandler = async (req, res) => {
   const orgId = getOrgIdFromHeaders(req);
   if (!orgId)
-    return res.status(400).json({ error: "org_id header is required" });
+    return res.status(400).json({ message: "org_id header is required" });
 
   const { assetId } = req.params;
   try {
@@ -161,19 +163,22 @@ const getAssetAssignmentHandler = async (req, res) => {
     return res.status(200).json(assignments);
   } catch (error) {
     console.error("Error in getAssetAssignmentHandler:", error);
-    return res.status(500).json({ message: "Internal Server Error" });
+    if (error.message === "Organization not found") {
+      return res.status(404).json({ message: "Organization not found" });
+    }
+    res.status(500).json({ message: "Internal Server Error" });
   }
 };
 
 const updateReturnDateHandler = async (req, res) => {
   const orgId = getOrgIdFromHeaders(req);
   if (!orgId)
-    return res.status(400).json({ error: "org_id header is required" });
+    return res.status(400).json({ message: "org_id header is required" });
 
   try {
     const { assetId, employeeName, returnDate } = req.body;
     if (!assetId || !employeeName || !returnDate) {
-      return res.status(400).json({ error: "Missing required fields" });
+      return res.status(400).json({ message: "Missing required fields" });
     }
 
     await assetService.updateReturnDate(
@@ -189,20 +194,29 @@ const updateReturnDateHandler = async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Error updating return date:", error);
-    res.status(500).json({ error: "Failed to update return date" });
+    if (error.message === "Organization not found") {
+      return res.status(404).json({ message: "Organization not found" });
+    }
+    if (error.message === "Asset not found") {
+      return res.status(404).json({ message: "Asset not found" });
+    }
+    res.status(500).json({ message: "Failed to update return date" });
   }
 };
 
 const getAssetCountsHandler = async (req, res) => {
   const orgId = getOrgIdFromHeaders(req);
   if (!orgId)
-    return res.status(400).json({ error: "org_id header is required" });
+    return res.status(400).json({ message: "org_id header is required" });
 
   try {
     const assetCounts = await assetService.getAssetCounts(orgId);
     res.status(200).json({ success: true, data: assetCounts });
   } catch (error) {
     console.error("Error handling asset counts request:", error);
+    if (error.message === "Organization not found") {
+      return res.status(404).json({ message: "Organization not found" });
+    }
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
@@ -210,17 +224,20 @@ const getAssetCountsHandler = async (req, res) => {
 const searchEmployeesHandler = async (req, res) => {
   const orgId = getOrgIdFromHeaders(req);
   if (!orgId)
-    return res.status(400).json({ error: "org_id header is required" });
+    return res.status(400).json({ message: "org_id header is required" });
 
   const { q } = req.query;
   if (!q || q.trim() === "")
-    return res.status(400).json({ error: "Search query is required" });
+    return res.status(400).json({ message: "Search query is required" });
 
   try {
     const employees = await assetService.searchEmployeesByName(orgId, q.trim());
     res.status(200).json({ success: true, data: employees });
   } catch (error) {
     console.error("❌ Error searching employees:", error);
+    if (error.message === "Organization not found") {
+      return res.status(404).json({ message: "Organization not found" });
+    }
     res
       .status(500)
       .json({ success: false, message: "Failed to search employees" });
@@ -230,7 +247,7 @@ const searchEmployeesHandler = async (req, res) => {
 const getAssignedAssetsByEmployee = async (req, res) => {
   const orgId = getOrgIdFromHeaders(req);
   if (!orgId)
-    return res.status(400).json({ error: "org_id header is required" });
+    return res.status(400).json({ message: "org_id header is required" });
 
   const { employeeId } = req.params;
   try {
@@ -241,6 +258,9 @@ const getAssignedAssetsByEmployee = async (req, res) => {
     res.status(200).json({ success: true, data: assignedAssets });
   } catch (error) {
     console.error("Error fetching assigned assets:", error);
+    if (error.message === "Organization not found") {
+      return res.status(404).json({ message: "Organization not found" });
+    }
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };

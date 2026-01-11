@@ -1,5 +1,3 @@
-// Express routes for salary_calculation_period
-// Mounts under /api
 
 const express = require('express');
 const router = express.Router();

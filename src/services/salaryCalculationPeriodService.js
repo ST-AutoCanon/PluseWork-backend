@@ -1,68 +1,178 @@
-// Business logic for salary_calculation_period operations
-// Handles validation, database interactions using queries
+// const { getTenantPool, sanitizeDbName } = require("../db/tenantPoolManager");
+// const queries = require("../constants/salaryCalculationPeriodQueries");
 
-const db = require('../config'); // Adjust path to your DB connection pool
-const queries = require('../constants/salaryCalculationPeriodQueries');
+// async function getTenantPoolForOrg(orgId) {
+//   if (!orgId) throw new Error("orgId required");
+
+//   const numericOrgId = String(orgId).replace(/^tenant_/, "");
+//   const dbName = sanitizeDbName(`tenant_${numericOrgId}`);
+
+//   return getTenantPool(dbName);
+// }
+
+
+// class SalaryCalculationPeriodService {
+//   static async addPeriod(orgId, cutoffDate) {
+//     const pool = await getTenantPoolForOrg(orgId);
+
+//     const cutoffNum = parseInt(cutoffDate, 10);
+//     if (isNaN(cutoffNum) || cutoffNum < 1 || cutoffNum > 31) {
+//       throw new Error("Cutoff date must be between 1 and 31");
+//     }
+
+//     await pool.execute(
+//       queries.ADD_SALARY_PERIOD,
+//       [orgId, cutoffNum]
+//     );
+
+//     const [rows] = await pool.execute(
+//       queries.GET_ALL_SALARY_PERIODS,
+//       [orgId]
+//     );
+
+//     return {
+//       success: true,
+//       data: rows[0],
+//       message: "Salary period saved successfully",
+//     };
+//   }
+
+//   static async getAllPeriods(orgId) {
+//     const pool = await getTenantPoolForOrg(orgId);
+
+//     const [rows] = await pool.execute(
+//       queries.GET_ALL_SALARY_PERIODS,
+//       [orgId]
+//     );
+
+//     return {
+//       success: true,
+//       data: rows,
+//       message: "Periods fetched successfully",
+//     };
+//   }
+
+//   static async updatePeriod(orgId, id, cutoffDate) {
+//     const pool = await getTenantPoolForOrg(orgId);
+
+//     const cutoffNum = parseInt(cutoffDate, 10);
+//     if (isNaN(cutoffNum) || cutoffNum < 1 || cutoffNum > 31) {
+//       throw new Error("Cutoff date must be between 1 and 31");
+//     }
+
+//     const [result] = await pool.execute(
+//       queries.UPDATE_SALARY_PERIOD,
+//       [cutoffNum, id, orgId]
+//     );
+
+//     if (result.affectedRows === 0) {
+//       throw new Error("Period not found");
+//     }
+
+//     const [rows] = await pool.execute(
+//       queries.GET_SALARY_PERIOD_BY_ID,
+//       [id, orgId]
+//     );
+
+//     return {
+//       success: true,
+//       data: rows[0],
+//       message: "Period updated successfully",
+//     };
+//   }
+// }
+
+// module.exports = SalaryCalculationPeriodService;
+// File: services/salaryCalculationPeriodService.js
+const { getTenantPool, sanitizeDbName } = require("../db/tenantPoolManager");
+const queries = require("../constants/salaryCalculationPeriodQueries");
+
+async function getTenantPoolForOrg(orgId) {
+  if (!orgId) throw new Error("orgId required");
+
+  const numericOrgId = String(orgId).replace(/^tenant_/, "");
+  const dbName = sanitizeDbName(`tenant_${numericOrgId}`);
+
+  return getTenantPool(dbName);
+}
 
 class SalaryCalculationPeriodService {
-  // Add or update period (since id defaults to 1, handles upsert)
-  static async addPeriod(cutoffDate) {
-    try {
-      // Validation
-      const cutoffNum = parseInt(cutoffDate);
-      if (isNaN(cutoffNum) || cutoffNum < 1 || cutoffNum > 31) {
-        throw new Error('Cutoff date must be an integer between 1 and 31');
-      }
+  static async addPeriod(orgId, cutoffDate) {
+    const pool = await getTenantPoolForOrg(orgId);
 
-      const [result] = await db.execute(queries.ADD_SALARY_PERIOD, [cutoffNum]);
-      return {
-        success: true,
-        data: { id: result.insertId || 1, cutoff_date: cutoffNum },
-        message: result.insertId ? 'Period added successfully' : 'Period updated successfully',
-      };
-    } catch (error) {
-      throw new Error(`Service error: ${error.message}`);
+    // Stronger input handling - this fixes the garbage/binary value issue
+    let cutoffNum;
+    if (typeof cutoffDate === 'string') {
+      cutoffNum = parseInt(cutoffDate.trim(), 10);
+    } else if (typeof cutoffDate === 'number') {
+      cutoffNum = Math.trunc(cutoffDate);
+    } else {
+      throw new Error("cutoff_date must be a number or numeric string");
     }
+
+    if (isNaN(cutoffNum) || cutoffNum < 1 || cutoffNum > 31) {
+      throw new Error("Cutoff date must be between 1 and 31");
+    }
+
+    // Now passing correct number of parameters (2)
+    await pool.execute(queries.ADD_SALARY_PERIOD, [orgId, cutoffNum]);
+
+    // Return the newly created/updated record
+    const [rows] = await pool.execute(queries.GET_ALL_SALARY_PERIODS, [orgId]);
+
+    return {
+      success: true,
+      data: rows[0], // latest one (because of ORDER BY id DESC)
+      message: "Salary period saved successfully",
+    };
   }
 
-  // Get all periods
-  static async getAllPeriods() {
-    try {
-      const [rows] = await db.execute(queries.GET_ALL_SALARY_PERIODS);
-      return {
-        success: true,
-        data: rows,
-        message: 'Periods fetched successfully',
-      };
-    } catch (error) {
-      throw new Error(`Service error: ${error.message}`);
-    }
+  static async getAllPeriods(orgId) {
+    const pool = await getTenantPoolForOrg(orgId);
+
+    const [rows] = await pool.execute(queries.GET_ALL_SALARY_PERIODS, [orgId]);
+
+    return {
+      success: true,
+      data: rows,
+      message: "Periods fetched successfully",
+    };
   }
 
-  // Update period by ID
-  static async updatePeriod(id, cutoffDate) {
-    try {
-      // Validation
-      const cutoffNum = parseInt(cutoffDate);
-      if (isNaN(cutoffNum) || cutoffNum < 1 || cutoffNum > 31) {
-        throw new Error('Cutoff date must be an integer between 1 and 31');
-      }
+  static async updatePeriod(orgId, id, cutoffDate) {
+    const pool = await getTenantPoolForOrg(orgId);
 
-      const [result] = await db.execute(queries.UPDATE_SALARY_PERIOD, [cutoffNum, id]);
-      if (result.affectedRows === 0) {
-        throw new Error('Period not found');
-      }
-
-      // Fetch updated record
-      const [updatedRows] = await db.execute(queries.GET_SALARY_PERIOD_BY_ID, [id]);
-      return {
-        success: true,
-        data: updatedRows[0],
-        message: 'Period updated successfully',
-      };
-    } catch (error) {
-      throw new Error(`Service error: ${error.message}`);
+    let cutoffNum;
+    if (typeof cutoffDate === 'string') {
+      cutoffNum = parseInt(cutoffDate.trim(), 10);
+    } else if (typeof cutoffDate === 'number') {
+      cutoffNum = Math.trunc(cutoffDate);
+    } else {
+      throw new Error("cutoff_date must be a number or numeric string");
     }
+
+    if (isNaN(cutoffNum) || cutoffNum < 1 || cutoffNum > 31) {
+      throw new Error("Cutoff date must be between 1 and 31");
+    }
+
+    // Now passing correct 3 parameters
+    const [result] = await pool.execute(queries.UPDATE_SALARY_PERIOD, [
+      cutoffNum,
+      id,
+      orgId
+    ]);
+
+    if (result.affectedRows === 0) {
+      throw new Error("Period not found or you don't have permission");
+    }
+
+    const [rows] = await pool.execute(queries.GET_SALARY_PERIOD_BY_ID, [id, orgId]);
+
+    return {
+      success: true,
+      data: rows[0] || null,
+      message: "Period updated successfully",
+    };
   }
 }
 

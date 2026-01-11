@@ -1,42 +1,41 @@
 const queries = require("../constants/letterheadQuery");
+const { getTenantPool, sanitizeDbName } = require("../db/tenantPoolManager");
 
-const generateLetterheadCode = async (connection, orgId) => {
+async function getTenantPoolForOrgId(orgId) {
+  if (!orgId) {
+    const err = new Error("orgId required to get tenant pool");
+    err.code = "ORG_REQUIRED";
+    throw err;
+  }
+  const dbName = sanitizeDbName(`tenant_${orgId}`);
+  return getTenantPool(dbName);
+}
+
+const generateLetterheadCode = async (orgId, connection) => {
   try {
-    await connection.query("LOCK TABLES letterhead WRITE");
-
+    await connection.query("LOCK TABLES letterhead READ");
     const [rows] = await connection.query(
-      "SELECT letterhead_code FROM letterhead WHERE letterhead_code LIKE 'LHT-%' AND org_id = ? ORDER BY CAST(SUBSTRING_INDEX(letterhead_code, '-', -1) AS UNSIGNED) DESC LIMIT 1",
-      [orgId]
+      "SELECT letterhead_code FROM letterhead WHERE letterhead_code LIKE 'LHT-%' ORDER BY CAST(SUBSTRING(letterhead_code, 5) AS UNSIGNED) DESC LIMIT 1"
     );
-
     let nextCode = "LHT-00001";
-
-    if (rows && rows.length > 0 && rows[0].letterhead_code) {
+    if (rows.length > 0 && rows[0].letterhead_code) {
       const lastCode = rows[0].letterhead_code;
-      const parts = lastCode.split("-");
-      const numberPart = parseInt(parts[1] || parts[parts.length - 1], 10) || 0;
+      const numberPart = parseInt(lastCode.split("-")[1], 10);
       const nextNumber = numberPart + 1;
       nextCode = `LHT-${nextNumber.toString().padStart(5, "0")}`;
     }
-
     return nextCode;
   } catch (error) {
     console.error("Error generating letterhead code:", error);
     throw new Error("Error generating letterhead code: " + error.message);
   } finally {
-    try {
-      await connection.query("UNLOCK TABLES");
-    } catch (e) {}
+    await connection.query("UNLOCK TABLES");
   }
 };
 
-const insertLetterhead = async (
-  tenantPool,
-  orgId,
-  letterheadData,
-  retries = 3
-) => {
+const insertLetterhead = async (orgId, letterheadData, retries = 3) => {
   let connection;
+  const tenantPool = await getTenantPoolForOrgId(orgId);
   try {
     connection = await tenantPool.getConnection();
     await connection.beginTransaction();
@@ -62,10 +61,9 @@ const insertLetterhead = async (
       place,
     } = letterheadData;
 
-    const letterhead_code = await generateLetterheadCode(connection, orgId);
+    const letterhead_code = await generateLetterheadCode(orgId, connection);
 
     const values = [
-      orgId,
       letterhead_code,
       template_name,
       letter_type,
@@ -85,34 +83,27 @@ const insertLetterhead = async (
       date_of_appointment || null,
       attachment || null,
       place || null,
+      orgId,
     ];
 
     const [result] = await connection.query(queries.INSERT_LETTERHEAD, values);
-
     await connection.commit();
-    return result;
+    return { insertId: result.insertId, letterhead_code };
   } catch (error) {
-    if (connection) {
-      try {
-        await connection.rollback();
-      } catch (rb) {}
-    }
-    if (error && error.code === "ER_DUP_ENTRY" && retries > 0) {
-      console.warn(`Duplicate letterhead code, retrying (${retries - 1} left)`);
-      return insertLetterhead(tenantPool, orgId, letterheadData, retries - 1);
+    if (connection) await connection.rollback();
+    if (error.code === "ER_DUP_ENTRY" && retries > 0) {
+      console.warn(`Duplicate entry detected. Retrying (${retries} left)`);
+      return insertLetterhead(orgId, letterheadData, retries - 1);
     }
     console.error("Error inserting letterhead:", error);
-    throw new Error("Error inserting letterhead: " + (error.message || error));
+    throw new Error("Error inserting letterhead: " + error.message);
   } finally {
-    if (connection) {
-      try {
-        connection.release();
-      } catch (e) {}
-    }
+    if (connection) connection.release();
   }
 };
 
-const getAllLetterheads = async (tenantPool, orgId) => {
+const getAllLetterheads = async (orgId) => {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
   try {
     const [rows] = await tenantPool.query(queries.GET_ALL_LETTERHEADS, [orgId]);
     return rows;
@@ -122,7 +113,8 @@ const getAllLetterheads = async (tenantPool, orgId) => {
   }
 };
 
-const updateLetterheadById = async (tenantPool, orgId, letterheadData, id) => {
+const updateLetterheadById = async (orgId, letterheadData, id) => {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
   try {
     const {
       letterhead_code,
@@ -170,10 +162,7 @@ const updateLetterheadById = async (tenantPool, orgId, letterheadData, id) => {
       orgId,
     ];
 
-    const [result] = await tenantPool.query(
-      queries.UPDATE_LETTERHEAD_BY_ID,
-      values
-    );
+    const [result] = await tenantPool.query(queries.UPDATE_LETTERHEAD_BY_ID, values);
     return result;
   } catch (error) {
     console.error("Error updating letterhead:", error);
@@ -181,13 +170,11 @@ const updateLetterheadById = async (tenantPool, orgId, letterheadData, id) => {
   }
 };
 
-const getLetterheadById = async (tenantPool, orgId, id) => {
+const getLetterheadById = async (orgId, id) => {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
   try {
-    const [rows] = await tenantPool.query(queries.GET_LETTERHEAD_BY_ID, [
-      id,
-      orgId,
-    ]);
-    return rows && rows[0] ? rows[0] : null;
+    const [rows] = await tenantPool.query(queries.GET_LETTERHEAD_BY_ID, [id, orgId]);
+    return rows[0] || null;
   } catch (error) {
     console.error("Error fetching letterhead by ID:", error);
     throw new Error("Error fetching letterhead by ID");
