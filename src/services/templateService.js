@@ -1,4 +1,3 @@
-// services/templateService.js
 const fs = require("fs-extra");
 const path = require("path");
 const sharp = require("sharp");
@@ -10,7 +9,6 @@ const { v4: uuidv4 } = require("uuid");
 const { getTenantPool, sanitizeDbName } = require("../db/tenantPoolManager");
 const queries = require("../constants/templateQueries");
 
-// --- tenant pool helper ---
 async function getTenantPoolForOrgId(orgId) {
   if (!orgId) {
     const err = new Error("orgId required to get tenant pool");
@@ -21,7 +19,6 @@ async function getTenantPoolForOrgId(orgId) {
   return getTenantPool(dbName);
 }
 
-// --- OCR helper using tesseract CLI ---
 async function runTesseractCLI(imagePath) {
   try {
     const { stdout } = await execFileP("tesseract", [
@@ -108,7 +105,6 @@ function groupWordsIntoLines(words = [], yThreshold = 10) {
   return lines;
 }
 
-/* Build grapes JSON overlays from OCR lines */
 function buildGrapesFromComposite(
   compositeUrl,
   compositeMeta = {},
@@ -271,7 +267,6 @@ function buildGrapesFromComposite(
   return { grapesJson, html };
 }
 
-/* Compose header/body/footer into a single image and return composite metadata/url */
 async function makeCompositeAndCleanMask({
   headerPath,
   bodyPath,
@@ -391,7 +386,6 @@ async function makeCleanedComposite({
   return { cleanedPath, cleanedUrl, cleanedMeta };
 }
 
-/* High-level pipeline: accepts header/body/footer paths and returns grapes/html & preview */
 async function processScanToTemplate({
   orgId,
   userId,
@@ -502,33 +496,88 @@ async function processScanToTemplate({
   };
 }
 
-/* Persist template in tenant DB (and version) */
 const saveTemplate = async (orgId, userId, payload) => {
   if (!orgId) throw new Error("orgId required");
-
   const tenantPool = await getTenantPoolForOrgId(orgId);
 
   try {
     const name = payload.name || payload.page?.name || "Untitled";
     const template_type = payload.template_type || "generic";
-    const grapes_json_obj = payload.grapes_json || payload;
-    const grapes_json = grapes_json_obj
-      ? JSON.stringify(grapes_json_obj)
-      : null;
+
+    let grapes_json_val = null;
+    if (payload.grapes_json) {
+      if (typeof payload.grapes_json === "string") {
+        try {
+          JSON.parse(payload.grapes_json);
+          grapes_json_val = payload.grapes_json;
+        } catch (_) {
+          grapes_json_val = JSON.stringify(payload.grapes_json);
+        }
+      } else {
+        grapes_json_val = JSON.stringify(payload.grapes_json);
+      }
+    } else if (payload.grapesJson) {
+      grapes_json_val =
+        typeof payload.grapesJson === "string"
+          ? payload.grapesJson
+          : JSON.stringify(payload.grapesJson);
+    } else if (payload.html && payload.css) {
+      grapes_json_val = null;
+    } else if (typeof payload === "object" && payload.components) {
+      grapes_json_val = JSON.stringify(payload);
+    } else {
+      grapes_json_val = null;
+    }
+
+    let meta_val = null;
+    if (payload.meta) {
+      meta_val =
+        typeof payload.meta === "string"
+          ? payload.meta
+          : JSON.stringify(payload.meta);
+    }
+
+    let layout_val = null;
+    if (payload.layout) {
+      layout_val =
+        typeof payload.layout === "string"
+          ? payload.layout
+          : JSON.stringify(payload.layout);
+    } else if (payload.layout_json) {
+      layout_val =
+        typeof payload.layout_json === "string"
+          ? payload.layout_json
+          : JSON.stringify(payload.layout_json);
+    } else if (
+      payload.meta &&
+      (payload.meta.layout || payload.meta.layout_json)
+    ) {
+      const m =
+        typeof payload.meta === "string"
+          ? JSON.parse(payload.meta)
+          : payload.meta;
+      if (m && (m.layout || m.layout_json)) {
+        layout_val =
+          typeof m.layout === "string"
+            ? m.layout
+            : JSON.stringify(m.layout || m.layout_json);
+      }
+    }
+
     const html = payload.html || null;
     const css = payload.css || null;
     const thumbnail_url = payload.thumbnail_url || null;
-    const meta = payload.meta || null;
 
     const [result] = await tenantPool.query(queries.INSERT_TEMPLATE, [
       orgId,
       name,
       template_type,
-      grapes_json,
+      grapes_json_val,
       html,
       css,
       thumbnail_url,
-      meta,
+      meta_val,
+      layout_val,
       1,
       userId || null,
     ]);
@@ -538,9 +587,10 @@ const saveTemplate = async (orgId, userId, payload) => {
     try {
       await tenantPool.query(queries.INSERT_TEMPLATE_VERSION, [
         insertId,
-        grapes_json,
+        grapes_json_val,
         html,
         css,
+        layout_val,
         1,
         userId || null,
       ]);

@@ -125,20 +125,31 @@ async function uploadScanHandler(req, res) {
   const orgId = parseInt(req.params.orgId, 10);
   const userId = req.user && req.user.id;
 
+  // uploaded files (multer fields)
   const headerFile = req.files && req.files.header && req.files.header[0];
   const footerFile = req.files && req.files.footer && req.files.footer[0];
   const bodyFile = req.files && req.files.body && req.files.body[0];
   const watermarkFile =
     req.files && req.files.watermark && req.files.watermark[0];
+  const qrFile = req.files && req.files.qr && req.files.qr[0];
+  const sealFile = req.files && req.files.seal && req.files.seal[0];
 
-  if (!headerFile && !bodyFile && !footerFile && !watermarkFile) {
+  if (
+    !headerFile &&
+    !bodyFile &&
+    !footerFile &&
+    !watermarkFile &&
+    !qrFile &&
+    !sealFile
+  ) {
     return res.status(400).json({
       error:
-        "At least one image (header, body, footer, or watermark) is required",
+        "At least one image (header, body, footer, watermark, qr or seal) is required",
     });
   }
 
   try {
+    // move uploaded files into public/uploads and get dest names
     const headerName = headerFile
       ? await moveFileToUploads(headerFile.path, headerFile.originalname)
       : null;
@@ -151,18 +162,68 @@ async function uploadScanHandler(req, res) {
     const watermarkName = watermarkFile
       ? await moveFileToUploads(watermarkFile.path, watermarkFile.originalname)
       : null;
+    const qrName = qrFile
+      ? await moveFileToUploads(qrFile.path, qrFile.originalname)
+      : null;
+    const sealName = sealFile
+      ? await moveFileToUploads(sealFile.path, sealFile.originalname)
+      : null;
 
+    // parse meta and optional incoming fields
     let watermarkPlacement = null;
     let bodyType = "letter";
     let incomingWatermarkFlag = false;
     try {
       if (req.body && req.body.meta) {
-        const meta = JSON.parse(req.body.meta);
+        const meta =
+          typeof req.body.meta === "string"
+            ? JSON.parse(req.body.meta)
+            : req.body.meta;
         watermarkPlacement = meta.watermarkPlacement || null;
         bodyType = meta.bodyType || "letter";
         incomingWatermarkFlag = !!meta.watermark;
       }
-    } catch (e) {}
+    } catch (e) {
+      console.warn("uploadScanHandler: meta parse failed", e);
+    }
+
+    // parse layout, grapes_json, html, fileMap from req.body (FormData fields)
+    let incomingLayout = null;
+    let incomingGrapesJson = null;
+    let incomingHtml = null;
+    let incomingFileMap = null;
+    let incomingCss = null;
+
+    try {
+      if (req.body) {
+        if (req.body.layout) {
+          incomingLayout =
+            typeof req.body.layout === "string"
+              ? JSON.parse(req.body.layout)
+              : req.body.layout;
+        }
+        if (req.body.grapes_json) {
+          incomingGrapesJson =
+            typeof req.body.grapes_json === "string"
+              ? JSON.parse(req.body.grapes_json)
+              : req.body.grapes_json;
+        }
+        if (req.body.html) {
+          incomingHtml = req.body.html;
+        }
+        if (req.body.fileMap) {
+          incomingFileMap =
+            typeof req.body.fileMap === "string"
+              ? JSON.parse(req.body.fileMap)
+              : req.body.fileMap;
+        }
+        if (req.body.css) {
+          incomingCss = req.body.css;
+        }
+      }
+    } catch (e) {
+      console.warn("uploadScanHandler: parsing incoming fields failed", e);
+    }
 
     const existingWatermarkUrl =
       (req.body && req.body.existingWatermarkUrl) || null;
@@ -170,13 +231,173 @@ async function uploadScanHandler(req, res) {
       ? `/api/orgs/${orgId}/uploads/${watermarkName}`
       : existingWatermarkUrl;
 
-    const { grapesJson, html, thumbnailName } = buildSimpleTemplateHtml(
-      orgId,
-      headerName,
-      footerName,
-      watermarkUrlForGrapes,
-      watermarkPlacement
-    );
+    // Build grapesJson (prefer incoming from client; fallback to simple built one)
+    let grapesJsonBuilt = null;
+    let htmlBuilt = null;
+    let thumbnailName = headerName || footerName || null;
+
+    if (incomingGrapesJson) {
+      grapesJsonBuilt = incomingGrapesJson;
+    } else {
+      const built = buildSimpleTemplateHtml(
+        orgId,
+        headerName,
+        footerName,
+        watermarkUrlForGrapes,
+        watermarkPlacement
+      );
+      grapesJsonBuilt = built.grapesJson;
+      htmlBuilt = built.html;
+      thumbnailName = built.thumbnailName || thumbnailName;
+    }
+
+    const finalHtml = incomingHtml || htmlBuilt;
+    const finalLayout = Array.isArray(incomingLayout) ? incomingLayout : null;
+
+    // URLs for files we moved
+    const uploadedUrls = {
+      header: headerName ? `/api/orgs/${orgId}/uploads/${headerName}` : null,
+      body: bodyName ? `/api/orgs/${orgId}/uploads/${bodyName}` : null,
+      footer: footerName ? `/api/orgs/${orgId}/uploads/${footerName}` : null,
+      watermark: watermarkName
+        ? `/api/orgs/${orgId}/uploads/${watermarkName}`
+        : null,
+      qr: qrName ? `/api/orgs/${orgId}/uploads/${qrName}` : null,
+      seal: sealName ? `/api/orgs/${orgId}/uploads/${sealName}` : null,
+    };
+
+    // If client provided fileMap, use it. Expected shape: { qr: "<boxIdOrFieldName>", seal: "<boxIdOrFieldName>" }
+    if (incomingFileMap && typeof incomingFileMap === "object") {
+      const mapKeyToUrl = {};
+      // map incomingFileMap value -> uploaded url
+      if (incomingFileMap.qr && uploadedUrls.qr) {
+        mapKeyToUrl[incomingFileMap.qr] = uploadedUrls.qr;
+      }
+      if (incomingFileMap.seal && uploadedUrls.seal) {
+        mapKeyToUrl[incomingFileMap.seal] = uploadedUrls.seal;
+      }
+
+      const replaceInBoxes = (boxes) => {
+        if (!Array.isArray(boxes)) return boxes;
+        for (const b of boxes) {
+          const key = b.id || b.fieldName || b.name;
+          if (!key) continue;
+          // exact match against fileMap value
+          if (mapKeyToUrl[key]) {
+            b.imageUrl = mapKeyToUrl[key];
+            b.content = mapKeyToUrl[key];
+          }
+        }
+        return boxes;
+      };
+
+      if (finalLayout) {
+        replaceInBoxes(finalLayout);
+      }
+      if (grapesJsonBuilt && Array.isArray(grapesJsonBuilt.layout)) {
+        replaceInBoxes(grapesJsonBuilt.layout);
+      } else if (grapesJsonBuilt && finalLayout) {
+        // embed layout if grapes_json had no layout
+        try {
+          grapesJsonBuilt.layout = finalLayout;
+        } catch (e) {
+          console.warn("Failed to embed layout into grapes_json", e);
+        }
+      }
+    } else {
+      // Fallback: heuristic replace (fieldName/id contains "qr" or "seal")
+      const applyHeuristic = (boxes) => {
+        if (!Array.isArray(boxes)) return;
+        for (const b of boxes) {
+          const name = String(
+            b.fieldName || b.name || b.id || ""
+          ).toLowerCase();
+          if (name.includes("qr") && uploadedUrls.qr) {
+            b.imageUrl = uploadedUrls.qr;
+            b.content = uploadedUrls.qr;
+          }
+          if (
+            /(seal|stamp|companyseal|logo)/i.test(name) &&
+            uploadedUrls.seal
+          ) {
+            b.imageUrl = uploadedUrls.seal;
+            b.content = uploadedUrls.seal;
+          }
+        }
+      };
+      if (finalLayout) applyHeuristic(finalLayout);
+      if (grapesJsonBuilt && Array.isArray(grapesJsonBuilt.layout))
+        applyHeuristic(grapesJsonBuilt.layout);
+      else if (grapesJsonBuilt && finalLayout) {
+        try {
+          grapesJsonBuilt.layout = finalLayout;
+        } catch (e) {}
+      }
+    }
+
+    // --- NEW: attach explicit header/footer/watermark fields into grapes_json and meta.uploads
+    try {
+      // ensure grapesJsonBuilt is an object
+      if (!grapesJsonBuilt || typeof grapesJsonBuilt !== "object") {
+        grapesJsonBuilt = { id: `scan-${Date.now()}`, components: [] };
+      }
+
+      // If finalLayout exists, ensure grapesJsonBuilt.layout is set (prefer explicit layout)
+      if (finalLayout && Array.isArray(finalLayout)) {
+        grapesJsonBuilt.layout = finalLayout;
+      } else if (!Array.isArray(grapesJsonBuilt.layout)) {
+        grapesJsonBuilt.layout = grapesJsonBuilt.layout || [];
+      }
+
+      // attach header/footer/watermark explicit URLs to grapes_json
+      if (uploadedUrls.header) {
+        grapesJsonBuilt.headerUrl = uploadedUrls.header;
+      }
+      if (uploadedUrls.footer) {
+        grapesJsonBuilt.footerUrl = uploadedUrls.footer;
+      }
+      if (uploadedUrls.watermark) {
+        grapesJsonBuilt.watermark = grapesJsonBuilt.watermark || {};
+        grapesJsonBuilt.watermark.url = uploadedUrls.watermark;
+        // copy placement if we parsed it earlier
+        if (watermarkPlacement) {
+          grapesJsonBuilt.watermark.xPct =
+            watermarkPlacement.xPct || grapesJsonBuilt.watermark.xPct;
+          grapesJsonBuilt.watermark.yPct =
+            watermarkPlacement.yPct || grapesJsonBuilt.watermark.yPct;
+          grapesJsonBuilt.watermark.wPct =
+            watermarkPlacement.wPct || grapesJsonBuilt.watermark.wPct;
+          grapesJsonBuilt.watermark.hPct =
+            watermarkPlacement.hPct || grapesJsonBuilt.watermark.hPct;
+          if (typeof watermarkPlacement.opacity === "number")
+            grapesJsonBuilt.watermark.opacity = watermarkPlacement.opacity;
+        }
+      } else if (watermarkUrlForGrapes) {
+        // if existingWatermarkUrl was provided by client, keep that too
+        grapesJsonBuilt.watermark = grapesJsonBuilt.watermark || {};
+        grapesJsonBuilt.watermark.url =
+          grapesJsonBuilt.watermark.url || watermarkUrlForGrapes;
+      }
+    } catch (e) {
+      console.warn(
+        "uploadScanHandler: failed to attach header/footer/watermark into grapes_json",
+        e
+      );
+    }
+
+    // Build meta object (explicit uploads map so frontend can read deterministically)
+    const metaObj = {
+      bodyType,
+      watermark: !!watermarkName || incomingWatermarkFlag,
+      watermarkPlacement: watermarkPlacement || null,
+      uploads: {
+        header: uploadedUrls.header || null,
+        footer: uploadedUrls.footer || null,
+        watermark: uploadedUrls.watermark || null,
+        qr: uploadedUrls.qr || null,
+        seal: uploadedUrls.seal || null,
+      },
+    };
 
     const nameFromClient =
       (req.body && req.body.name) ||
@@ -184,15 +405,12 @@ async function uploadScanHandler(req, res) {
     const savePayload = {
       name: nameFromClient,
       template_type: "scan",
-      grapes_json: grapesJson,
-      html,
-      css: null,
-      thumbnail_url: thumbnailName,
-      meta: JSON.stringify({
-        bodyType,
-        watermark: !!watermarkName || incomingWatermarkFlag,
-        watermarkPlacement: watermarkPlacement || null,
-      }),
+      grapes_json: grapesJsonBuilt || null,
+      html: finalHtml || null,
+      css: incomingCss || null,
+      thumbnail_url: thumbnailName || null,
+      meta: JSON.stringify(metaObj),
+      layout: finalLayout ? JSON.stringify(finalLayout) : null,
     };
 
     const saved = await templateService.saveTemplate(
@@ -269,6 +487,13 @@ async function listTemplatesHandler(req, res) {
           out.meta = JSON.parse(out.meta);
         }
       } catch (e) {}
+
+      try {
+        if (typeof out.layout === "string" && out.layout) {
+          out.layout = JSON.parse(out.layout);
+        }
+      } catch (e) {}
+
       return out;
     });
 

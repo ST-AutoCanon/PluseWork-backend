@@ -605,3 +605,326 @@ CREATE TABLE IF NOT EXISTS leave_policy (
   KEY idx_leave_policy_year_end (year_end),
   CONSTRAINT leave_policy_chk_1 CHECK ((year_start <= year_end))
 );
+
+CREATE TABLE IF NOT EXISTS assigned_compensations (
+  id int NOT NULL AUTO_INCREMENT,
+  org_id int NOT NULL,
+  compensation_plan_name varchar(100) NOT NULL,
+  assigned_data json NOT NULL,
+  assigned_by varchar(100) DEFAULT NULL,
+  assigned_date datetime DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id)
+);
+
+CREATE TABLE IF NOT EXISTS compensation_plans (
+  id int NOT NULL AUTO_INCREMENT,
+  org_id int DEFAULT NULL,
+  compensation_plan_name varchar(255) DEFAULT NULL,
+  plan_data json DEFAULT NULL,
+  created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id)
+);
+
+CREATE TABLE IF NOT EXISTS compensation_working_days (
+  id bigint NOT NULL AUTO_INCREMENT,
+  compensation_plan_id int NOT NULL,
+  sunday enum('fullDay','halfDay','weekOff') DEFAULT 'weekOff',
+  monday enum('fullDay','halfDay','weekOff') DEFAULT 'fullDay',
+  tuesday enum('fullDay','halfDay','weekOff') DEFAULT 'fullDay',
+  wednesday enum('fullDay','halfDay','weekOff') DEFAULT 'fullDay',
+  thursday enum('fullDay','halfDay','weekOff') DEFAULT 'fullDay',
+  friday enum('fullDay','halfDay','weekOff') DEFAULT 'fullDay',
+  saturday enum('fullDay','halfDay','weekOff') DEFAULT 'weekOff',
+  created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY compensation_plan_id (compensation_plan_id),
+  CONSTRAINT compensation_working_days_ibfk_1 FOREIGN KEY (compensation_plan_id) REFERENCES compensation_plans (id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS config (
+  key varchar(50) NOT NULL,
+  org_id varchar(20) NOT NULL,
+  value varchar(255) NOT NULL,
+  updated_at timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (key,org_id),
+  KEY idx_config_org_key (org_id,key)
+);
+
+CREATE TABLE IF NOT EXISTS employee_advance_details (
+  id int NOT NULL AUTO_INCREMENT,
+  employee_id varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
+  advance_amount decimal(10,2) NOT NULL,
+  recovery_months int NOT NULL,
+  created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  applicable_months varchar(21) COLLATE utf8mb4_general_ci DEFAULT NULL,
+  PRIMARY KEY (id),
+  KEY employee_id (employee_id),
+  CONSTRAINT employee_advance_details_ibfk_1 FOREIGN KEY (employee_id) REFERENCES employees (employee_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS employee_bonus_details (
+  id int NOT NULL AUTO_INCREMENT,
+  org_id int NOT NULL,
+  percentage_ctc decimal(5,2) DEFAULT NULL,
+  percentage_monthly_salary decimal(5,2) DEFAULT NULL,
+  fixed_amount decimal(10,2) DEFAULT NULL,
+  applicable_month varchar(7) NOT NULL,
+  created_at datetime DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_employee_bonus_org_id (org_id)
+);
+
+CREATE TABLE IF NOT EXISTS employee_monthly_lop (
+  id int NOT NULL AUTO_INCREMENT,
+  employee_id varchar(20) NOT NULL,
+  month tinyint unsigned NOT NULL,
+  year smallint unsigned NOT NULL,
+  lop int NOT NULL DEFAULT '0',
+  computed_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uniq_emp_month_year (employee_id,month,year),
+  KEY idx_emp_month (employee_id,year,month)
+);
+
+CREATE TABLE IF NOT EXISTS face_data (
+  id int NOT NULL AUTO_INCREMENT,
+  employee_id varchar(20) NOT NULL,
+  label varchar(100) DEFAULT NULL,
+  descriptors json DEFAULT NULL,
+  PRIMARY KEY (id),
+  KEY employee_id (employee_id)
+);
+
+CREATE TABLE IF NOT EXISTS letterhead (
+  id int unsigned NOT NULL AUTO_INCREMENT,
+  letterhead_code varchar(10) NOT NULL,
+  template_name varchar(255) DEFAULT NULL,
+  letter_type varchar(100) NOT NULL,
+  subject varchar(255) DEFAULT NULL,
+  body text,
+  recipient_name varchar(255) DEFAULT NULL,
+  address text,
+  date date DEFAULT NULL,
+  signature varchar(255) DEFAULT NULL,
+  employee_name varchar(255) DEFAULT NULL,
+  position varchar(255) DEFAULT NULL,
+  effective_date date DEFAULT NULL,
+  attachment varchar(255) DEFAULT NULL,
+  title varchar(10) DEFAULT NULL,
+  mobile_number varchar(20) DEFAULT NULL,
+  email varchar(255) DEFAULT NULL,
+  annual_salary varchar(50) DEFAULT NULL,
+  date_of_appointment date DEFAULT NULL,
+  place varchar(100) DEFAULT NULL,
+  company_name varchar(255) DEFAULT NULL,
+  company_address text,
+  company_address_line2 varchar(255) DEFAULT NULL,
+  gstin_number varchar(50) DEFAULT NULL,
+  cin_number varchar(50) DEFAULT NULL,
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  org_id bigint unsigned NOT NULL DEFAULT '1',
+  PRIMARY KEY (id),
+  UNIQUE KEY ux_letterhead_code (letterhead_code),
+  KEY idx_letter_type (letter_type),
+  KEY idx_employee_name (employee_name),
+  KEY idx_org_id (org_id)
+);
+
+CREATE TABLE IF NOT EXISTS letterhead_templates (
+  id bigint unsigned NOT NULL AUTO_INCREMENT,
+  letter_type varchar(100) NOT NULL,
+  content text NOT NULL,
+  subject varchar(255) DEFAULT NULL,
+  company_name varchar(255) DEFAULT NULL,
+  company_address text,
+  company_address_line2 text,
+  gstin_number varchar(20) DEFAULT NULL,
+  cin_number varchar(30) DEFAULT NULL,
+  created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  org_id bigint unsigned NOT NULL DEFAULT '1',
+  PRIMARY KEY (id),
+  UNIQUE KEY ux_org_letter_type (org_id,letter_type),
+  KEY idx_letter_type (letter_type),
+  KEY idx_org_id (org_id)
+);
+
+CREATE TABLE IF NOT EXISTS old_employee_details (
+  id int NOT NULL AUTO_INCREMENT,
+  org_id int unsigned DEFAULT NULL,
+  employee_name varchar(100) DEFAULT NULL,
+  employee_id varchar(20) DEFAULT NULL,
+  gender varchar(10) DEFAULT NULL,
+  designation varchar(100) DEFAULT NULL,
+  date_of_joining date DEFAULT NULL,
+  account_no varchar(30) DEFAULT NULL,
+  working_days int DEFAULT NULL,
+  leaves_taken int DEFAULT NULL,
+  uin_no varchar(30) DEFAULT NULL,
+  pan_number varchar(20) DEFAULT NULL,
+  esi_number varchar(30) DEFAULT NULL,
+  pf_number varchar(30) DEFAULT NULL,
+  basic decimal(10,2) DEFAULT NULL,
+  hra decimal(10,2) DEFAULT NULL,
+  other_allowance decimal(10,2) DEFAULT NULL,
+  pf decimal(10,2) DEFAULT NULL,
+  esi_insurance decimal(10,2) DEFAULT NULL,
+  professional_tax decimal(10,2) DEFAULT NULL,
+  tds decimal(10,2) DEFAULT NULL,
+  gross_earnings decimal(10,2) DEFAULT NULL,
+  total_deductions decimal(10,2) DEFAULT NULL,
+  net_salary decimal(10,2) DEFAULT NULL,
+  created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  month int DEFAULT NULL,
+  year int DEFAULT NULL,
+  PRIMARY KEY (id),
+  CONSTRAINT old_employee_details_chk_1 CHECK ((month between 1 and 12)),
+  CONSTRAINT old_employee_details_chk_2 CHECK ((year >= 1900))
+);
+
+CREATE TABLE IF NOT EXISTS overtime_details (
+  punch_id varchar(50) COLLATE utf8mb4_general_ci NOT NULL,
+  work_date date NOT NULL,
+  employee_id varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
+  extra_hours decimal(5,2) NOT NULL,
+  rate decimal(10,2) DEFAULT NULL,
+  project varchar(500) COLLATE utf8mb4_general_ci DEFAULT NULL,
+  supervisor varchar(100) COLLATE utf8mb4_general_ci DEFAULT NULL,
+  comments text COLLATE utf8mb4_general_ci,
+  status enum('Pending','Approved','Rejected') COLLATE utf8mb4_general_ci DEFAULT 'Pending',
+  created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  org_id int unsigned DEFAULT NULL,
+  PRIMARY KEY (punch_id,work_date),
+  UNIQUE KEY unique_punch_per_day (employee_id,work_date,punch_id),
+  UNIQUE KEY unique_punch (punch_id),
+  KEY idx_org_id (org_id),
+  CONSTRAINT `overtime_details_ibfk_1` FOREIGN KEY (`employee_id`) REFERENCES `employees` (`employee_id`)
+);
+
+CREATE TABLE IF NOT EXISTS salary_calculation_period (
+  id int NOT NULL DEFAULT '1',
+  org_id int NOT NULL,
+  cutoff_date int NOT NULL,
+  created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uniq_org (org_id),
+  CONSTRAINT salary_calculation_period_chk_1 CHECK (((cutoff_date >= 1) and (cutoff_date <= 31)))
+);
+
+CREATE TABLE IF NOT EXISTS salary_preferences (
+  org_id int NOT NULL,
+  selected_month varchar(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
+  selected_year varchar(4) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
+  selected_template_id bigint DEFAULT NULL,
+  created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (org_id),
+  KEY fk_salary_preferences_template (selected_template_id),
+  CONSTRAINT fk_salary_preferences_template FOREIGN KEY (selected_template_id) REFERENCES templates (id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS saturday_holidays (
+  id int NOT NULL AUTO_INCREMENT,
+  month_year varchar(7) NOT NULL,
+  saturdays varchar(10) DEFAULT NULL,
+  PRIMARY KEY (id)
+);
+
+CREATE TABLE IF NOT EXISTS task_messages (
+  message_id int NOT NULL AUTO_INCREMENT,
+  task_id int NOT NULL,
+  employee_id varchar(25) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
+  message_data json NOT NULL,
+  created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (message_id),
+  UNIQUE KEY uq_task (task_id),
+  KEY idx_employee (employee_id),
+  CONSTRAINT fk_task_messages_employee FOREIGN KEY (employee_id) REFERENCES employees (employee_id) ON DELETE SET NULL,
+  CONSTRAINT fk_task_messages_task FOREIGN KEY (task_id) REFERENCES tasks (task_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS tasks (
+  task_id int NOT NULL AUTO_INCREMENT,
+  employee_id varchar(25) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
+  task_title varchar(255) COLLATE utf8mb4_general_ci NOT NULL,
+  description text COLLATE utf8mb4_general_ci,
+  start_date date DEFAULT NULL,
+  due_date date DEFAULT NULL,
+  status varchar(50) COLLATE utf8mb4_general_ci DEFAULT NULL,
+  percentage int DEFAULT '0',
+  progress_percentage int DEFAULT '0',
+  created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (task_id),
+  KEY fk_employee (employee_id),
+  CONSTRAINT fk_employee FOREIGN KEY (employee_id) REFERENCES employees (employee_id) ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS vendors (
+  vendor_id int NOT NULL AUTO_INCREMENT,
+  company_name varchar(255) NOT NULL,
+  registered_address varchar(255) DEFAULT NULL,
+  city varchar(100) DEFAULT NULL,
+  state varchar(100) DEFAULT NULL,
+  pin_code varchar(10) DEFAULT NULL,
+  gst_number varchar(20) DEFAULT NULL,
+  pan_number varchar(20) DEFAULT NULL,
+  company_type varchar(100) DEFAULT NULL,
+  contact1_name varchar(100) DEFAULT NULL,
+  contact1_designation varchar(100) DEFAULT NULL,
+  contact1_mobile varchar(15) DEFAULT NULL,
+  contact1_email varchar(150) DEFAULT NULL,
+  contact2_name varchar(100) DEFAULT NULL,
+  contact2_designation varchar(100) DEFAULT NULL,
+  contact2_mobile varchar(15) DEFAULT NULL,
+  contact2_email varchar(150) DEFAULT NULL,
+  contact3_name varchar(100) DEFAULT NULL,
+  contact3_designation varchar(100) DEFAULT NULL,
+  contact3_mobile varchar(15) DEFAULT NULL,
+  contact3_email varchar(150) DEFAULT NULL,
+  bank_name varchar(150) DEFAULT NULL,
+  branch varchar(150) DEFAULT NULL,
+  branch_address varchar(255) DEFAULT NULL,
+  account_number varchar(30) DEFAULT NULL,
+  ifsc_code varchar(20) DEFAULT NULL,
+  nature_of_business text,
+  product_category varchar(255) DEFAULT NULL,
+  years_of_experience int DEFAULT NULL,
+  gst_certificate varchar(255) DEFAULT NULL,
+  pan_card varchar(255) DEFAULT NULL,
+  cancelled_cheque varchar(255) DEFAULT NULL,
+  msme_certificate varchar(255) DEFAULT NULL,
+  msme_status varchar(50) DEFAULT NULL,
+  incorporation_certificate varchar(255) DEFAULT NULL,
+  created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  org_id int NOT NULL DEFAULT '1',
+  PRIMARY KEY (vendor_id)
+);
+
+CREATE TABLE IF NOT EXISTS weekly_tasks (
+  task_id int NOT NULL AUTO_INCREMENT,
+  week_id varchar(15) DEFAULT NULL,
+  task_date date NOT NULL,
+  project_id varchar(20) NOT NULL,
+  project_name varchar(100) NOT NULL,
+  task_name varchar(255) NOT NULL,
+  replacement_task varchar(255) DEFAULT NULL,
+  employee_id varchar(20) NOT NULL,
+  emp_status enum('not started','working','completed','suspended') DEFAULT 'not started',
+  emp_comment text,
+  sup_status enum('completed','add on','re-work','incomplete') DEFAULT 'incomplete',
+  sup_comment text,
+  sup_review_status enum('pending','approved','struck','suspended_review') DEFAULT 'pending',
+  created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  star_rating tinyint unsigned DEFAULT NULL COMMENT 'Rating out of 5',
+  parent_task_id int DEFAULT NULL,
+  PRIMARY KEY (task_id),
+  KEY fk_parent_task (parent_task_id),
+  CONSTRAINT fk_parent_task FOREIGN KEY (parent_task_id) REFERENCES weekly_tasks (task_id)
+);
