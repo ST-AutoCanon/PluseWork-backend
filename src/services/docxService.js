@@ -1,3 +1,4 @@
+// services/docxService.js
 const {
   Document,
   Packer,
@@ -12,7 +13,15 @@ const fs = require("fs");
 const path = require("path");
 const numberToWords = require("number-to-words");
 
-exports.generateDocx = async (claim, employee) => {
+/**
+ * Generate a DOCX for a reimbursement claim.
+ * - claim: object containing claim data (id required)
+ * - employee: object containing employee details
+ * - orgId: string (optional) - used to store temp files under temp/{orgId}
+ *
+ * Returns absolute path to generated .docx
+ */
+exports.generateDocx = async (claim, employee, orgId = "unknown") => {
   if (!claim || !claim.id) {
     console.error("Invalid Claim ID:", claim);
     throw new Error("Claim ID is undefined, cannot generate document.");
@@ -33,7 +42,11 @@ exports.generateDocx = async (claim, employee) => {
   const formTitle = new Paragraph({
     children: [
       new TextRun({ text: "Reimbursement Form", bold: true, size: 30 }),
-      new TextRun({ text: " - " + claim.claim_type, bold: true, size: 30 }),
+      new TextRun({
+        text: " - " + (claim.claim_type || ""),
+        bold: true,
+        size: 30,
+      }),
     ],
     alignment: "left",
     spacing: { after: 200 },
@@ -43,18 +56,18 @@ exports.generateDocx = async (claim, employee) => {
     new Paragraph({
       children: [
         new TextRun({ text: "Employee ID: ", bold: true }),
-        new TextRun({ text: claim.employee_id + "    " }),
+        new TextRun({ text: (claim.employee_id || "") + "    " }),
         new TextRun({ text: "Department: ", bold: true }),
-        new TextRun({ text: employee.department_name }),
+        new TextRun({ text: employee?.department_name || "" }),
       ],
       spacing: { after: 100 },
     }),
     new Paragraph({
       children: [
         new TextRun({ text: "Employee Name: ", bold: true }),
-        new TextRun({ text: employee.name + "    " }),
+        new TextRun({ text: (employee?.name || "") + "    " }),
         new TextRun({ text: "Designation: ", bold: true }),
-        new TextRun({ text: employee.position }),
+        new TextRun({ text: employee?.position || "" }),
       ],
       spacing: { after: 200 },
     }),
@@ -125,7 +138,8 @@ exports.generateDocx = async (claim, employee) => {
   ];
 
   const addClaimRow = (date, description, unit, price, amount) => {
-    const safeText = (value) => (value ? value.toString() : "-");
+    const safeText = (value) =>
+      value !== undefined && value !== null ? value.toString() : "-";
 
     reimbursementTableRows.push(
       new TableRow({
@@ -169,64 +183,6 @@ exports.generateDocx = async (claim, employee) => {
     ? new Date(claim.display_date).toLocaleDateString()
     : "-";
 
-  const getClaimDetails = (claim) => {
-    let claimDetails = [];
-
-    switch (claim.claim_type) {
-      case "Transportation":
-        claimDetails.push(
-          {
-            description: "Transport Amount",
-            value: claim.transport_amount || "0",
-          },
-          {
-            description: "Accomodation Fees",
-            value: claim.accommodation_fees || "0",
-          },
-          { description: "DA", value: claim.da || "0" }
-        );
-        break;
-      case "Telecommunication":
-        claimDetails.push({
-          description: claim.service_provider || "Unknown Provider",
-          value: claim.aggregated_total || "0",
-        });
-        break;
-      case "Meals":
-        claimDetails.push({
-          description: claim.meal_type || "Meal",
-          value: claim.aggregated_total || "0",
-        });
-        break;
-      case "Stationary":
-        claimDetails.push(
-          {
-            description: claim.purpose || "Stationary Purchase",
-            value: claim.stationary || "0",
-          },
-          {
-            description: claim.purchasing_item || "Item",
-            value: claim.aggregated_total || "0",
-          }
-        );
-        break;
-      case "Miscellaneous":
-        claimDetails.push({
-          description: claim.purpose || "Miscellaneous",
-          value: claim.aggregated_total || "0",
-        });
-        break;
-      default:
-        claimDetails.push({
-          description: claim.purpose || "Unknown",
-          value: claim.aggregated_total || "0",
-        });
-        break;
-    }
-
-    return claimDetails;
-  };
-
   (claim.lines || []).forEach((line) => {
     const p = line.payload || {};
     addClaimRow(
@@ -238,6 +194,7 @@ exports.generateDocx = async (claim, employee) => {
     );
   });
 
+  // Ensure table length looks nice (pad to 15 rows)
   while (reimbursementTableRows.length < 15) {
     addClaimRow(" ", " ", " ", " ", " ");
   }
@@ -258,7 +215,10 @@ exports.generateDocx = async (claim, employee) => {
           children: [
             new Paragraph({
               children: [
-                new TextRun({ text: `₹${claim.aggregated_total}`, bold: true }),
+                new TextRun({
+                  text: `₹${claim.aggregated_total || "0"}`,
+                  bold: true,
+                }),
               ],
             }),
           ],
@@ -273,9 +233,15 @@ exports.generateDocx = async (claim, employee) => {
     margins: { top: 0, bottom: 0, left: 0, right: 0 },
   });
 
-  const amountWords = numberToWords.toWords(claim.aggregated_total);
-  const formattedAmountWords =
-    amountWords.charAt(0).toUpperCase() + amountWords.slice(1) + " only.";
+  // convert aggregated_total to words (safe)
+  let aggNum = parseFloat(claim.aggregated_total || 0);
+  if (!Number.isFinite(aggNum)) aggNum = 0;
+  const amountWordsRaw = numberToWords.toWords(Math.floor(aggNum));
+  const formattedAmountWords = amountWordsRaw
+    ? amountWordsRaw.charAt(0).toUpperCase() +
+      amountWordsRaw.slice(1) +
+      " only."
+    : "Zero only.";
 
   const amountInWords = new Paragraph({
     children: [
@@ -288,7 +254,7 @@ exports.generateDocx = async (claim, employee) => {
   });
 
   const approvedByGrid =
-    claim.status === "approved"
+    String(claim.status || "").toLowerCase() === "approved"
       ? [
           new Paragraph({
             children: [new TextRun({ text: "Approved By", bold: true })],
@@ -298,7 +264,9 @@ exports.generateDocx = async (claim, employee) => {
             children: [
               new TextRun({ text: "Name & Designation: ", bold: true }),
               new TextRun({
-                text: `${claim.approver_name} - ${claim.approver_designation}`,
+                text: `${claim.approver_name || ""} - ${
+                  claim.approver_designation || ""
+                }`,
               }),
             ],
             spacing: { after: 100 },
@@ -307,7 +275,9 @@ exports.generateDocx = async (claim, employee) => {
             children: [
               new TextRun({ text: "Approved Date: ", bold: true }),
               new TextRun({
-                text: new Date(claim.approved_date).toLocaleDateString(),
+                text: claim.approved_date
+                  ? new Date(claim.approved_date).toLocaleDateString()
+                  : "",
               }),
             ],
             spacing: { after: 200 },
@@ -366,10 +336,13 @@ exports.generateDocx = async (claim, employee) => {
     ],
   });
 
-  const docxPath = path.join(
-    __dirname,
-    `../temp/Reimbursement_${claim.id}.docx`
-  );
+  // ensure temp dir per org exists
+  const tempDir = path.join(__dirname, "../temp", String(orgId || "unknown"));
+  if (!fs.existsSync(tempDir)) {
+    fs.mkdirSync(tempDir, { recursive: true });
+  }
+
+  const docxPath = path.join(tempDir, `Reimbursement_${claim.id}.docx`);
 
   const buffer = await Packer.toBuffer(doc);
   fs.writeFileSync(docxPath, buffer);

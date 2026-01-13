@@ -1,3 +1,4 @@
+// src/constants/reimbursementQueries.js
 module.exports = {
   GET_ALL_REIMBURSEMENTS: `
     SELECT r.*, CONCAT(e.first_name, ' ', e.last_name) AS employee_name
@@ -84,7 +85,7 @@ module.exports = {
     WHERE employee_id = ? 
     AND claim_type = ? 
     AND date = ?
-`,
+  `,
 
   CHECK_EXISTING_REIMBURSEMENT_DATE_RANGE: `
     SELECT * FROM reimbursement 
@@ -95,7 +96,7 @@ module.exports = {
         OR 
         (to_date BETWEEN ? AND ?)
     )
-`,
+  `,
 
   SAVE_ATTACHMENTS: `INSERT INTO reimbursement_attachments (reimbursement_id, line_id, file_name, file_path) VALUES ?`,
 
@@ -107,7 +108,7 @@ module.exports = {
       (date IS NOT NULL AND date = ?) OR
       (from_date IS NOT NULL AND to_date IS NOT NULL AND NOT (to_date < ? OR from_date > ?))
     )
-`,
+  `,
 
   CHECK_INVOICE_DUPLICATE: `
     SELECT id, employee_id, status

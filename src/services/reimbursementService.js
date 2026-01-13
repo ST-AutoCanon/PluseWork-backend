@@ -1,7 +1,12 @@
-const db = require("../config");
+// services/reimbursementService.js
 const queries = require("../constants/reimbursementQueries");
 const path = require("path");
 const fs = require("fs").promises;
+
+// tenant pool manager (you must have src/db/tenantPoolManager.js)
+const { sanitizeDbName, getTenantPool } = require("../db/tenantPoolManager");
+
+const XLSX = require("xlsx");
 
 const toLocalDateString = (dt) => {
   if (!dt) return null;
@@ -88,12 +93,46 @@ function coerceNullableNumber(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * Create or return tenant pool for given orgId.
+ */
+async function getTenantPoolForOrgId(orgId) {
+  if (!orgId) {
+    const err = new Error("orgId required");
+    err.code = "ORG_REQUIRED";
+    throw err;
+  }
+  const dbName = `tenant_${sanitizeDbName(orgId)}`;
+  return getTenantPool(dbName);
+}
+
+/**
+ * Build a best-effort URL/path for attachment display.
+ * This is used by the UI code to fetch attachments via the server route.
+ * Supports tenant path with orgId or legacy path without orgId.
+ */
 const buildAttachmentUrl = (filePath, fileName, employeeIdHint = null) => {
   try {
     const fname = String(fileName || "").trim();
     if (filePath) {
       const p = String(filePath).replace(/\\/g, "/");
-      const m = p.match(/\/reimbursement\/(\d{4})\/(\d{2})\/([^/]+)\/([^/]+)$/);
+      // try match both tenant and legacy patterns:
+      // tenant: /reimbursement/{orgId}/{year}/{month}/{emp}/{file}
+      let m = p.match(
+        /\/reimbursement\/([^/]+)\/(\d{4})\/(\d{2})\/([^/]+)\/([^/]+)$/
+      );
+      if (m) {
+        const org = m[1],
+          year = m[2],
+          month = m[3],
+          emp = m[4],
+          file = m[5];
+        return `/reimbursement/${encodeURIComponent(year)}/${encodeURIComponent(
+          month
+        )}/${encodeURIComponent(emp)}/${encodeURIComponent(file)}`;
+      }
+      // legacy: /reimbursement/{year}/{month}/{emp}/{file}
+      m = p.match(/\/reimbursement\/(\d{4})\/(\d{2})\/([^/]+)\/([^/]+)$/);
       if (m) {
         const year = m[1],
           month = m[2],
@@ -130,6 +169,9 @@ const buildAttachmentUrl = (filePath, fileName, employeeIdHint = null) => {
   }
 };
 
+/**
+ * Normalize multer files -> attachment objects used by DB insertion (tenant-aware).
+ */
 const buildAttachmentsFromFiles = (files = [], attachmentsMeta = {}) => {
   if (!Array.isArray(files) || files.length === 0) return [];
 
@@ -167,44 +209,31 @@ const buildAttachmentsFromFiles = (files = [], attachmentsMeta = {}) => {
   });
 };
 
-const mapAttachmentsToReimbursements = (
-  reimbursements,
-  attachments,
-  employeeIdRef = null
-) => {
-  const attachmentMap = {};
-  attachments.forEach((att) => {
-    const key = att.reimbursement_id;
-    if (!attachmentMap[key]) attachmentMap[key] = [];
-    attachmentMap[key].push({
-      filename: att.file_name,
-      url: `/reimbursement/${att.year}/${att.month}/${att.employee_id}/${att.file_name}`,
-      file_path: att.file_path || null,
-      id: att.id || null,
-    });
-  });
-
-  reimbursements.forEach((r) => {
-    r.attachments = attachmentMap[r.id] || [];
-  });
-
-  return reimbursements;
-};
-
-const saveAttachmentsBulk = async (reimbursementId, files = []) => {
+/**
+ * Save attachments in bulk in tenant DB.
+ * values expected: array of objects { file_name, file_path, line_id (nullable) }
+ */
+const saveAttachmentsBulk = async (reimbursementId, files = [], orgId) => {
   if (!files || !files.length) return;
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+
   const attachmentValues = files.map((f) => [
     reimbursementId,
+    f.line_id !== undefined ? f.line_id : null,
     f.file_name,
-    f.file_path,
+    f.file_path || "",
   ]);
-  await db.query(queries.SAVE_ATTACHMENTS, [attachmentValues]);
+  await tenantPool.query(queries.SAVE_ATTACHMENTS, [attachmentValues]);
 };
 
+/**
+ * Process uploaded files and persist attachment records (tenant-aware).
+ */
 exports.processUploadedFiles = async (
   files,
   reimbursementId,
-  attachmentsMeta = {}
+  attachmentsMeta = {},
+  orgId
 ) => {
   if (!files || !files.length) return [];
   try {
@@ -240,12 +269,14 @@ exports.processUploadedFiles = async (
       };
     });
 
+    // persist to tenant DB
     const toSave = normalized.map((n) => ({
       file_name: n.file_name,
-      file_path: n.file_path,
+      file_path: n.file_path || "",
+      line_id: n.line_index !== undefined ? n.line_index : null,
     }));
     if (toSave.length) {
-      await saveAttachmentsBulk(reimbursementId, toSave);
+      await saveAttachmentsBulk(reimbursementId, toSave, orgId);
     }
 
     return normalized;
@@ -255,14 +286,25 @@ exports.processUploadedFiles = async (
   }
 };
 
+/* ===========================
+   Tenant-aware service functions
+   All exported functions accept orgId as last argument (where applicable)
+   =========================== */
+
+/**
+ * Get reimbursements by employee (tenant-aware)
+ */
 exports.getReimbursementsByEmployee = async (
   employeeId,
   fromDate = null,
-  toDate = null
+  toDate = null,
+  orgId
 ) => {
-  const [rows] = await db.query(queries.GET_REIMBURSEMENTS_BY_EMPLOYEE, [
-    employeeId,
-  ]);
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  const [rows] = await tenantPool.query(
+    queries.GET_REIMBURSEMENTS_BY_EMPLOYEE,
+    [employeeId]
+  );
   if (!rows || rows.length === 0) return [];
 
   const reimbursements = rows.map((r) => ({
@@ -273,10 +315,11 @@ exports.getReimbursementsByEmployee = async (
   const ids = reimbursements.map((r) => r.id);
   const safeIds = ids.length ? ids : [-1];
 
-  const [linesRows] = await db.query(queries.GET_LINES_BY_REIMBURSEMENT_IDS, [
-    safeIds,
-  ]);
-  const [attachRows] = await db.query(
+  const [linesRows] = await tenantPool.query(
+    queries.GET_LINES_BY_REIMBURSEMENT_IDS,
+    [safeIds]
+  );
+  const [attachRows] = await tenantPool.query(
     queries.GET_ATTACHMENTS_BY_REIMBURSEMENT_IDS,
     [safeIds]
   );
@@ -377,18 +420,26 @@ exports.getReimbursementsByEmployee = async (
   return result;
 };
 
+/**
+ * Get all reimbursements grouped by employee (tenant-aware)
+ */
 exports.getAllReimbursements = async (
   submittedFrom = null,
   submittedFromForBetween = null,
-  submittedTo = null
+  submittedTo = null,
+  orgId
 ) => {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
   try {
     const params = [
       submittedFrom || null,
       submittedFromForBetween || null,
       submittedTo || null,
     ];
-    const [rawRows] = await db.query(queries.GET_ALL_REIMBURSEMENTS, params);
+    const [rawRows] = await tenantPool.query(
+      queries.GET_ALL_REIMBURSEMENTS,
+      params
+    );
 
     if (!rawRows || rawRows.length === 0) return [];
 
@@ -409,10 +460,11 @@ exports.getAllReimbursements = async (
     const reimbursementIds = reimbursements.map((r) => r.id);
     const safeIds = reimbursementIds.length ? reimbursementIds : [-1];
 
-    const [linesRows] = await db.query(queries.GET_LINES_BY_REIMBURSEMENT_IDS, [
-      safeIds,
-    ]);
-    const [attachRows] = await db.query(
+    const [linesRows] = await tenantPool.query(
+      queries.GET_LINES_BY_REIMBURSEMENT_IDS,
+      [safeIds]
+    );
+    const [attachRows] = await tenantPool.query(
       queries.GET_ATTACHMENTS_BY_REIMBURSEMENT_IDS,
       [safeIds]
     );
@@ -571,7 +623,16 @@ exports.getAllReimbursements = async (
   }
 };
 
-exports.getEmployees = async (q = null, departmentId = null, limit = 200) => {
+/**
+ * Get employees (tenant-aware)
+ */
+exports.getEmployees = async (
+  q = null,
+  departmentId = null,
+  limit = 200,
+  orgId
+) => {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
   try {
     let sql =
       queries.GET_EMPLOYEES ||
@@ -611,7 +672,7 @@ exports.getEmployees = async (q = null, departmentId = null, limit = 200) => {
     sql += " ORDER BY e.first_name ASC LIMIT ?";
     params.push(safeLimit);
 
-    const [rows] = await db.query(sql, params);
+    const [rows] = await tenantPool.query(sql, params);
     const list = (rows || []).map((r) => ({
       employee_id: r.employee_id,
       name: r.name || `${r.first_name || ""} ${r.last_name || ""}`.trim(),
@@ -625,8 +686,12 @@ exports.getEmployees = async (q = null, departmentId = null, limit = 200) => {
   }
 };
 
-exports.createReimbursement = async (reimbursementData) => {
-  const conn = await db.getConnection();
+/**
+ * Create reimbursement (tenant-aware)
+ */
+exports.createReimbursement = async (reimbursementData, orgId) => {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  const conn = await tenantPool.getConnection();
   try {
     await conn.beginTransaction();
 
@@ -714,6 +779,7 @@ exports.createReimbursement = async (reimbursementData) => {
       await conn.query(queries.SAVE_REIMBURSEMENT_LINES_BULK, [values]);
     }
 
+    // attachments
     if (
       Array.isArray(reimbursementData.attachments) &&
       reimbursementData.attachments.length
@@ -733,7 +799,7 @@ exports.createReimbursement = async (reimbursementData) => {
           a.originalname ||
           (a.path ? path.basename(String(a.path)) : "") ||
           (a.file_path ? path.basename(String(a.file_path)) : "");
-        const filePath = a.file_path || a.path || null;
+        const filePath = a.file_path || a.path || "";
         const li =
           a.line_index !== undefined && a.line_index !== null
             ? lineIndexToId[Number(a.line_index)] || null
@@ -755,8 +821,12 @@ exports.createReimbursement = async (reimbursementData) => {
   }
 };
 
-exports.updateReimbursement = async (reimbursementId, updateData) => {
-  const conn = await db.getConnection();
+/**
+ * Update reimbursement (tenant-aware)
+ */
+exports.updateReimbursement = async (reimbursementId, updateData, orgId) => {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  const conn = await tenantPool.getConnection();
   try {
     await conn.beginTransaction();
 
@@ -850,6 +920,7 @@ exports.updateReimbursement = async (reimbursementId, updateData) => {
       await conn.query(queries.SAVE_REIMBURSEMENT_LINES_BULK, [values]);
     }
 
+    // attachments update
     if (
       Array.isArray(updateData.attachments) &&
       updateData.attachments.length
@@ -935,7 +1006,6 @@ exports.updateReimbursement = async (reimbursementId, updateData) => {
               __dirname,
               "..",
               "..",
-              "..",
               "reimbursement",
               year,
               month,
@@ -982,12 +1052,17 @@ exports.updateReimbursement = async (reimbursementId, updateData) => {
   }
 };
 
+/**
+ * Get team reimbursements (tenant-aware)
+ */
 exports.getTeamReimbursements = async (
   departmentId,
   submittedFrom,
   submittedTo,
-  teamLeadId
+  teamLeadId,
+  orgId
 ) => {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
   try {
     const dept =
       departmentId !== undefined && departmentId !== null ? departmentId : null;
@@ -997,9 +1072,7 @@ exports.getTeamReimbursements = async (
       submittedFrom && submittedFrom !== "null" ? submittedFrom : null;
     const params = [dept, excludedId, excludedId, from, from, from];
 
-    console.log("[Service:getTeamReimbursements] SQL params:", params);
-
-    const [reimbursementsRaw] = await db.query(
+    const [reimbursementsRaw] = await tenantPool.query(
       queries.GET_TEAM_REIMBURSEMENTS,
       params
     );
@@ -1028,10 +1101,11 @@ exports.getTeamReimbursements = async (
     const reimbursementIds = normalized.map((r) => r.id);
     const safeIds = reimbursementIds.length ? reimbursementIds : [-1];
 
-    const [linesRows] = await db.query(queries.GET_LINES_BY_REIMBURSEMENT_IDS, [
-      safeIds,
-    ]);
-    const [attachmentsRows] = await db.query(
+    const [linesRows] = await tenantPool.query(
+      queries.GET_LINES_BY_REIMBURSEMENT_IDS,
+      [safeIds]
+    );
+    const [attachmentsRows] = await tenantPool.query(
       queries.GET_ATTACHMENTS_BY_REIMBURSEMENT_IDS,
       [safeIds]
     );
@@ -1151,7 +1225,6 @@ exports.getTeamReimbursements = async (
               a.url ||
               buildAttachmentUrl(a.file_path, a.file_name, r.employee_id),
           });
-
           return acc;
         }, {});
 
@@ -1166,6 +1239,7 @@ exports.getTeamReimbursements = async (
           if (inv) invoiceSet.add(String(inv).trim());
         });
       });
+
       const aggregatedInvoices = Array.from(invoiceSet);
 
       return {
@@ -1184,6 +1258,9 @@ exports.getTeamReimbursements = async (
   }
 };
 
+/**
+ * Update reimbursement status (tenant-aware)
+ */
 exports.updateReimbursementStatus = async (
   id,
   status,
@@ -1191,8 +1268,10 @@ exports.updateReimbursementStatus = async (
   approver_id,
   approver_name,
   approver_designation,
-  project
+  project,
+  orgId
 ) => {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
   try {
     if (!id) throw new Error("id is required");
     const allowed = ["approved", "rejected"];
@@ -1215,7 +1294,7 @@ exports.updateReimbursementStatus = async (
       id,
     ];
 
-    const [result] = await db.query(
+    const [result] = await tenantPool.query(
       queries.UPDATE_REIMBURSEMENT_STATUS,
       params
     );
@@ -1242,11 +1321,23 @@ exports.updateReimbursementStatus = async (
   }
 };
 
-exports.updatePaymentStatus = async (id, payment_status, paid_date = null) => {
+/**
+ * Update payment status (tenant-aware)
+ */
+exports.updatePaymentStatus = async (
+  id,
+  payment_status,
+  paid_date = null,
+  orgId
+) => {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
   try {
     if (!id) throw new Error("id is required");
     const params = [payment_status || null, paid_date || null, id];
-    const [result] = await db.query(queries.UPDATE_PAYMENT_STATUS, params);
+    const [result] = await tenantPool.query(
+      queries.UPDATE_PAYMENT_STATUS,
+      params
+    );
 
     if (!result || result.affectedRows === 0) {
       const e = new Error("No reimbursement updated for payment status");
@@ -1261,10 +1352,16 @@ exports.updatePaymentStatus = async (id, payment_status, paid_date = null) => {
   }
 };
 
-exports.getAttachments = async (reimbursementId) => {
+/**
+ * Get attachments for a reimbursement (tenant-aware)
+ */
+exports.getAttachments = async (reimbursementId, orgId) => {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
   try {
     if (!reimbursementId) return [];
-    const [rows] = await db.query(queries.GET_ATTACHMENTS, [reimbursementId]);
+    const [rows] = await tenantPool.query(queries.GET_ATTACHMENTS, [
+      reimbursementId,
+    ]);
     return rows || [];
   } catch (err) {
     console.error("Error in getAttachments:", err);
@@ -1272,10 +1369,17 @@ exports.getAttachments = async (reimbursementId) => {
   }
 };
 
-exports.getAttachmentsByReimbursementIds = async (reimbursementIds = []) => {
+/**
+ * Get attachments by reimbursement IDs (tenant-aware)
+ */
+exports.getAttachmentsByReimbursementIds = async (
+  reimbursementIds = [],
+  orgId
+) => {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
   try {
     if (!reimbursementIds || !reimbursementIds.length) return [];
-    const [attachments] = await db.query(
+    const [attachments] = await tenantPool.query(
       queries.GET_ATTACHMENTS_BY_REIMBURSEMENT_IDS,
       [reimbursementIds]
     );
@@ -1285,11 +1389,50 @@ exports.getAttachmentsByReimbursementIds = async (reimbursementIds = []) => {
     throw err;
   }
 };
+// GET /reimbursement/attachment/meta?claimId=...&filename=...
+exports.getAttachmentMeta = async (req, res) => {
+  try {
+    const orgId = resolveOrgIdFromReq(req);
+    if (!orgId) return res.status(400).json({ error: "orgId required" });
 
-exports.deleteReimbursement = async (id) => {
+    const { claimId, filename } = req.query;
+    if (!claimId) return res.status(400).json({ error: "claimId required" });
+
+    const attachments =
+      await reimbursementService.getAttachmentsByReimbursementIds(
+        [claimId],
+        orgId
+      );
+
+    if (!attachments || attachments.length === 0) {
+      return res.status(404).json({ message: "No attachments found." });
+    }
+
+    // If filename provided, try to match exactly; otherwise return all
+    const matches = filename
+      ? attachments.filter(
+          (a) =>
+            String(a.file_name || a.filename || "")
+              .toLowerCase()
+              .trim() === String(filename).toLowerCase().trim()
+        )
+      : attachments;
+
+    return res.json({ attachments: matches });
+  } catch (error) {
+    console.error("Error in getAttachmentMeta:", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+/**
+ * Delete reimbursement (tenant-aware)
+ */
+exports.deleteReimbursement = async (id, orgId) => {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
   try {
     if (!id) throw new Error("id is required");
-    await db.query(queries.DELETE_REIMBURSEMENT, [id]);
+    await tenantPool.query(queries.DELETE_REIMBURSEMENT, [id]);
     return { id };
   } catch (err) {
     console.error("Error in deleteReimbursement:", err);
@@ -1297,9 +1440,15 @@ exports.deleteReimbursement = async (id) => {
   }
 };
 
-exports.getApproverDetails = async (approver_id) => {
+/**
+ * Get approver details (tenant-aware)
+ */
+exports.getApproverDetails = async (approver_id, orgId) => {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
   try {
-    const [rows] = await db.query(queries.GET_APPROVER_DETAILS, [approver_id]);
+    const [rows] = await tenantPool.query(queries.GET_APPROVER_DETAILS, [
+      approver_id,
+    ]);
     return rows && rows.length ? rows[0] : null;
   } catch (err) {
     console.error("Error in getApproverDetails:", err);
@@ -1307,9 +1456,13 @@ exports.getApproverDetails = async (approver_id) => {
   }
 };
 
-exports.getAllProjects = async () => {
+/**
+ * Get all projects (tenant-aware)
+ */
+exports.getAllProjects = async (orgId) => {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
   try {
-    const [projects] = await db.query(queries.GET_ALL_PROJECTS);
+    const [projects] = await tenantPool.query(queries.GET_ALL_PROJECTS);
     if (!projects || projects.length === 0) return [];
     return projects.map((p) => p.project_name);
   } catch (err) {

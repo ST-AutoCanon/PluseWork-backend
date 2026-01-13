@@ -1,3 +1,4 @@
+// services/pdfService.js
 const { PDFDocument } = require("pdf-lib");
 const fs = require("fs");
 const fsp = require("fs").promises;
@@ -6,6 +7,9 @@ const libre = require("libreoffice-convert");
 const sharp = require("sharp");
 const { spawn, spawnSync } = require("child_process");
 
+/**
+ * Helpers
+ */
 async function fileExistsNonEmpty(fp) {
   try {
     const st = await fsp.stat(fp);
@@ -51,6 +55,9 @@ function convertWithSoffice(docxPath, outDir) {
   });
 }
 
+/**
+ * Extract images from PDF (best-effort)
+ */
 async function extractImagesFromPdf(pdfPath) {
   const images = [];
   try {
@@ -95,22 +102,156 @@ async function optimizeImageFromPath(imagePath) {
     .toBuffer();
 }
 
-async function mergeAttachments(pdfPath, attachments) {
-  const pdfBuffer = fs.readFileSync(pdfPath);
+/**
+ * Resolve an attachment file path using tenant-aware heuristics.
+ * Tries (in order):
+ *  - att.file_path as-is (absolute or relative to process cwd)
+ *  - tenant path: ../reimbursement/{orgId}/{att.file_path}
+ *  - legacy path (without orgId): ../reimbursement/{att.file_path}
+ *  - if att.file_name and has yyyy_mm prefix and att.employee_id, try tenant path ../reimbursement/{orgId}/{yyyy}/{mm}/{employeeId}/{file_name}
+ *  - if att.file_name and has yyyy_mm and no emp, try ../reimbursement/{orgId}/{yyyy}/{mm}/{file_name} and fallback to legacy
+ */
+async function resolveAttachmentFilePath(att = {}, orgId = null) {
+  try {
+    const candidatePaths = [];
+
+    if (att.file_path) {
+      // first preference: as provided
+      candidatePaths.push(att.file_path);
+      // tenant-aware if not absolute
+      if (!path.isAbsolute(att.file_path) && orgId) {
+        candidatePaths.push(
+          path.join(
+            __dirname,
+            "..",
+            "reimbursement",
+            String(orgId),
+            att.file_path
+          )
+        );
+      }
+      // legacy path (without orgId)
+      candidatePaths.push(
+        path.join(__dirname, "..", "reimbursement", att.file_path)
+      );
+    }
+
+    const fileName =
+      att.file_name || (att.file_path ? path.basename(att.file_path) : null);
+    if (fileName) {
+      // try extract yyyy-mm from filename
+      const m = String(fileName).match(/^(\d{4})[-_](\d{2})/);
+      if (m) {
+        const year = m[1];
+        const month = m[2];
+        if (orgId && att.employee_id) {
+          candidatePaths.push(
+            path.join(
+              __dirname,
+              "..",
+              "reimbursement",
+              String(orgId),
+              year,
+              month,
+              String(att.employee_id),
+              fileName
+            )
+          );
+        }
+        if (orgId) {
+          candidatePaths.push(
+            path.join(
+              __dirname,
+              "..",
+              "reimbursement",
+              String(orgId),
+              year,
+              month,
+              fileName
+            )
+          );
+        }
+        candidatePaths.push(
+          path.join(
+            __dirname,
+            "..",
+            "reimbursement",
+            year,
+            month,
+            att.employee_id ? String(att.employee_id) : "",
+            fileName
+          )
+        );
+      }
+
+      // also try tenant folder with employee id only
+      if (orgId && att.employee_id) {
+        candidatePaths.push(
+          path.join(__dirname, "..", "reimbursement", String(orgId), fileName)
+        );
+        candidatePaths.push(
+          path.join(
+            __dirname,
+            "..",
+            "reimbursement",
+            String(orgId),
+            String(att.employee_id),
+            fileName
+          )
+        );
+      }
+
+      // generic legacy fallback
+      candidatePaths.push(
+        path.join(__dirname, "..", "reimbursement", fileName)
+      );
+    }
+
+    // de-dupe and test existence
+    const seen = new Set();
+    for (const cp of candidatePaths) {
+      if (!cp) continue;
+      const normalized = path.resolve(String(cp));
+      if (seen.has(normalized)) continue;
+      seen.add(normalized);
+      try {
+        await fsp.access(normalized);
+        return normalized;
+      } catch {
+        // skip
+      }
+    }
+  } catch (e) {
+    // ignore and return null
+  }
+  return null;
+}
+
+/**
+ * Merge attachments into an existing PDF (pdfPath).
+ * attachments: array of { file_path, file_name, employee_id, ... }
+ * orgId: tenant id (optional) to help resolve file locations
+ *
+ * Returns path to final merged PDF (original_pdf_final.pdf) or throws.
+ */
+async function mergeAttachments(pdfPath, attachments = [], orgId = null) {
+  const pdfBuffer = await fsp.readFile(pdfPath);
   const pdfDoc = await PDFDocument.load(pdfBuffer);
 
   for (const att of attachments) {
     try {
-      if (!att.file_path || !fs.existsSync(att.file_path)) {
-        console.warn("Skipping invalid attachment:", att.file_path);
+      // resolve actual file path
+      const resolved = await resolveAttachmentFilePath(att, orgId);
+      if (!resolved) {
+        console.warn("Skipping invalid attachment (not found):", att);
         continue;
       }
 
-      const ext = (att.file_path || "").toLowerCase().split(".").pop();
+      const ext = (resolved || "").toLowerCase().split(".").pop();
 
       if (ext === "pdf") {
         try {
-          const otherPdfBytes = fs.readFileSync(att.file_path);
+          const otherPdfBytes = await fsp.readFile(resolved);
           const otherPdf = await PDFDocument.load(otherPdfBytes);
           const total = otherPdf.getPageCount();
           const pages = await pdfDoc.copyPages(
@@ -119,11 +260,12 @@ async function mergeAttachments(pdfPath, attachments) {
           );
           pages.forEach((page) => pdfDoc.addPage(page));
 
-          const imgs = await extractImagesFromPdf(att.file_path);
+          // also try and extract embedded images from this PDF as separate pages
+          const imgs = await extractImagesFromPdf(resolved);
           for (const im of imgs) {
             try {
               const buf = await optimizeImageBuffer(im.data);
-              let embedded =
+              const embedded =
                 im.type === "png"
                   ? await pdfDoc.embedPng(buf)
                   : await pdfDoc.embedJpg(buf);
@@ -132,11 +274,9 @@ async function mergeAttachments(pdfPath, attachments) {
               const { width: iw, height: ih } = embedded.scale(1);
               const maxW = pw - 100;
               const maxH = ph - 100;
-              let drawW = iw;
-              let drawH = ih;
               const ratio = Math.min(maxW / iw, maxH / ih, 1);
-              drawW = iw * ratio;
-              drawH = ih * ratio;
+              const drawW = iw * ratio;
+              const drawH = ih * ratio;
               page.drawImage(embedded, {
                 x: (pw - drawW) / 2,
                 y: (ph - drawH) / 2,
@@ -150,28 +290,25 @@ async function mergeAttachments(pdfPath, attachments) {
         } catch (err) {
           console.error(
             "Failed to import PDF pages:",
-            att.file_path,
+            resolved,
             err.message || err
           );
         }
       } else if (["png", "jpg", "jpeg"].includes(ext)) {
         try {
-          const buf = await optimizeImageFromPath(att.file_path);
-          let embedded;
-          if (ext === "png") embedded = await pdfDoc.embedPng(buf);
-          else embedded = await pdfDoc.embedJpg(buf);
-
+          const buf = await optimizeImageFromPath(resolved);
+          const embedded =
+            ext === "png"
+              ? await pdfDoc.embedPng(buf)
+              : await pdfDoc.embedJpg(buf);
           const page = pdfDoc.addPage();
           const { width: pw, height: ph } = page.getSize();
-
           const { width: iw, height: ih } = embedded.scale(1);
-
           const maxW = pw - 100;
           const maxH = ph - 100;
           const ratio = Math.min(maxW / iw, maxH / ih, 1);
           const drawW = iw * ratio;
           const drawH = ih * ratio;
-
           page.drawImage(embedded, {
             x: (pw - drawW) / 2,
             y: (ph - drawH) / 2,
@@ -181,18 +318,18 @@ async function mergeAttachments(pdfPath, attachments) {
         } catch (err) {
           console.error(
             "Failed to optimize/embed image:",
-            att.file_path,
+            resolved,
             err.message || err
           );
           continue;
         }
       } else {
-        console.warn("Unsupported attachment type, skipping:", att.file_path);
+        console.warn("Unsupported attachment type, skipping:", resolved);
       }
     } catch (outerErr) {
       console.warn(
         "Error processing attachment (skipping):",
-        att.file_path,
+        att,
         outerErr.message || outerErr
       );
       continue;
@@ -205,7 +342,21 @@ async function mergeAttachments(pdfPath, attachments) {
   return finalPdfPath;
 }
 
-exports.convertDocxToPdf = async (docxPath, claim = {}, attachments = []) => {
+/**
+ * Convert DOCX -> PDF, then merge attachments (tenant-aware)
+ * - docxPath: path to generated docx (absolute or relative)
+ * - claim: optional claim object
+ * - attachments: optional array of attachments (each should include file_path and/or file_name, employee_id optional)
+ * - orgId: optional tenant id used for temp folder + resolving attachments
+ *
+ * Returns path to final PDF (or converted PDF if no attachments)
+ */
+exports.convertDocxToPdf = async (
+  docxPath,
+  claim = {},
+  attachments = [],
+  orgId = "unknown"
+) => {
   if (!docxPath) throw new Error("docxPath required");
   const absDocx = path.resolve(docxPath);
   const outDir = path.dirname(absDocx);
@@ -215,13 +366,14 @@ exports.convertDocxToPdf = async (docxPath, claim = {}, attachments = []) => {
   }
 
   const pdfPath = absDocx.replace(/\.docx$/i, ".pdf");
-
   let convertedPdfPath = null;
+
   try {
     const docxBuffer = await fsp.readFile(absDocx);
     if (!docxBuffer || docxBuffer.length === 0)
       throw new Error("DOCX buffer empty");
 
+    // try libre.convert first
     const pdfBuffer = await new Promise((resolve, reject) => {
       let timeout = setTimeout(
         () => reject(new Error("libre.convert timeout")),
@@ -274,21 +426,30 @@ exports.convertDocxToPdf = async (docxPath, claim = {}, attachments = []) => {
     }
   }
 
+  // prepare valid attachments (must resolve to actual files)
   const valid =
     attachments && Array.isArray(attachments)
-      ? attachments.filter((att) => att && att.file_path)
+      ? attachments.filter((att) => att && (att.file_path || att.file_name))
       : [];
   if (valid.length !== (attachments || []).length) {
     console.warn(
       `Filtered out ${
         (attachments || []).length - valid.length
-      } attachments without file_path`
+      } attachments without file_path/file_name`
     );
   }
 
   if (valid.length > 0) {
+    // ensure temp dir for org exists (some flows might want to write temps)
+    const tempDir = path.join(__dirname, "../temp", String(orgId || "unknown"));
     try {
-      return await mergeAttachments(convertedPdfPath, valid);
+      await fsp.mkdir(tempDir, { recursive: true });
+    } catch (e) {
+      // ignore
+    }
+
+    try {
+      return await mergeAttachments(convertedPdfPath, valid, orgId);
     } catch (mergeErr) {
       console.error(
         "mergeAttachments failed:",

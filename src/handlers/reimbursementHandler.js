@@ -1,12 +1,15 @@
+// src/handlers/reimbursementHandler.js
 const reimbursementService = require("../services/reimbursementService");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 const { generateDocx } = require("../services/docxService");
 const { convertDocxToPdf } = require("../services/pdfService");
-const db = require("../config");
 const queries = require("../constants/reimbursementQueries");
 const XLSX = require("xlsx");
+
+// tenant pool manager
+const { sanitizeDbName, getTenantPool } = require("../db/tenantPoolManager");
 
 const forbiddenExts = new Set([
   ".xlsx",
@@ -20,8 +23,39 @@ const forbiddenExts = new Set([
   ".xltm",
 ]);
 
+/**
+ * Resolve orgId from request (header, body, query, or req.user)
+ */
+const resolveOrgIdFromReq = (req) => {
+  const header =
+    req.headers && (req.headers["x-org-id"] || req.headers["x_org_id"]);
+  const body = req.body && (req.body.orgId || req.body.org_id);
+  const query = req.query && (req.query.orgId || req.query.org_id);
+  const userOrg =
+    req.user && (req.user.orgId || req.user.Org_id || req.user.org_id);
+  return header || body || query || userOrg || null;
+};
+
+async function getTenantPoolForOrgId(orgId) {
+  if (!orgId) {
+    const err = new Error("orgId required");
+    err.code = "ORG_REQUIRED";
+    throw err;
+  }
+  const dbName = `tenant_${sanitizeDbName(orgId)}`;
+  return getTenantPool(dbName);
+}
+
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
+    const orgId =
+      req.headers["x-org-id"] ||
+      req.body?.orgId ||
+      req.query?.orgId ||
+      (req.user && req.user.orgId) ||
+      null;
+    if (!orgId) return cb(new Error("orgId is required"), null);
+
     const employeeId =
       (req.body && req.body.employeeId) ||
       req.query?.employeeId ||
@@ -46,6 +80,7 @@ const storage = multer.diskStorage({
         "..",
         "..",
         "reimbursement",
+        String(orgId),
         year,
         month,
         String(employeeId)
@@ -67,6 +102,13 @@ const storage = multer.diskStorage({
       const now = new Date();
       const date = now.toISOString().split("T")[0];
 
+      const orgId =
+        req.headers["x-org-id"] ||
+        req.body?.orgId ||
+        req.query?.orgId ||
+        (req.user && req.user.orgId) ||
+        null;
+
       const employeeId =
         (req.body && req.body.employeeId) ||
         req.query?.employeeId ||
@@ -74,7 +116,7 @@ const storage = multer.diskStorage({
         req.headers["x-employeeid"] ||
         req.headers["employeeid"] ||
         (req.user && req.user.employeeId) ||
-        null;
+        "unknown";
 
       const uploadDir = path.join(
         __dirname,
@@ -82,6 +124,7 @@ const storage = multer.diskStorage({
         "..",
         "..",
         "reimbursement",
+        String(orgId || "unknown"),
         `${now.getFullYear()}`,
         `${String(now.getMonth() + 1).padStart(2, "0")}`,
         `${employeeId || "unknown"}`
@@ -146,241 +189,6 @@ function safeUnlinkSync(fp) {
     console.warn("Failed to delete file:", fp, e.message);
   }
 }
-
-exports.generateReimbursementPDF = async (req, res) => {
-  try {
-    const { claimId } = req.params;
-    if (!claimId) return res.status(400).json({ error: "claimId required" });
-
-    const [claimRows] = await db.query(queries.GET_CLAIM_DETAILS, [claimId]);
-    const claim = Array.isArray(claimRows) ? claimRows[0] : claimRows;
-    if (!claim || !claim.employee_id) {
-      return res.status(404).json({ error: "Claim not found" });
-    }
-
-    const [employeeRows] = await db.query(queries.GET_EMPLOYEE_DETAILS, [
-      claim.employee_id,
-    ]);
-    const employee = Array.isArray(employeeRows)
-      ? employeeRows[0]
-      : employeeRows;
-    if (!employee || !employee.name) {
-      return res.status(404).json({ error: "Employee details not found" });
-    }
-
-    const [attachmentsRows] = await db.query(queries.GET_ATTACHMENTS, [
-      claimId,
-    ]);
-    const attachments = Array.isArray(attachmentsRows)
-      ? attachmentsRows
-      : attachmentsRows || [];
-
-    const attachmentsWithFiles = attachments.filter(
-      (att) => att && att.file_path
-    );
-    if (attachmentsWithFiles.length !== attachments.length) {
-      console.warn(
-        `Filtered out ${
-          attachments.length - attachmentsWithFiles.length
-        } attachments without file_path`
-      );
-    }
-
-    attachmentsWithFiles.forEach((att) => {
-      if (!fs.existsSync(att.file_path)) {
-        console.warn(`File not found on disk: ${att.file_path}`);
-      }
-    });
-
-    const [linesRows] = await db.query(queries.GET_LINES_BY_REIMBURSEMENT_IDS, [
-      [claimId],
-    ]);
-
-    const lines = (linesRows || [])
-      .sort((a, b) => (a.line_index || 0) - (b.line_index || 0))
-      .map((l) => {
-        const payload =
-          typeof l.meta === "string" ? JSON.parse(l.meta) : l.meta || {};
-        return {
-          ...l,
-          payload,
-        };
-      });
-
-    const firstPayload = lines[0]?.payload || {};
-    const display_date =
-      firstPayload.date ||
-      firstPayload.from_date ||
-      firstPayload.to_date ||
-      claim.date ||
-      null;
-
-    const invoiceSet = new Set();
-    lines.forEach((l) => {
-      (l.payload?.invoices || []).forEach(
-        (i) => i && invoiceSet.add(String(i).trim())
-      );
-    });
-
-    const total_amount = lines.reduce(
-      (sum, l) => sum + (Number(l.total_amount) || 0),
-      0
-    );
-
-    claim.lines = lines;
-    claim.display_date = display_date;
-    claim.total_amount = total_amount.toFixed(2);
-    claim.invoices = Array.from(invoiceSet);
-
-    const docxPath = await generateDocx(claim, employee, attachmentsWithFiles);
-
-    const pdfPath = await convertDocxToPdf(
-      docxPath,
-      claim,
-      attachmentsWithFiles
-    );
-
-    const fileNameBase = (employee.name || `claim_${claimId}`).replace(
-      /\s+/g,
-      "_"
-    );
-    const fileName = `${fileNameBase}.pdf`;
-
-    res.download(pdfPath, fileName, (err) => {
-      if (err) console.error("Download error:", err);
-      safeUnlinkSync(docxPath);
-      safeUnlinkSync(pdfPath);
-    });
-  } catch (error) {
-    console.error("Error generating reimbursement PDF:", error);
-    res.status(500).json({ error: "Failed to generate document" });
-  }
-};
-
-exports.getReimbursementsByEmployee = async (req, res) => {
-  try {
-    const employeeId = req.params.employeeId;
-    const { fromDate, toDate } = req.query;
-    if (!employeeId)
-      return res.status(400).json({ message: "employeeId required" });
-
-    const reimbursements =
-      await reimbursementService.getReimbursementsByEmployee(
-        employeeId,
-        fromDate,
-        toDate
-      );
-    res.status(200).json(reimbursements);
-  } catch (error) {
-    console.error("Error fetching reimbursements:", error);
-    res.status(500).json({ message: "Failed to fetch reimbursements" });
-  }
-};
-
-exports.updatePaymentStatus = async (req, res) => {
-  try {
-    const { id } = req.params;
-    let { payment_status, user_role } = req.body;
-
-    if (!id) return res.status(400).json({ error: "id required" });
-
-    if (
-      !["pending", "paid", "rejected"].includes(
-        String(payment_status).toLowerCase()
-      )
-    ) {
-      return res.status(400).json({ error: "Invalid payment status." });
-    }
-
-    if (String(user_role).toLowerCase() === "employee") {
-      return res.status(403).json({ error: "Not authorized." });
-    }
-
-    const [rows] = await db.query(
-      "SELECT status FROM reimbursement WHERE id = ?",
-      [id]
-    );
-    const statusVal =
-      rows && rows[0] && rows[0].status
-        ? String(rows[0].status).toLowerCase()
-        : null;
-    if (!statusVal || statusVal !== "approved") {
-      return res.status(400).json({
-        error:
-          "Payment status can only be updated for approved reimbursements.",
-      });
-    }
-
-    const paid_date =
-      String(payment_status).toLowerCase() === "paid" ? new Date() : null;
-    const updated = await reimbursementService.updatePaymentStatus(
-      id,
-      String(payment_status).toLowerCase(),
-      paid_date
-    );
-
-    res.json({ message: "Payment status updated", data: updated });
-  } catch (error) {
-    console.error("Error updating payment status:", error);
-    res.status(500).json({ error: "Error updating payment status" });
-  }
-};
-
-exports.getAllReimbursements = async (req, res) => {
-  try {
-    let { submittedFrom, submittedTo } = req.query;
-    submittedFrom =
-      submittedFrom && submittedFrom !== "null" ? submittedFrom : null;
-    submittedTo = submittedTo && submittedTo !== "null" ? submittedTo : null;
-
-    const reimbursements = await reimbursementService.getAllReimbursements(
-      submittedFrom,
-      submittedFrom,
-      submittedTo
-    );
-    res.status(200).json(reimbursements);
-  } catch (error) {
-    console.error("Error fetching all reimbursements:", error);
-    res.status(500).json({ error: "Internal Server Error" });
-  }
-};
-
-exports.exportReimbursements = async (req, res) => {
-  try {
-    let { submittedFrom, submittedTo } = req.query;
-    submittedFrom = submittedFrom !== "null" ? submittedFrom : null;
-    submittedTo = submittedTo !== "null" ? submittedTo : null;
-
-    const rows = await reimbursementService.getAllReimbursements(
-      submittedFrom,
-      submittedFrom,
-      submittedTo
-    );
-
-    const flat = rows.reduce((acc, r) => acc.concat(r.claims || []), []);
-
-    const ws = XLSX.utils.json_to_sheet(flat);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Reimbursements");
-
-    const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
-
-    const fname = `Reimbursements_${submittedFrom || "all"}-to-${
-      submittedTo || "all"
-    }.xlsx`;
-
-    res
-      .setHeader("Content-Disposition", `attachment; filename="${fname}"`)
-      .setHeader(
-        "Content-Type",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-      )
-      .send(buf);
-  } catch (err) {
-    console.error("Export error:", err);
-    res.status(500).json({ error: "Failed to export Excel" });
-  }
-};
 
 function safeParseJSON(val, fallback = null) {
   if (val === undefined || val === null) return fallback;
@@ -477,8 +285,490 @@ function buildAttachmentsFromFiles(reqFiles = [], attachmentsMeta = {}) {
   });
 }
 
+/**
+ * Generate reimbursement PDF (tenant-aware)
+ */
+exports.generateReimbursementPDF = async (req, res) => {
+  try {
+    const { claimId } = req.params;
+    if (!claimId) return res.status(400).json({ error: "claimId required" });
+
+    const orgId = resolveOrgIdFromReq(req);
+    if (!orgId) return res.status(400).json({ error: "orgId required" });
+
+    const tenantPool = await getTenantPoolForOrgId(orgId);
+
+    const [claimRows] = await tenantPool.query(queries.GET_CLAIM_DETAILS, [
+      claimId,
+    ]);
+    const claim = Array.isArray(claimRows) ? claimRows[0] : claimRows;
+    if (!claim || !claim.employee_id) {
+      return res.status(404).json({ error: "Claim not found" });
+    }
+
+    const [employeeRows] = await tenantPool.query(
+      queries.GET_EMPLOYEE_DETAILS,
+      [claim.employee_id]
+    );
+    const employee = Array.isArray(employeeRows)
+      ? employeeRows[0]
+      : employeeRows;
+    if (!employee || !employee.name) {
+      return res.status(404).json({ error: "Employee details not found" });
+    }
+
+    const [attachmentsRows] = await tenantPool.query(queries.GET_ATTACHMENTS, [
+      claimId,
+    ]);
+    const attachments = Array.isArray(attachmentsRows)
+      ? attachmentsRows
+      : attachmentsRows || [];
+
+    // adapt file_path if older records didn't include orgId: prefer tenant path, but keep what's stored
+    const attachmentsWithFiles = attachments.filter(
+      (att) => att && att.file_path
+    );
+    if (attachmentsWithFiles.length !== attachments.length) {
+      console.warn(
+        `Filtered out ${
+          attachments.length - attachmentsWithFiles.length
+        } attachments without file_path`
+      );
+    }
+
+    attachmentsWithFiles.forEach((att) => {
+      // if stored file_path is relative and missing orgId prefix, try to resolve tenant location
+      if (att.file_path && !path.isAbsolute(att.file_path)) {
+        // if path doesn't contain orgId, try to reconstruct tenant path
+        const maybeTenantPath = path.join(
+          __dirname,
+          "..",
+          "..",
+          "..",
+          "reimbursement",
+          String(orgId),
+          // unknown year/month/employee - if file_path contains year segments, it will still work
+          att.file_path
+        );
+        if (fs.existsSync(maybeTenantPath)) {
+          att.file_path = maybeTenantPath;
+        } else {
+          // leave as-is (maybe absolute already or legacy)
+        }
+      }
+      if (!fs.existsSync(att.file_path)) {
+        console.warn(`File not found on disk: ${att.file_path}`);
+      }
+    });
+
+    const [linesRows] = await tenantPool.query(
+      queries.GET_LINES_BY_REIMBURSEMENT_IDS,
+      [[claimId]]
+    );
+
+    const lines = (linesRows || [])
+      .sort((a, b) => (a.line_index || 0) - (b.line_index || 0))
+      .map((l) => {
+        const payload =
+          typeof l.meta === "string" ? JSON.parse(l.meta) : l.meta || {};
+        return {
+          ...l,
+          payload,
+        };
+      });
+
+    const firstPayload = lines[0]?.payload || {};
+    const display_date =
+      firstPayload.date ||
+      firstPayload.from_date ||
+      firstPayload.to_date ||
+      claim.date ||
+      null;
+
+    const invoiceSet = new Set();
+    lines.forEach((l) => {
+      (l.payload?.invoices || []).forEach(
+        (i) => i && invoiceSet.add(String(i).trim())
+      );
+    });
+
+    const total_amount = lines.reduce(
+      (sum, l) => sum + (Number(l.total_amount) || 0),
+      0
+    );
+
+    claim.lines = lines;
+    claim.display_date = display_date;
+    claim.total_amount = total_amount.toFixed(2);
+    claim.invoices = Array.from(invoiceSet);
+
+    const docxPath = await generateDocx(claim, employee, attachmentsWithFiles);
+
+    const pdfPath = await convertDocxToPdf(
+      docxPath,
+      claim,
+      attachmentsWithFiles
+    );
+
+    const fileNameBase = (employee.name || `claim_${claimId}`).replace(
+      /\s+/g,
+      "_"
+    );
+    const fileName = `${fileNameBase}.pdf`;
+
+    res.download(pdfPath, fileName, (err) => {
+      if (err) console.error("Download error:", err);
+      safeUnlinkSync(docxPath);
+      safeUnlinkSync(pdfPath);
+    });
+  } catch (error) {
+    console.error("Error generating reimbursement PDF:", error);
+    res.status(500).json({ error: "Failed to generate document" });
+  }
+};
+
+/**
+ * Get reimbursements by employee (tenant-aware)
+ */
+exports.getReimbursementsByEmployee = async (req, res) => {
+  try {
+    const orgId = resolveOrgIdFromReq(req);
+    if (!orgId) return res.status(400).json({ message: "orgId required" });
+
+    const employeeId = req.params.employeeId;
+    const { fromDate, toDate } = req.query;
+    if (!employeeId)
+      return res.status(400).json({ message: "employeeId required" });
+
+    const reimbursements =
+      await reimbursementService.getReimbursementsByEmployee(
+        employeeId,
+        fromDate,
+        toDate,
+        orgId
+      );
+    res.status(200).json(reimbursements);
+  } catch (error) {
+    console.error("Error fetching reimbursements:", error);
+    res.status(500).json({ message: "Failed to fetch reimbursements" });
+  }
+};
+/**
+ * GET /reimbursement/attachment/meta?claimId=...&filename=...
+ * Returns attachments metadata from DB for the given claim (and optional filename filter).
+ */
+exports.getAttachmentMeta = async (req, res) => {
+  try {
+    const orgId = resolveOrgIdFromReq(req);
+    if (!orgId) return res.status(400).json({ error: "orgId required" });
+
+    const { claimId, filename } = req.query;
+    if (!claimId) return res.status(400).json({ error: "claimId required" });
+
+    const attachments =
+      await reimbursementService.getAttachmentsByReimbursementIds(
+        [claimId],
+        orgId
+      );
+
+    if (!attachments || attachments.length === 0) {
+      return res.status(404).json({ message: "No attachments found." });
+    }
+
+    const matches = filename
+      ? attachments.filter(
+          (a) =>
+            String(a.file_name || a.filename || "")
+              .toLowerCase()
+              .trim() === String(filename).toLowerCase().trim()
+        )
+      : attachments;
+
+    return res.json({ attachments: matches });
+  } catch (error) {
+    console.error("Error in getAttachmentMeta:", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+/**
+ * GET /reimbursement/attachment/serve?claimId=...&filename=...
+ * Streams the physical file to the client. Uses DB-stored file_path if available.
+ * Fallbacks:
+ *  - if stored file_path is absolute, use it
+ *  - if stored file_path is relative, resolve from project root
+ *  - if no file_path or file missing, do a shallow search under reimbursement/<orgId>/<year>/<month> for the filename
+ */
+exports.serveAttachmentCanonical = async (req, res) => {
+  try {
+    const orgId = resolveOrgIdFromReq(req);
+    if (!orgId) return res.status(400).json({ error: "orgId required" });
+
+    const { claimId, filename } = req.query;
+    if (!claimId || !filename)
+      return res
+        .status(400)
+        .json({ error: "claimId and filename are required" });
+
+    // fetch attachments from DB
+    const attachments =
+      await reimbursementService.getAttachmentsByReimbursementIds(
+        [claimId],
+        orgId
+      );
+
+    if (!attachments || attachments.length === 0) {
+      return res.status(404).json({ error: "No attachments found for claim" });
+    }
+
+    // try exact match by filename first
+    let att =
+      attachments.find(
+        (a) =>
+          String(a.file_name || a.filename || "")
+            .toLowerCase()
+            .trim() === String(filename).toLowerCase().trim()
+      ) || attachments[0];
+
+    // if attachment row has file_path, try it
+    if (att && att.file_path) {
+      let candidate = att.file_path;
+      // If path appears relative (not absolute), resolve from project root
+      if (!path.isAbsolute(candidate)) {
+        // project-root resolution (assumes this file is in src/handlers)
+        candidate = path.join(__dirname, "..", "..", candidate);
+      }
+
+      if (fs.existsSync(candidate)) {
+        const ext = path.extname(candidate).toLowerCase();
+        const mimeType =
+          {
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".png": "image/png",
+            ".pdf": "application/pdf",
+          }[ext] || "application/octet-stream";
+
+        res.setHeader("Content-Type", mimeType);
+        res.setHeader(
+          "Content-Disposition",
+          `inline; filename="${path.basename(candidate)}"`
+        );
+        return fs.createReadStream(candidate).pipe(res);
+      }
+    }
+
+    // fallback: attempt to reconstruct from file_name / metadata, or do a shallow search
+    // parse year/month from the filename if possible
+    const m = String(filename).match(/^(\d{4})-(\d{2})-/);
+    if (m) {
+      const year = m[1];
+      const month = m[2];
+
+      // candidateDirectory is reimbursement/<orgId>/<year>/<month>
+      const candidateDir = path.join(
+        __dirname,
+        "..",
+        "..",
+        "reimbursement",
+        String(orgId),
+        year,
+        month
+      );
+
+      if (fs.existsSync(candidateDir)) {
+        const entries = fs.readdirSync(candidateDir, { withFileTypes: true });
+        for (const e of entries) {
+          if (!e.isDirectory()) continue;
+          const candidate2 = path.join(candidateDir, e.name, filename);
+          if (fs.existsSync(candidate2)) {
+            const ext = path.extname(candidate2).toLowerCase();
+            const mimeType =
+              {
+                ".jpg": "image/jpeg",
+                ".jpeg": "image/jpeg",
+                ".png": "image/png",
+                ".pdf": "application/pdf",
+              }[ext] || "application/octet-stream";
+            res.setHeader("Content-Type", mimeType);
+            res.setHeader(
+              "Content-Disposition",
+              `inline; filename="${path.basename(candidate2)}"`
+            );
+            console.info(
+              "serveAttachmentCanonical: found via fallback search:",
+              candidate2
+            );
+            return fs.createReadStream(candidate2).pipe(res);
+          }
+        }
+      }
+    }
+
+    // Nothing found — return useful diagnostics to help debug
+    return res.status(404).json({
+      error: "Attachment file not found on disk",
+      checked: {
+        dbEntryFile_path: att && att.file_path ? att.file_path : null,
+        attemptedShallowDir:
+          att && m
+            ? path.join(
+                __dirname,
+                "..",
+                "..",
+                "reimbursement",
+                String(orgId),
+                m ? m[1] : "",
+                m ? m[2] : ""
+              )
+            : null,
+      },
+    });
+  } catch (error) {
+    console.error("serveAttachmentCanonical error:", error);
+    return res.status(500).json({ error: "Server error" });
+  }
+};
+
+/**
+ * Update payment status (tenant-aware)
+ */
+exports.updatePaymentStatus = async (req, res) => {
+  try {
+    const orgId = resolveOrgIdFromReq(req);
+    if (!orgId) return res.status(400).json({ error: "orgId required" });
+
+    const tenantPool = await getTenantPoolForOrgId(orgId);
+
+    const { id } = req.params;
+    let { payment_status, user_role } = req.body;
+
+    if (!id) return res.status(400).json({ error: "id required" });
+
+    if (
+      !["pending", "paid", "rejected"].includes(
+        String(payment_status).toLowerCase()
+      )
+    ) {
+      return res.status(400).json({ error: "Invalid payment status." });
+    }
+
+    if (String(user_role).toLowerCase() === "employee") {
+      return res.status(403).json({ error: "Not authorized." });
+    }
+
+    const [rows] = await tenantPool.query(
+      "SELECT status FROM reimbursement WHERE id = ?",
+      [id]
+    );
+    const statusVal =
+      rows && rows[0] && rows[0].status
+        ? String(rows[0].status).toLowerCase()
+        : null;
+    if (!statusVal || statusVal !== "approved") {
+      return res.status(400).json({
+        error:
+          "Payment status can only be updated for approved reimbursements.",
+      });
+    }
+
+    const paid_date =
+      String(payment_status).toLowerCase() === "paid" ? new Date() : null;
+    const updated = await reimbursementService.updatePaymentStatus(
+      id,
+      String(payment_status).toLowerCase(),
+      paid_date,
+      orgId
+    );
+
+    res.json({ message: "Payment status updated", data: updated });
+  } catch (error) {
+    console.error("Error updating payment status:", error);
+    res.status(500).json({ error: "Error updating payment status" });
+  }
+};
+
+/**
+ * Get all reimbursements (tenant-aware)
+ */
+exports.getAllReimbursements = async (req, res) => {
+  try {
+    const orgId = resolveOrgIdFromReq(req);
+    if (!orgId) return res.status(400).json({ message: "orgId required" });
+
+    let { submittedFrom, submittedTo } = req.query;
+    submittedFrom =
+      submittedFrom && submittedFrom !== "null" ? submittedFrom : null;
+    submittedTo = submittedTo && submittedTo !== "null" ? submittedTo : null;
+
+    const reimbursements = await reimbursementService.getAllReimbursements(
+      submittedFrom,
+      submittedFrom, // duplicate on purpose — service expects fromForBetween as 2nd param
+      submittedTo,
+      orgId
+    );
+    res.status(200).json(reimbursements);
+  } catch (error) {
+    console.error("Error fetching all reimbursements:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+};
+
+/**
+ * Export reimbursements to XLSX (tenant-aware)
+ */
+exports.exportReimbursements = async (req, res) => {
+  try {
+    const orgId = resolveOrgIdFromReq(req);
+    if (!orgId) return res.status(400).json({ message: "orgId required" });
+
+    let { submittedFrom, submittedTo } = req.query;
+    submittedFrom = submittedFrom !== "null" ? submittedFrom : null;
+    submittedTo = submittedTo !== "null" ? submittedTo : null;
+
+    const rows = await reimbursementService.getAllReimbursements(
+      submittedFrom,
+      submittedTo,
+      orgId
+    );
+
+    const flat = rows.reduce((acc, r) => acc.concat(r.claims || []), []);
+
+    const ws = XLSX.utils.json_to_sheet(flat);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Reimbursements");
+
+    const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+
+    const fname = `Reimbursements_${submittedFrom || "all"}-to-${
+      submittedTo || "all"
+    }.xlsx`;
+
+    res
+      .setHeader("Content-Disposition", `attachment; filename="${fname}"`)
+      .setHeader(
+        "Content-Type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      )
+      .send(buf);
+  } catch (err) {
+    console.error("Export error:", err);
+    res.status(500).json({ error: "Failed to export Excel" });
+  }
+};
+
+/**
+ * Create reimbursement (tenant-aware)
+ */
 exports.createReimbursement = async (req, res) => {
   try {
+    const orgId = resolveOrgIdFromReq(req);
+    if (!orgId) {
+      if (req.files && req.files.length)
+        req.files.forEach((f) => safeUnlinkSync(f.path));
+      return res.status(400).json({ error: "orgId missing." });
+    }
+
     if (req.files && req.files.length) {
       const errMsg = validateAttachments(req.files);
       if (errMsg) {
@@ -566,7 +856,8 @@ exports.createReimbursement = async (req, res) => {
     };
 
     const newReimbursement = await reimbursementService.createReimbursement(
-      reimbursementData
+      reimbursementData,
+      orgId
     );
 
     if (role === "Admin") {
@@ -577,7 +868,9 @@ exports.createReimbursement = async (req, res) => {
         "Auto-approved by Admin",
         approverId,
         "Admin",
-        "Administrator"
+        "Administrator",
+        null,
+        orgId
       );
     }
 
@@ -596,8 +889,18 @@ exports.createReimbursement = async (req, res) => {
   }
 };
 
+/**
+ * Update reimbursement (tenant-aware)
+ */
 exports.updateReimbursement = async (req, res) => {
   try {
+    const orgId = resolveOrgIdFromReq(req);
+    if (!orgId) {
+      if (req.files && req.files.length)
+        req.files.forEach((f) => safeUnlinkSync(f.path));
+      return res.status(400).json({ error: "orgId required" });
+    }
+
     if (req.files && req.files.length) {
       const errMsg = validateAttachments(req.files);
       if (errMsg) {
@@ -721,7 +1024,8 @@ exports.updateReimbursement = async (req, res) => {
 
     const updatedReimbursement = await reimbursementService.updateReimbursement(
       id,
-      updateData
+      updateData,
+      orgId
     );
 
     res.json({ message: "Reimbursement updated", data: updatedReimbursement });
@@ -734,8 +1038,14 @@ exports.updateReimbursement = async (req, res) => {
   }
 };
 
+/**
+ * Update reimbursement status (tenant-aware)
+ */
 exports.updateReimbursementStatus = async (req, res) => {
   try {
+    const orgId = resolveOrgIdFromReq(req);
+    if (!orgId) return res.status(400).json({ error: "orgId required" });
+
     const { id } = req.params;
     const { status, approver_comments, approver_id, project } = req.body;
     if (!id) return res.status(400).json({ error: "id required" });
@@ -744,7 +1054,8 @@ exports.updateReimbursementStatus = async (req, res) => {
     }
 
     const approverDetails = await reimbursementService.getApproverDetails(
-      approver_id
+      approver_id,
+      orgId
     );
 
     let approver_name = null;
@@ -764,7 +1075,8 @@ exports.updateReimbursementStatus = async (req, res) => {
       approver_id,
       approver_name,
       approver_designation,
-      project
+      project,
+      orgId
     );
 
     res.json({ message: `Reimbursement ${status}`, data: updatedStatus });
@@ -774,27 +1086,40 @@ exports.updateReimbursementStatus = async (req, res) => {
   }
 };
 
+/**
+ * Delete reimbursement (tenant-aware)
+ */
 exports.deleteReimbursement = async (req, res) => {
   try {
+    const orgId = resolveOrgIdFromReq(req);
+    if (!orgId) return res.status(400).json({ error: "orgId required" });
+
     const { id } = req.params;
     if (!id) return res.status(400).json({ error: "id required" });
 
-    await reimbursementService.deleteReimbursement(id);
+    await reimbursementService.deleteReimbursement(id, orgId);
     res.json({ message: "Reimbursement deleted" });
   } catch (error) {
     console.error("Error deleting reimbursement:", error);
-    res.status(500).json({ error: "Error deleting reimbursement" });
+    res.status(500).json({ error: "Internal server error" });
   }
 };
 
+/**
+ * Upload single attachment endpoint (tenant-aware)
+ */
 exports.uploadReimbursementAttachment = async (req, res) => {
   try {
+    const orgId = resolveOrgIdFromReq(req);
+    if (!orgId) return res.status(400).json({ message: "orgId required" });
+
     if (!req.file) {
       return res.status(400).json({ message: "No file uploaded" });
     }
     res.json({
       message: "File uploaded successfully",
       filename: req.file.filename,
+      path: req.file.path,
     });
   } catch (error) {
     console.error("Error uploading file:", error);
@@ -802,8 +1127,12 @@ exports.uploadReimbursementAttachment = async (req, res) => {
   }
 };
 
+// diagnostic getAttachments - paste into reimbursementHandler.js (dev only)
 exports.getAttachments = async (req, res) => {
   try {
+    const orgId = resolveOrgIdFromReq(req);
+    if (!orgId) return res.status(400).json({ error: "orgId required" });
+
     const { year, month, employeeId, filename } = req.params;
     if (!year || !month || !employeeId || !filename) {
       return res.status(400).json({ error: "Missing path parameters" });
@@ -817,7 +1146,20 @@ exports.getAttachments = async (req, res) => {
       return res.status(400).json({ error: "Invalid filename" });
     }
 
-    const filePath = path.join(
+    const tenantPath = path.join(
+      __dirname,
+      "..",
+      "..",
+      "..",
+      "reimbursement",
+      String(orgId),
+      year,
+      month,
+      employeeId,
+      filename
+    );
+
+    const legacyPath = path.join(
       __dirname,
       "..",
       "..",
@@ -828,7 +1170,17 @@ exports.getAttachments = async (req, res) => {
       employeeId,
       filename
     );
-    if (fs.existsSync(filePath)) {
+
+    const triedPaths = [tenantPath, legacyPath];
+
+    // check existence
+    const existing = triedPaths.filter((p) => fs.existsSync(p));
+
+    console.info("getAttachments: attempted paths:", triedPaths);
+    console.info("getAttachments: existing matches:", existing);
+
+    if (existing.length > 0) {
+      const finalPath = existing[0];
       const ext = path.extname(filename).toLowerCase();
       const mimeType =
         {
@@ -837,30 +1189,55 @@ exports.getAttachments = async (req, res) => {
           ".png": "image/png",
           ".pdf": "application/pdf",
         }[ext] || "application/octet-stream";
-
       res.setHeader("Content-Type", mimeType);
       res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
-      fs.createReadStream(filePath).pipe(res);
-    } else {
-      res.status(404).json({ error: "File not found" });
+      return fs.createReadStream(finalPath).pipe(res);
     }
+
+    // If none found, include a small directory listing for the directories we tried (helpful for debugging)
+    const triedDirs = Array.from(
+      new Set(triedPaths.map((p) => path.dirname(p)))
+    );
+    const dirListings = {};
+    for (const d of triedDirs) {
+      try {
+        if (fs.existsSync(d)) dirListings[d] = fs.readdirSync(d).slice(0, 100);
+        else dirListings[d] = null;
+      } catch (e) {
+        dirListings[d] = `ERR: ${e.message}`;
+      }
+    }
+
+    // return diagnostic JSON to help debug from browser
+    return res.status(404).json({
+      error: "File not found (diagnostic)",
+      triedPaths,
+      dirListings,
+    });
   } catch (error) {
     console.error("Error fetching file:", error);
     res.status(500).json({ error: "Error fetching file" });
   }
 };
 
+/**
+ * Get attachments by reimbursement id (tenant-aware)
+ */
 exports.getAttachmentsByReimbursementId = async (req, res) => {
   try {
+    const orgId = resolveOrgIdFromReq(req);
+    if (!orgId) return res.status(400).json({ message: "orgId required" });
+
     const { reimbursementId } = req.params;
     if (!reimbursementId) {
       return res.status(400).json({ message: "Reimbursement ID is required" });
     }
 
     const attachments =
-      await reimbursementService.getAttachmentsByReimbursementIds([
-        reimbursementId,
-      ]);
+      await reimbursementService.getAttachmentsByReimbursementIds(
+        [reimbursementId],
+        orgId
+      );
     if (!attachments || attachments.length === 0) {
       return res.status(404).json({ message: "No attachments found." });
     }
@@ -871,14 +1248,21 @@ exports.getAttachmentsByReimbursementId = async (req, res) => {
   }
 };
 
+/**
+ * Search/get employees (tenant-aware)
+ */
 exports.getEmployees = async (req, res) => {
   try {
+    const orgId = resolveOrgIdFromReq(req);
+    if (!orgId) return res.status(400).json({ error: "orgId required" });
+
     const { q, departmentId, limit } = req.query;
 
     const employees = await reimbursementService.getEmployees(
       q || null,
       departmentId || null,
-      limit || 200
+      limit || 200,
+      orgId
     );
 
     res.status(200).json(employees);
@@ -889,15 +1273,42 @@ exports.getEmployees = async (req, res) => {
 };
 exports.getTeamReimbursements = async (req, res) => {
   try {
+    const orgId = resolveOrgIdFromReq(req);
+    if (!orgId) return res.status(400).json({ error: "orgId required" });
+
     const { teamLeadId } = req.params;
-    const { departmentId } = req.query;
+
+    // accept department from query OR req.user (do NOT read from headers to avoid CORS preflight)
+    let departmentId =
+      (req.query && (req.query.departmentId || req.query.department_id)) ||
+      (req.user && (req.user.department_id || req.user.deptId)) ||
+      null;
+
+    // normalize string values "null" or "undefined" => null
+    if (typeof departmentId === "string") {
+      const t = departmentId.trim().toLowerCase();
+      if (t === "null" || t === "undefined" || t === "") departmentId = null;
+    }
+
     let { submittedFrom, submittedTo } = req.query;
 
     if (!teamLeadId) {
       return res.status(400).json({ error: "Team Lead ID is required" });
     }
+
     if (!departmentId) {
-      return res.status(400).json({ error: "Department ID is required" });
+      // client-side should pass department as query param or the authenticated user must have it
+      const receivedDepartmentQuery =
+        req.query.departmentId ?? req.query.department_id;
+      return res.status(400).json({
+        error:
+          "Department ID is required. Provide it in the query (?departmentId=123) or ensure the authenticated user has department_id in their profile.",
+        debug: {
+          receivedDepartmentQuery,
+          reqUserDepartment:
+            (req.user && (req.user.department_id || req.user.deptId)) || null,
+        },
+      });
     }
 
     const start =
@@ -908,7 +1319,8 @@ exports.getTeamReimbursements = async (req, res) => {
       departmentId,
       start,
       end,
-      teamLeadId
+      teamLeadId,
+      orgId
     );
     res.status(200).json(teamReimbursements);
   } catch (error) {
@@ -916,10 +1328,15 @@ exports.getTeamReimbursements = async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 };
-
+/**
+ * Projects (tenant-aware)
+ */
 exports.getAllProjects = async (req, res) => {
   try {
-    const projects = await reimbursementService.getAllProjects();
+    const orgId = resolveOrgIdFromReq(req);
+    if (!orgId) return res.status(400).json({ error: "orgId required" });
+
+    const projects = await reimbursementService.getAllProjects(orgId);
     res.status(200).json(projects);
   } catch (error) {
     console.error("Error fetching projects:", error);
