@@ -1,11 +1,7 @@
-// services/employeeQueries.js
-const db = require("../config"); // master DB for org lookup
+const db = require("../config");
 const queries = require("../constants/empQueryQueries");
 const { getTenantPool, sanitizeDbName } = require("../db/tenantPoolManager");
 
-/**
- * Resolve tenant pool for an orgId; throws if orgId missing.
- */
 async function getTenantPoolForOrgId(orgId) {
   if (!orgId) {
     const err = new Error("orgId required to get tenant pool");
@@ -17,10 +13,6 @@ async function getTenantPoolForOrgId(orgId) {
 }
 
 class EmployeeQueries {
-  /**
-   * Start a new thread in tenant DB.
-   * recipientRole: 'Admin' | 'HR' | 'Manager'
-   */
   static async startThread(
     sender_id,
     sender_role,
@@ -34,7 +26,6 @@ class EmployeeQueries {
 
     const tenantPool = await getTenantPoolForOrgId(orgId);
 
-    // resolve recipient_id using tenant DB
     let recipient_id;
     if (recipientRole === "Admin") {
       const [admins] = await tenantPool.query(queries.GET_ADMIN, [orgId]);
@@ -85,7 +76,6 @@ class EmployeeQueries {
       ]);
       const messageId = messageResult.insertId;
 
-      // mark unread for recipients
       await EmployeeQueries.markMessageUnreadForRecipientsTenant(
         tenantConn,
         messageId,
@@ -106,12 +96,7 @@ class EmployeeQueries {
     }
   }
 
-  /**
-   * Get admin ids for the org the employee belongs to.
-   * This keeps master lookup for employee->org, then queries tenant DB for admins.
-   */
   static async getAdminIdsByEmployee(employeeId) {
-    // master DB: get org for employee
     const [orgRows] = await db.execute(queries.GET_ORG_BY_EMPLOYEE, [
       employeeId,
     ]);
@@ -168,9 +153,6 @@ class EmployeeQueries {
     }
   }
 
-  /**
-   * Add message into tenant DB.
-   */
   static async addMessage(
     thread_id,
     sender_id,
@@ -221,11 +203,6 @@ class EmployeeQueries {
     }
   }
 
-  /**
-   * Helper to insert unread rows using an existing tenant connection
-   * so callers can participate in the same transaction.
-   * values is an array of [messageId, recipientId, is_read]
-   */
   static async markMessageUnreadForRecipientsTenant(
     conn,
     messageId,
@@ -233,7 +210,6 @@ class EmployeeQueries {
   ) {
     if (!Array.isArray(recipientIds) || recipientIds.length === 0) return;
     const values = recipientIds.map((id) => [messageId, id, false]);
-    // uses INSERT ... VALUES ? with bulk
     await conn.query(queries.UNREAD_STATUS, [values]);
   }
 
@@ -303,7 +279,6 @@ class EmployeeQueries {
     if (!orgId) throw new Error("orgId required");
     const tenantPool = await getTenantPoolForOrgId(orgId);
     try {
-      // FETCH_THREADS expects five instances of employeeId
       const params = [
         employeeId,
         employeeId,

@@ -1,10 +1,6 @@
-
 const { GET_CONFIG_QUERY } = require("../constants/configQueries");
 const { getTenantPoolByOrgId } = require("../db/tenantPoolManager");
 
-/**
- * Fetch all config key-value pairs for the organization (tenant DB)
- */
 const fetchConfig = async (orgId) => {
   if (!orgId) throw new Error("orgId is required");
 
@@ -19,9 +15,6 @@ const fetchConfig = async (orgId) => {
   return config;
 };
 
-/**
- * Upsert a single config value for the organization (tenant DB)
- */
 const saveConfig = async (key, value, orgId) => {
   if (!orgId) throw new Error("orgId is required");
   if (!key || value === undefined)

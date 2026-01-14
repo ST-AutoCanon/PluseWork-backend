@@ -40,7 +40,6 @@ const downloadTemplate = async (req, res) => {
     ];
     const ws = XLSX.utils.aoa_to_sheet(aoa);
 
-
     ws["!dataValidation"] = [
       {
         sqref: "C2:C1000",
@@ -54,7 +53,6 @@ const downloadTemplate = async (req, res) => {
 
     XLSX.utils.book_append_sheet(wb, ws, "Template");
 
-    // Add a small instructions sheet to make allowed values obvious to users
     const instr = [
       ["INSTRUCTIONS"],
       [

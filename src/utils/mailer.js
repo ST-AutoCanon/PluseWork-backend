@@ -21,13 +21,13 @@ function sleep(ms) {
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
   port: Number(process.env.SMTP_PORT) || 587,
-  secure: false, // use STARTTLS
+  secure: false,
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
   },
   tls: {
-    rejectUnauthorized: false, // set to true in production if certs are valid
+    rejectUnauthorized: false,
   },
 });
 
@@ -74,7 +74,7 @@ async function sendResetEmail(employeeEmail, employeeName) {
 
   const resetToken = uuidv4();
   const resetLink = `${process.env.FRONTEND_URL}/ResetPassword?token=${resetToken}`;
-  const tokenExpiry = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000); // 3 days
+  const tokenExpiry = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
 
   const subject = "Welcome to SUKALPA TECH SOLUTIONS – Set Up Your Account";
 

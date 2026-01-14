@@ -1,4 +1,3 @@
-// services/leaveService.js
 const { getTenantPoolByOrgId } = require("../db/tenantPoolManager");
 const queries = require("../constants/leaveQueries");
 const LeavePolicyService = require("./leavePolicyService");
@@ -49,9 +48,6 @@ const getTenantPool = async (orgId) => {
   return getTenantPoolByOrgId(orgId);
 };
 
-/**
- * Get leave queries (admin view). Requires org_id.
- */
 const getLeaveQueries = async (filters = {}) => {
   const { status, search, from_date, to_date, org_id } = filters;
 
@@ -101,9 +97,6 @@ const getLeaveQueries = async (filters = {}) => {
   }
 };
 
-/**
- * updateLeaveRequest(payload, orgId)
- */
 const updateLeaveRequest = async (payload, orgId) => {
   const {
     leaveId,
@@ -316,7 +309,6 @@ const updateLeaveRequest = async (payload, orgId) => {
         }
       }
 
-      // recompute monthly LOP for months spanned by leave
       try {
         const leaveStart = parseDateOnly(leave.start_date);
         const leaveEnd = parseDateOnly(leave.end_date);
@@ -528,7 +520,6 @@ const getLeaveRequests = async (
       filterConditions.push("lq.end_date <= ?");
       filterParams.push(to_date);
     }
-    // Ensure tenant filter (org_id) if queries use leavequeries table
     if (!/\blq\.org_id\b/i.test(baseQuery)) {
       filterConditions.push("lq.org_id = ?");
       filterParams.push(orgId);
@@ -739,7 +730,6 @@ const getLeaveQueriesForTeamLead = async (filters = {}, teamLeadId, orgId) => {
       "lq"
     );
 
-    // ensure tenant filter
     let query = queries.GET_LEAVE_QUERIES_FOR_TEAM;
     const tenantFilter = " lq.org_id = ? ";
     const tenantIndexInsertPos = query.toUpperCase().indexOf("WHERE");

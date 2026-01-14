@@ -1,4 +1,3 @@
-
 const LeaveQueriesService = require("../services/leaveQueriesService");
 
 const extractOrgId = (req) =>
@@ -20,7 +19,10 @@ const getLeaveQueriesHandler = async (req, res) => {
     if (!orgId) {
       return res
         .status(400)
-        .json({ status: "error", message: "Organization ID (orgId) is required" });
+        .json({
+          status: "error",
+          message: "Organization ID (orgId) is required",
+        });
     }
 
     const leaveQueries = await LeaveQueriesService.getLeaveQueriesForDashboard(
@@ -28,22 +30,23 @@ const getLeaveQueriesHandler = async (req, res) => {
       orgId
     );
 
-    // Always return success with data (even empty array) for consistency
     return res.status(200).json({
       status: "success",
       message: leaveQueries.length
         ? "Employee leave queries fetched successfully."
         : "No leave queries found for the given employee.",
-      leaveQueries, // will be [] if none found
+      leaveQueries,
     });
   } catch (error) {
     console.error("❌ Error fetching leave queries for dashboard:", error);
 
-    // Special handling for known errors
     if (error.code === "ORG_REQUIRED") {
       return res
         .status(400)
-        .json({ status: "error", message: "Invalid or missing organization ID" });
+        .json({
+          status: "error",
+          message: "Invalid or missing organization ID",
+        });
     }
 
     return res

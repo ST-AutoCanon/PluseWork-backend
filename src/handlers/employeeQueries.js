@@ -4,7 +4,6 @@ const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 
-
 const resolveOrgIdFromReq = (req) => {
   return (
     req.headers["x-org-id"] ||
@@ -16,9 +15,6 @@ const resolveOrgIdFromReq = (req) => {
   );
 };
 
-/**
- * File storage uses org-specific subfolder under EmpQueryUploads
- */
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const orgId = resolveOrgIdFromReq(req) || "unknown";

@@ -1,5 +1,3 @@
-// src/services/letterheadTemplateService.js
-
 const queries = require("../constants/letterheadTemplateQueries");
 const { getTenantPool, sanitizeDbName } = require("../db/tenantPoolManager");
 
@@ -26,8 +24,12 @@ const createLetterheadTemplatesTable = async (orgId) => {
 const insertDefaultTemplates = async (orgId) => {
   const tenantPool = await getTenantPoolForOrgId(orgId);
   try {
-    // Fixed: Pass all four org_id placeholders
-    await tenantPool.query(queries.INSERT_DEFAULT_TEMPLATES, [orgId, orgId, orgId, orgId]);
+    await tenantPool.query(queries.INSERT_DEFAULT_TEMPLATES, [
+      orgId,
+      orgId,
+      orgId,
+      orgId,
+    ]);
   } catch (error) {
     console.error("Error inserting default templates:", error);
     throw new Error("Error inserting default templates");
@@ -37,7 +39,6 @@ const insertDefaultTemplates = async (orgId) => {
 const getAllTemplates = async (orgId) => {
   const tenantPool = await getTenantPoolForOrgId(orgId);
   try {
-    // Critical Fix: Pass orgId parameter
     const [rows] = await tenantPool.query(queries.GET_ALL_TEMPLATES, [orgId]);
     return rows;
   } catch (error) {
@@ -82,7 +83,10 @@ const updateTemplateByLetterType = async (orgId, templateData) => {
       orgId,
       templateData.letter_type,
     ];
-    const [result] = await tenantPool.query(queries.UPDATE_TEMPLATE_BY_LETTER_TYPE, values);
+    const [result] = await tenantPool.query(
+      queries.UPDATE_TEMPLATE_BY_LETTER_TYPE,
+      values
+    );
     return result;
   } catch (error) {
     console.error("Error updating template:", error);

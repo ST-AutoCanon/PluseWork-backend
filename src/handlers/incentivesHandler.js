@@ -1,26 +1,27 @@
-
-
-
-const { 
-  insertIncentive, 
-  getIncentivesByEmployee, 
-  getAllIncentives 
+const {
+  insertIncentive,
+  getIncentivesByEmployee,
+  getAllIncentives,
 } = require("../services/incentivesService");
 
-// Insert new incentive
 const handleInsertIncentive = async (req, res) => {
   try {
-    const { employeeId, incentiveType, ctcPercentage, salesAmount, applicableMonth } = req.body;
+    const {
+      employeeId,
+      incentiveType,
+      ctcPercentage,
+      salesAmount,
+      applicableMonth,
+    } = req.body;
 
     if (!employeeId || !applicableMonth) {
       return res.status(400).json({ error: "Missing required fields" });
     }
 
-    // Convert to YYYY-MM string
     const date = new Date(applicableMonth);
     const year = date.getUTCFullYear();
     const month = String(date.getUTCMonth() + 1).padStart(2, "0");
-    const monthString = `${year}-${month}`; // store in DB as YYYY-MM
+    const monthString = `${year}-${month}`;
 
     const result = await insertIncentive(
       employeeId,
@@ -30,14 +31,16 @@ const handleInsertIncentive = async (req, res) => {
       monthString
     );
 
-    res.status(201).json({ message: "Incentive added successfully", insertId: result.insertId });
+    res.status(201).json({
+      message: "Incentive added successfully",
+      insertId: result.insertId,
+    });
   } catch (error) {
     console.error("Error inserting incentive:", error);
     res.status(500).json({ error: "Internal Server Error" });
   }
 };
 
-// Get incentives by employee
 const handleGetIncentivesByEmployee = async (req, res) => {
   try {
     const { employeeId } = req.params;
@@ -49,7 +52,6 @@ const handleGetIncentivesByEmployee = async (req, res) => {
   }
 };
 
-// Get all incentives
 const handleGetAllIncentives = async (req, res) => {
   try {
     const incentives = await getAllIncentives();
@@ -69,7 +71,6 @@ const handleGetAllIncentives = async (req, res) => {
     });
   }
 };
-
 
 module.exports = {
   handleInsertIncentive,

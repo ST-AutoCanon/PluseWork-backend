@@ -1,13 +1,7 @@
+const { getTenantPoolByOrgId } = require("../db/tenantPoolManager");
 
-const {
-  getTenantPoolByOrgId,
-} = require("../db/tenantPoolManager");
+const { GET_EMPLOYEE_BY_EMAIL } = require("../constants/employeeBirthday");
 
-const {
-  GET_EMPLOYEE_BY_EMAIL,
-} = require("../constants/employeeBirthday");
-
-// same flexible org-id extractor you use everywhere
 const getOrgIdFromHeaders = (req) => {
   return (
     req.headers["x-org-id"] ||
@@ -27,10 +21,7 @@ const fetchEmployeeBirthday = async (req, email) => {
 
   const tenantDb = await getTenantPoolByOrgId(orgId);
 
-  const [rows] = await tenantDb.query(
-    GET_EMPLOYEE_BY_EMAIL,
-    [email]
-  );
+  const [rows] = await tenantDb.query(GET_EMPLOYEE_BY_EMAIL, [email]);
 
   return rows.length > 0 ? rows[0] : null;
 };

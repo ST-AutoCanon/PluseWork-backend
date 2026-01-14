@@ -1,4 +1,3 @@
-// services/docxService.js
 const {
   Document,
   Packer,
@@ -13,14 +12,6 @@ const fs = require("fs");
 const path = require("path");
 const numberToWords = require("number-to-words");
 
-/**
- * Generate a DOCX for a reimbursement claim.
- * - claim: object containing claim data (id required)
- * - employee: object containing employee details
- * - orgId: string (optional) - used to store temp files under temp/{orgId}
- *
- * Returns absolute path to generated .docx
- */
 exports.generateDocx = async (claim, employee, orgId = "unknown") => {
   if (!claim || !claim.id) {
     console.error("Invalid Claim ID:", claim);
@@ -194,7 +185,6 @@ exports.generateDocx = async (claim, employee, orgId = "unknown") => {
     );
   });
 
-  // Ensure table length looks nice (pad to 15 rows)
   while (reimbursementTableRows.length < 15) {
     addClaimRow(" ", " ", " ", " ", " ");
   }
@@ -233,7 +223,6 @@ exports.generateDocx = async (claim, employee, orgId = "unknown") => {
     margins: { top: 0, bottom: 0, left: 0, right: 0 },
   });
 
-  // convert aggregated_total to words (safe)
   let aggNum = parseFloat(claim.aggregated_total || 0);
   if (!Number.isFinite(aggNum)) aggNum = 0;
   const amountWordsRaw = numberToWords.toWords(Math.floor(aggNum));
@@ -336,7 +325,6 @@ exports.generateDocx = async (claim, employee, orgId = "unknown") => {
     ],
   });
 
-  // ensure temp dir per org exists
   const tempDir = path.join(__dirname, "../temp", String(orgId || "unknown"));
   if (!fs.existsSync(tempDir)) {
     fs.mkdirSync(tempDir, { recursive: true });

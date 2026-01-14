@@ -1,5 +1,3 @@
-// src/constants/payrollTemplateQueries.js
-
 const GET_SALARY_PREFERENCES = `
   SELECT selected_template_id
   FROM salary_preferences

@@ -1,11 +1,6 @@
-
-
 const { getTenantPool, sanitizeDbName } = require("../db/tenantPoolManager");
 const queries = require("../constants/supervisorQueries");
 
-/**
- * Get tenant-specific connection pool
- */
 async function getTenantPoolForOrgId(orgId) {
   if (!orgId) {
     const err = new Error("orgId required to get tenant pool");
@@ -20,9 +15,10 @@ const getEmployeesUnderSupervisor = async (supervisorId, orgId) => {
   if (!orgId) throw new Error("orgId is required");
 
   const tenantPool = await getTenantPoolForOrgId(orgId);
-  const [rows] = await tenantPool.query(queries.GET_EMPLOYEES_UNDER_SUPERVISOR, [
-    supervisorId,
-  ]);
+  const [rows] = await tenantPool.query(
+    queries.GET_EMPLOYEES_UNDER_SUPERVISOR,
+    [supervisorId]
+  );
   return rows;
 };
 
@@ -64,7 +60,12 @@ const updateSupervisorReplyById = async (interactionId, replyText, orgId) => {
   }
 };
 
-const insertSupervisorComment = async (employeeId, weekId, messageText, orgId) => {
+const insertSupervisorComment = async (
+  employeeId,
+  weekId,
+  messageText,
+  orgId
+) => {
   if (!orgId) throw new Error("orgId is required");
 
   const tenantPool = await getTenantPoolForOrgId(orgId);
@@ -90,7 +91,6 @@ const insertSupervisorComment = async (employeeId, weekId, messageText, orgId) =
   }
 };
 
-// Optional: if you still need this direct reply method
 const replyToEmployeeInteraction = async (interactionId, replyText, orgId) => {
   if (!orgId) throw new Error("orgId is required");
 

@@ -1,8 +1,5 @@
 const { saveFaceData, getEmployeeName } = require("../services/faceService");
 
-/**
- * Extract org_id safely (same pattern you use elsewhere)
- */
 function getOrgId(req) {
   return (
     req.headers["x-org-id"] ||
@@ -26,7 +23,10 @@ async function handleSaveFaceData(req, res) {
     if (!employee_id || !descriptors) {
       return res
         .status(400)
-        .json({ success: false, message: "employee_id and descriptors required" });
+        .json({
+          success: false,
+          message: "employee_id and descriptors required",
+        });
     }
 
     const first_name = await getEmployeeName(orgId, employee_id);

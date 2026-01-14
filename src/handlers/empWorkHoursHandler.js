@@ -1,10 +1,7 @@
-
-
-
 const { getWorkHourSummary } = require("../services/empWorkHourService");
 
 const getWorkHourSummaryHandler = async (req, res) => {
-  const { employeeId } = req.params; // or req.query if you prefer
+  const { employeeId } = req.params;
 
   if (!employeeId) {
     return res.status(400).json({ error: "Employee ID is required" });

@@ -125,7 +125,6 @@ async function uploadScanHandler(req, res) {
   const orgId = parseInt(req.params.orgId, 10);
   const userId = req.user && req.user.id;
 
-  // uploaded files (multer fields)
   const headerFile = req.files && req.files.header && req.files.header[0];
   const footerFile = req.files && req.files.footer && req.files.footer[0];
   const bodyFile = req.files && req.files.body && req.files.body[0];
@@ -149,7 +148,6 @@ async function uploadScanHandler(req, res) {
   }
 
   try {
-    // move uploaded files into public/uploads and get dest names
     const headerName = headerFile
       ? await moveFileToUploads(headerFile.path, headerFile.originalname)
       : null;
@@ -169,7 +167,6 @@ async function uploadScanHandler(req, res) {
       ? await moveFileToUploads(sealFile.path, sealFile.originalname)
       : null;
 
-    // parse meta and optional incoming fields
     let watermarkPlacement = null;
     let bodyType = "letter";
     let incomingWatermarkFlag = false;
@@ -187,7 +184,6 @@ async function uploadScanHandler(req, res) {
       console.warn("uploadScanHandler: meta parse failed", e);
     }
 
-    // parse layout, grapes_json, html, fileMap from req.body (FormData fields)
     let incomingLayout = null;
     let incomingGrapesJson = null;
     let incomingHtml = null;
@@ -231,7 +227,6 @@ async function uploadScanHandler(req, res) {
       ? `/api/orgs/${orgId}/uploads/${watermarkName}`
       : existingWatermarkUrl;
 
-    // Build grapesJson (prefer incoming from client; fallback to simple built one)
     let grapesJsonBuilt = null;
     let htmlBuilt = null;
     let thumbnailName = headerName || footerName || null;
@@ -254,7 +249,6 @@ async function uploadScanHandler(req, res) {
     const finalHtml = incomingHtml || htmlBuilt;
     const finalLayout = Array.isArray(incomingLayout) ? incomingLayout : null;
 
-    // URLs for files we moved
     const uploadedUrls = {
       header: headerName ? `/api/orgs/${orgId}/uploads/${headerName}` : null,
       body: bodyName ? `/api/orgs/${orgId}/uploads/${bodyName}` : null,
@@ -266,10 +260,8 @@ async function uploadScanHandler(req, res) {
       seal: sealName ? `/api/orgs/${orgId}/uploads/${sealName}` : null,
     };
 
-    // If client provided fileMap, use it. Expected shape: { qr: "<boxIdOrFieldName>", seal: "<boxIdOrFieldName>" }
     if (incomingFileMap && typeof incomingFileMap === "object") {
       const mapKeyToUrl = {};
-      // map incomingFileMap value -> uploaded url
       if (incomingFileMap.qr && uploadedUrls.qr) {
         mapKeyToUrl[incomingFileMap.qr] = uploadedUrls.qr;
       }
@@ -282,7 +274,6 @@ async function uploadScanHandler(req, res) {
         for (const b of boxes) {
           const key = b.id || b.fieldName || b.name;
           if (!key) continue;
-          // exact match against fileMap value
           if (mapKeyToUrl[key]) {
             b.imageUrl = mapKeyToUrl[key];
             b.content = mapKeyToUrl[key];
@@ -297,7 +288,6 @@ async function uploadScanHandler(req, res) {
       if (grapesJsonBuilt && Array.isArray(grapesJsonBuilt.layout)) {
         replaceInBoxes(grapesJsonBuilt.layout);
       } else if (grapesJsonBuilt && finalLayout) {
-        // embed layout if grapes_json had no layout
         try {
           grapesJsonBuilt.layout = finalLayout;
         } catch (e) {
@@ -305,7 +295,6 @@ async function uploadScanHandler(req, res) {
         }
       }
     } else {
-      // Fallback: heuristic replace (fieldName/id contains "qr" or "seal")
       const applyHeuristic = (boxes) => {
         if (!Array.isArray(boxes)) return;
         for (const b of boxes) {
@@ -335,21 +324,17 @@ async function uploadScanHandler(req, res) {
       }
     }
 
-    // --- NEW: attach explicit header/footer/watermark fields into grapes_json and meta.uploads
     try {
-      // ensure grapesJsonBuilt is an object
       if (!grapesJsonBuilt || typeof grapesJsonBuilt !== "object") {
         grapesJsonBuilt = { id: `scan-${Date.now()}`, components: [] };
       }
 
-      // If finalLayout exists, ensure grapesJsonBuilt.layout is set (prefer explicit layout)
       if (finalLayout && Array.isArray(finalLayout)) {
         grapesJsonBuilt.layout = finalLayout;
       } else if (!Array.isArray(grapesJsonBuilt.layout)) {
         grapesJsonBuilt.layout = grapesJsonBuilt.layout || [];
       }
 
-      // attach header/footer/watermark explicit URLs to grapes_json
       if (uploadedUrls.header) {
         grapesJsonBuilt.headerUrl = uploadedUrls.header;
       }
@@ -359,7 +344,6 @@ async function uploadScanHandler(req, res) {
       if (uploadedUrls.watermark) {
         grapesJsonBuilt.watermark = grapesJsonBuilt.watermark || {};
         grapesJsonBuilt.watermark.url = uploadedUrls.watermark;
-        // copy placement if we parsed it earlier
         if (watermarkPlacement) {
           grapesJsonBuilt.watermark.xPct =
             watermarkPlacement.xPct || grapesJsonBuilt.watermark.xPct;
@@ -373,7 +357,6 @@ async function uploadScanHandler(req, res) {
             grapesJsonBuilt.watermark.opacity = watermarkPlacement.opacity;
         }
       } else if (watermarkUrlForGrapes) {
-        // if existingWatermarkUrl was provided by client, keep that too
         grapesJsonBuilt.watermark = grapesJsonBuilt.watermark || {};
         grapesJsonBuilt.watermark.url =
           grapesJsonBuilt.watermark.url || watermarkUrlForGrapes;
@@ -385,7 +368,6 @@ async function uploadScanHandler(req, res) {
       );
     }
 
-    // Build meta object (explicit uploads map so frontend can read deterministically)
     const metaObj = {
       bodyType,
       watermark: !!watermarkName || incomingWatermarkFlag,

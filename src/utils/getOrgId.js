@@ -1,4 +1,3 @@
-// utils/getOrgId.js
 module.exports.getOrgId = (req) => {
   return (
     req.headers["x-org-id"] ||

@@ -1,5 +1,3 @@
-// constants/lossofPayCalculationQueries.js
-
 module.exports = {
   GET_CURRENT_MONTH_LOP: `
     SELECT 

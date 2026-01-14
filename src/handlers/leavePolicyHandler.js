@@ -1,4 +1,3 @@
-// handlers/leavePolicyHandler.js
 const LeavePolicyService = require("../services/leavePolicyService");
 const ErrorHandler = require("../utils/errorHandler");
 

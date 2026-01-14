@@ -8,7 +8,6 @@ const {
 const { compareDescriptors } = require("../utils/compareDescriptors");
 const ErrorHandler = require("../utils/errorHandler");
 
-/** 🔑 EXACT SAME org resolver style */
 const resolveOrgId = (req) =>
   req.headers?.["x-org-id"] ||
   req.headers?.["x_org_id"] ||
@@ -38,43 +37,42 @@ const handleFacePunch = async (req, res) => {
     if (!descriptor || !Array.isArray(descriptor)) {
       return res
         .status(400)
-        .json(ErrorHandler.generateErrorResponse(400, "Invalid face descriptor"));
+        .json(
+          ErrorHandler.generateErrorResponse(400, "Invalid face descriptor")
+        );
     }
 
-    /** 🔹 Get all faces from TENANT DB */
     const faces = await getAllFaces(orgId);
 
-   let bestDistance = Infinity;
-let matchedFace = null;
-const threshold = 0.35;
+    let bestDistance = Infinity;
+    let matchedFace = null;
+    const threshold = 0.35;
 
-for (const face of faces) {
-  if (!face.descriptors) continue;
+    for (const face of faces) {
+      if (!face.descriptors) continue;
 
-  const descriptorList =
-    typeof face.descriptors === "string"
-      ? JSON.parse(face.descriptors)
-      : face.descriptors;
+      const descriptorList =
+        typeof face.descriptors === "string"
+          ? JSON.parse(face.descriptors)
+          : face.descriptors;
 
-  if (!Array.isArray(descriptorList)) continue;
+      if (!Array.isArray(descriptorList)) continue;
 
-  for (const stored of descriptorList) {
-    const storedDescriptor = Array.isArray(stored)
-      ? stored
-      : Object.values(stored);
+      for (const stored of descriptorList) {
+        const storedDescriptor = Array.isArray(stored)
+          ? stored
+          : Object.values(stored);
 
-    if (storedDescriptor.length !== 128) continue;
+        if (storedDescriptor.length !== 128) continue;
 
-    const distance = compareDescriptors(descriptor, storedDescriptor);
+        const distance = compareDescriptors(descriptor, storedDescriptor);
 
-    if (distance < bestDistance) {
-      bestDistance = distance;
-      matchedFace = face;
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          matchedFace = face;
+        }
+      }
     }
-  }
-}
-
-
 
     if (!matchedFace || bestDistance >= threshold) {
       return res.status(404).json({ message: "Face not recognized" });
@@ -84,7 +82,6 @@ for (const face of faces) {
     const employeeName = matchedFace.label;
     const now = moment().format("YYYY-MM-DD HH:mm:ss");
 
-    /** 🔹 Get last punch from TENANT DB */
     const lastPunch = await getLastPunchRecordByEmpId(employeeId, orgId);
 
     if (!lastPunch || lastPunch.punch_status === "Punch Out") {
@@ -97,13 +94,7 @@ for (const face of faces) {
       });
     }
 
-    await updatePunchOut(
-      lastPunch.punch_id,
-      now,
-      device,
-      location,
-      orgId
-    );
+    await updatePunchOut(lastPunch.punch_id, now, device, location, orgId);
 
     return res.json({
       message: "Punch Out successful",

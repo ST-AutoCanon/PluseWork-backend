@@ -1,4 +1,3 @@
-
 const chatService = require("../services/chatService");
 const multer = require("multer");
 const path = require("path");
@@ -15,9 +14,6 @@ const resolveOrgIdFromReq = (req) => {
   );
 };
 
-/**
- * File storage uses org-specific subfolder under ChatUploads
- */
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const orgId = resolveOrgIdFromReq(req) || "unknown";
@@ -42,9 +38,6 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
-/**
- * Handlers
- */
 module.exports = {
   createRoom: async (req, res) => {
     try {
@@ -138,7 +131,6 @@ module.exports = {
       try {
         const orgId =
           resolveOrgIdFromReq(req) || (req.user && req.user.orgId) || "unknown";
-        // url includes orgId segment for clarity and correct routing
         const url = `/ChatUploads/${orgId}/${req.file.filename}`;
         res.json({ url });
       } catch (err) {

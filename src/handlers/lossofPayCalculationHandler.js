@@ -1,5 +1,3 @@
-// controllers/lossofPayCalculationController.js
-
 const {
   getCurrentMonthLOP,
   getDeferredLOP,
@@ -7,11 +5,11 @@ const {
 } = require("../services/lossofPayCalculationService");
 
 const getOrgId = (req) =>
-  req.headers["x-org-id"] || req.headers["org-id"] || req.headers.org_id || null;
+  req.headers["x-org-id"] ||
+  req.headers["org-id"] ||
+  req.headers.org_id ||
+  null;
 
-/**
- * CURRENT MONTH LOP
- */
 const handleGetCurrentMonthLOP = async (req, res) => {
   try {
     const orgId = getOrgId(req);
@@ -31,9 +29,6 @@ const handleGetCurrentMonthLOP = async (req, res) => {
   }
 };
 
-/**
- * DEFERRED LOP
- */
 const handleGetDeferredLOP = async (req, res) => {
   try {
     const orgId = getOrgId(req);
@@ -53,9 +48,6 @@ const handleGetDeferredLOP = async (req, res) => {
   }
 };
 
-/**
- * NEXT MONTH LOP
- */
 const handleGetNextMonthLOP = async (req, res) => {
   try {
     const orgId = getOrgId(req);

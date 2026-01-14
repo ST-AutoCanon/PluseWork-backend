@@ -5,9 +5,6 @@ const {
 
 const { getTenantPoolByOrgId } = require("../db/tenantPoolManager");
 
-/**
- * Get employee name from TENANT DB
- */
 async function getEmployeeName(orgId, employee_id) {
   const tenantDb = await getTenantPoolByOrgId(orgId);
 
@@ -15,9 +12,6 @@ async function getEmployeeName(orgId, employee_id) {
   return rows.length > 0 ? rows[0].first_name : null;
 }
 
-/**
- * Save face descriptors in TENANT DB
- */
 async function saveFaceData(orgId, employee_id, label, descriptors) {
   const tenantDb = await getTenantPoolByOrgId(orgId);
 

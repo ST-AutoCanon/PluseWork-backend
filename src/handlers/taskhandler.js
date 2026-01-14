@@ -1,8 +1,5 @@
-
-
 const taskService = require("../services/tasksServices");
 
-// Reuse the same flexible orgId extraction as other modules
 const getOrgIdFromHeaders = (req) => {
   return (
     req.headers["x-org-id"] ||
@@ -18,14 +15,18 @@ const taskHandler = {
     try {
       const orgId = getOrgIdFromHeaders(req);
       if (!orgId) {
-        return res.status(400).json({ error: "Missing required header: x-org-id" });
+        return res
+          .status(400)
+          .json({ error: "Missing required header: x-org-id" });
       }
 
       const taskId = await taskService.createTask(req.body, orgId);
       res.status(201).json({ message: "Task created successfully", taskId });
     } catch (error) {
       console.error("Error creating task:", error);
-      res.status(500).json({ error: "Internal Server Error", details: error.message });
+      res
+        .status(500)
+        .json({ error: "Internal Server Error", details: error.message });
     }
   },
 
@@ -33,7 +34,9 @@ const taskHandler = {
     try {
       const orgId = getOrgIdFromHeaders(req);
       if (!orgId) {
-        return res.status(400).json({ error: "Missing required header: x-org-id" });
+        return res
+          .status(400)
+          .json({ error: "Missing required header: x-org-id" });
       }
 
       const tasks = await taskService.getAllTasks(orgId);
@@ -48,7 +51,9 @@ const taskHandler = {
     try {
       const orgId = getOrgIdFromHeaders(req);
       if (!orgId) {
-        return res.status(400).json({ error: "Missing required header: x-org-id" });
+        return res
+          .status(400)
+          .json({ error: "Missing required header: x-org-id" });
       }
 
       const task = await taskService.getTaskById(req.params.id, orgId);
@@ -66,7 +71,9 @@ const taskHandler = {
     try {
       const orgId = getOrgIdFromHeaders(req);
       if (!orgId) {
-        return res.status(400).json({ error: "Missing required header: x-org-id" });
+        return res
+          .status(400)
+          .json({ error: "Missing required header: x-org-id" });
       }
 
       const affectedRows = await taskService.deleteTask(req.params.id, orgId);

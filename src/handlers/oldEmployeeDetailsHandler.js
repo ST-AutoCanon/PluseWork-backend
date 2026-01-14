@@ -1,12 +1,7 @@
-// controllers/oldEmployeeController.js (or wherever your payslip/old-employee routes are)
-
 const { getTenantPoolByOrgId } = require("../db/tenantPoolManager");
 const queries = require("../constants/oldEmployeeDetails");
-const { getOrgId } = require("../utils/getOrgId");   // ← NEW: shared utility
+const { getOrgId } = require("../utils/getOrgId");
 
-/**
- * SAVE / CREATE
- */
 exports.saveOldEmployeeDetails = async (req, res) => {
   try {
     const orgId = getOrgId(req);
@@ -62,9 +57,6 @@ exports.saveOldEmployeeDetails = async (req, res) => {
   }
 };
 
-/**
- * LIST
- */
 exports.fetchOldEmployeeDetails = async (req, res) => {
   try {
     const orgId = getOrgId(req);
@@ -77,7 +69,9 @@ exports.fetchOldEmployeeDetails = async (req, res) => {
     }
 
     const pool = await getTenantPoolByOrgId(orgId);
-    const [rows] = await pool.execute(queries.GET_ALL_OLD_EMPLOYEE_DETAILS, [orgId]);
+    const [rows] = await pool.execute(queries.GET_ALL_OLD_EMPLOYEE_DETAILS, [
+      orgId,
+    ]);
 
     res.json(rows);
   } catch (error) {
@@ -90,9 +84,6 @@ exports.fetchOldEmployeeDetails = async (req, res) => {
   }
 };
 
-/**
- * UPDATE / EDIT
- */
 exports.editOldEmployeeDetails = async (req, res) => {
   try {
     const orgId = getOrgId(req);
@@ -148,9 +139,6 @@ exports.editOldEmployeeDetails = async (req, res) => {
   }
 };
 
-/**
- * PAYSLIP EMPLOYEE DROPDOWN
- */
 exports.getEmployeeDetails = async (req, res) => {
   try {
     const orgId = getOrgId(req);

@@ -1,4 +1,3 @@
-// src/constants/reimbursementQueries.js
 module.exports = {
   GET_ALL_REIMBURSEMENTS: `
     SELECT r.*, CONCAT(e.first_name, ' ', e.last_name) AS employee_name

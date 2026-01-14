@@ -1,4 +1,3 @@
-
 const cron = require("node-cron");
 const moment = require("moment-timezone");
 const masterDb = require("../config");
@@ -19,22 +18,13 @@ cron.schedule("55 59 23 * * *", async () => {
       .add(5, "seconds")
       .format("YYYY-MM-DD HH:mm:ss");
 
-    const todayDate = moment()
-      .tz("Asia/Kolkata")
-      .format("YYYY-MM-DD");
+    const todayDate = moment().tz("Asia/Kolkata").format("YYYY-MM-DD");
 
-    // ✅ NO STATUS FILTER — matches your schema
-    const [orgs] = await masterDb.query(
-      "SELECT id FROM organizations"
-    );
+    const [orgs] = await masterDb.query("SELECT id FROM organizations");
 
     for (const org of orgs) {
       try {
         const tenantPool = await getTenantPoolByOrgId(org.id);
-
-        /* ===============================
-           STEP 1: AUTO PUNCH-OUT
-        ================================ */
 
         const [punchedInUsers] = await tenantPool.query(
           `SELECT punch_id, employee_id, punchin_device, punchin_location
@@ -47,34 +37,26 @@ cron.schedule("55 59 23 * * *", async () => {
           continue;
         }
 
-       await Promise.all(
-  punchedInUsers.map((row) =>
-    tenantPool.query(
-      `UPDATE emp_attendence
+        await Promise.all(
+          punchedInUsers.map((row) =>
+            tenantPool.query(
+              `UPDATE emp_attendence
        SET punch_status = 'Punch Out',
            punchout_time = ?,
            punchout_device = 'Automatic',
            punchout_location = 'Automatic',
            punchmode = 'Automatic'
        WHERE punch_id = ?`,
-      [punchOutTime, row.punch_id]
-    )
-  )
-);
+              [punchOutTime, row.punch_id]
+            )
+          )
+        );
 
         console.log(
           `✅ Org ${org.id}: auto punched out ${punchedInUsers.length} employees`
         );
 
-        /* ===============================
-           WAIT BEFORE PUNCH-IN
-        ================================ */
         await new Promise((resolve) => setTimeout(resolve, 5000));
-
-        /* ===============================
-           STEP 2: AUTO PUNCH-IN
-           ONLY ACTIVE EMPLOYEES
-        ================================ */
 
         const [eligibleEmployees] = await tenantPool.query(
           `SELECT 
@@ -102,26 +84,21 @@ cron.schedule("55 59 23 * * *", async () => {
           continue;
         }
 
-       await Promise.all(
-  eligibleEmployees.map((emp) =>
-    tenantPool.query(
-      `INSERT INTO emp_attendence
+        await Promise.all(
+          eligibleEmployees.map((emp) =>
+            tenantPool.query(
+              `INSERT INTO emp_attendence
        (employee_id, punch_status, punchin_time, punchin_device, punchin_location, punchmode)
        VALUES (?, 'Punch In', ?, 'Automatic', 'Automatic', 'Automatic')`,
-      [
-        emp.employee_id,
-        punchInTime
-      ]
-    )
-  )
-);
+              [emp.employee_id, punchInTime]
+            )
+          )
+        );
 
         console.log(
           `✅ Org ${org.id}: auto punched in ${eligibleEmployees.length} active employees`
         );
-
       } catch (tenantError) {
-        // 🔒 One tenant must NOT break others
         console.error(
           `❌ Org ${org.id}: tenant cron failed`,
           tenantError.message

@@ -9,14 +9,8 @@ const {
   MONETARY_COLUMNS,
 } = require("../constants/salaryDetailsQueries");
 
-const {
-  getTenantPool,
-  sanitizeDbName,
-} = require("../db/tenantPoolManager");
+const { getTenantPool, sanitizeDbName } = require("../db/tenantPoolManager");
 
-/* ------------------------------------------------------------------
-   TENANT POOL RESOLVER (same pattern as assets module)
-------------------------------------------------------------------- */
 const getTenantPoolForOrgId = async (orgId) => {
   if (!orgId) {
     const err = new Error("orgId required to get tenant pool");
@@ -27,9 +21,6 @@ const getTenantPoolForOrgId = async (orgId) => {
   return getTenantPool(dbName);
 };
 
-/* ------------------------------------------------------------------
-   TABLE NAME GENERATOR
-------------------------------------------------------------------- */
 const generateTableName = (orgId, month = null, year = null) => {
   const now = moment();
   const m = (month || now.format("MMM")).toLowerCase();
@@ -38,18 +29,12 @@ const generateTableName = (orgId, month = null, year = null) => {
   return `${safeOrgId}_${m}_${y}`;
 };
 
-/* ------------------------------------------------------------------
-   CHECK TABLE EXISTS (TENANT DB)
-------------------------------------------------------------------- */
 const tableExists = async (orgId, tableName) => {
   const tenantPool = await getTenantPoolForOrgId(orgId);
   const [rows] = await tenantPool.query(checkIfTableExists(tableName));
   return rows[0]?.count > 0;
 };
 
-/* ------------------------------------------------------------------
-   CREATE TABLE (TENANT DB)
-------------------------------------------------------------------- */
 const createTableIfNotExists = async (orgId, tableName) => {
   const tenantPool = await getTenantPoolForOrgId(orgId);
   const query = createTableQuery(tableName);
@@ -57,9 +42,6 @@ const createTableIfNotExists = async (orgId, tableName) => {
   return true;
 };
 
-/* ------------------------------------------------------------------
-   ENSURE ALL REQUIRED COLUMNS EXIST
-------------------------------------------------------------------- */
 const ensureColumns = async (orgId, tableName) => {
   const tenantPool = await getTenantPoolForOrgId(orgId);
 
@@ -91,9 +73,6 @@ const ensureColumns = async (orgId, tableName) => {
   }
 };
 
-/* ------------------------------------------------------------------
-   INSERT SALARY RECORDS (TENANT DB)
-------------------------------------------------------------------- */
 const insertSalaryRecords = async (orgId, tableName, rows) => {
   if (!rows || rows.length === 0) return 0;
 
@@ -106,9 +85,6 @@ const insertSalaryRecords = async (orgId, tableName, rows) => {
   return result.affectedRows || 0;
 };
 
-/* ------------------------------------------------------------------
-   SAVE SALARY DETAILS (MAIN ENTRY)
-------------------------------------------------------------------- */
 const saveSalaryDetails = async (salaryData, month, year, orgId) => {
   const tableName = generateTableName(orgId, month, year);
 
@@ -118,11 +94,7 @@ const saveSalaryDetails = async (salaryData, month, year, orgId) => {
 
   await ensureColumns(orgId, tableName);
 
-  const affectedRows = await insertSalaryRecords(
-    orgId,
-    tableName,
-    salaryData
-  );
+  const affectedRows = await insertSalaryRecords(orgId, tableName, salaryData);
 
   return {
     success: true,
@@ -131,24 +103,16 @@ const saveSalaryDetails = async (salaryData, month, year, orgId) => {
   };
 };
 
-/* ------------------------------------------------------------------
-   GET MONTHLY SALARY DATA (TENANT DB)
-------------------------------------------------------------------- */
 const getMonthlySalaryData = async (month, year, orgId) => {
   const tableName = generateTableName(orgId, month, year);
 
   if (!(await tableExists(orgId, tableName))) return [];
 
   const tenantPool = await getTenantPoolForOrgId(orgId);
-  const [rows] = await tenantPool.query(
-    `SELECT * FROM \`${tableName}\``
-  );
+  const [rows] = await tenantPool.query(`SELECT * FROM \`${tableName}\``);
   return rows;
 };
 
-/* ------------------------------------------------------------------
-   GET APPROVED EMPLOYEE IDS (TENANT DB)
-------------------------------------------------------------------- */
 const getApprovedEmployeeIds = async (orgId) => {
   const tableName = generateTableName(orgId);
 
@@ -160,9 +124,6 @@ const getApprovedEmployeeIds = async (orgId) => {
   return rows.map((r) => r.employee_id);
 };
 
-/* ------------------------------------------------------------------
-   EXPORTS
-------------------------------------------------------------------- */
 module.exports = {
   saveSalaryDetails,
   generateTableName,

@@ -105,7 +105,7 @@ const allowedOrigins = [
   "capacitor://localhost",
   "https://sukalpatechsolutions.com",
   "https://sts-test.site",
-  
+
   "http://localhost:3001",
   "http://127.0.0.1:3001",
   "http://192.168.1.2:3001",
@@ -284,7 +284,7 @@ app.use((req, res, next) => {
 
     app.use("/api", organizationTableRoutes);
     app.use("/api", payrollTemplateRoutes);
-    app.use("/api/salary-prefe", salaryPreferenceRoutes); 
+    app.use("/api/salary-prefe", salaryPreferenceRoutes);
     app.use("/api", sidebarRoutes);
     app.use("/api", configRoutes);
 
@@ -296,9 +296,9 @@ app.use((req, res, next) => {
     app.use("/api/supervisor", supervisorEmployeesRoutes);
     app.use("/api/task-emp-emp", taskEmployeesRoutes);
     app.use("/api/employee-tasks", employeeTaskRoutes);
-app.use("/api/subordinate", subordinateRoutes);
-app.use("/face-punch", face_admin_page);
-require("./cron/autoPunchCron");
+    app.use("/api/subordinate", subordinateRoutes);
+    app.use("/face-punch", face_admin_page);
+    require("./cron/autoPunchCron");
     app.use("/", holidayRoutes);
     app.use("/", loginRoutes);
     app.use("/", meRoute);
@@ -346,17 +346,14 @@ require("./cron/autoPunchCron");
     app.use("/api/overtime", overtimeRoutes);
     app.use("/api/overtime-summary", overtimeSummaryRoutes);
     app.use("/api", salaryPeriodRoutes);
-   
+
     app.use("/api/compensation", assignCompensationRoutes);
     app.use("/api", employeeRoutesforsalarybreakup);
     app.use("/api/salary-details", salaryDetailsRoutes);
     app.use("/api/compensation", employeeBankReportRoutes);
     app.use("/api/lop", lossofPayCalculationRoutes);
-    app.use(
-  "/api/salaryCalculationperiods",
-  salaryCalculationPeriodRoutes
-);
-app.use("api/compensation", salaryRoutes2);
+    app.use("/api/salaryCalculationperiods", salaryCalculationPeriodRoutes);
+    app.use("api/compensation", salaryRoutes2);
 
     app.use("/api/compensation", assignCompensationRoutes);
     app.use("/api/overtime", overtimeRoutes);
@@ -465,7 +462,6 @@ app.use("api/compensation", salaryRoutes2);
         `[socket] connected ${socket.id} userId=${socket.userId} via=${socket.authenticatedBy} orgId=${socketOrgId}`
       );
 
-  
       if (socket.userId && socketOrgId) {
         (async () => {
           try {
@@ -487,7 +483,6 @@ app.use("api/compensation", salaryRoutes2);
           `[socket:${socket.id}] orgId not provided in handshake — skipping tenant chat room joins for user ${socket.userId}`
         );
       }
-
 
       if (socket.userId) {
         EmployeeQueries.getThreadsByEmployee(socket.userId)
@@ -670,7 +665,6 @@ app.use("api/compensation", salaryRoutes2);
             );
             socket.join(String(roomId));
 
-            // fetch the created room from tenant DB to emit
             const rooms = await chatService.getUserRooms(orgId, socket.userId);
             const room =
               (rooms || []).find((r) => String(r.id) === String(roomId)) ||

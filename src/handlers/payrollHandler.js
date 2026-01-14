@@ -2,9 +2,6 @@ const payrollService = require("../services/payrollService");
 const { getTenantPoolByOrgId } = require("../db/tenantPoolManager");
 const payrollQueries = require("../constants/payrollQueries");
 
-/* ==============================
-   FETCH EMPLOYEE DETAILS
-============================== */
 const fetchEmployeeDetails = async (req, res) => {
   try {
     const { employee_id } = req.params;
@@ -44,9 +41,6 @@ const fetchEmployeeDetails = async (req, res) => {
   }
 };
 
-/* ==============================
-   GET SALARY SLIP
-============================== */
 const getSalarySlipHandler = async (req, res) => {
   try {
     const { employee_id, month, year } = req.query;
@@ -94,9 +88,6 @@ const getSalarySlipHandler = async (req, res) => {
   }
 };
 
-/* ==============================
-   GET BANK DETAILS
-============================== */
 const handleGetEmployeeBankDetails = async (req, res) => {
   try {
     const { employee_id } = req.params;

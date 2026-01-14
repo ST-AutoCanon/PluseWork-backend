@@ -1,4 +1,4 @@
-const db = require("../config"); // master DB (for org lookup only)
+const db = require("../config");
 const {
   GET_ASSIGNED_ASSETS_BY_EMPLOYEE,
   SEARCH_EMPLOYEES_BY_NAME,
@@ -14,9 +14,6 @@ const {
 
 const { getTenantPool, sanitizeDbName } = require("../db/tenantPoolManager");
 
-/**
- * Resolve tenant pool for an orgId; throws if orgId missing.
- */
 async function getTenantPoolForOrgId(orgId) {
   if (!orgId) {
     const err = new Error("orgId required to get tenant pool");
@@ -27,9 +24,6 @@ async function getTenantPoolForOrgId(orgId) {
   return getTenantPool(dbName);
 }
 
-/**
- * Keep master lookup for organization prefix (organization metadata lives in master).
- */
 const getOrganizationPrefix = async (orgId) => {
   try {
     const [rows] = await db.execute(
@@ -77,17 +71,12 @@ const getOrganizationPrefix = async (orgId) => {
   }
 };
 
-/**
- * Get last asset id from tenant DB (uses tenant pool).
- * combinedPrefix example: STS-SYS-LPT
- */
 const getLastAssetId = async (orgId, combinedPrefix) => {
   try {
     const likePattern = `${combinedPrefix}-%`;
     const tenantPool = await getTenantPoolForOrgId(orgId);
     const [rows] = await tenantPool.query(GET_LAST_ASSET_ID, [likePattern]);
     if (!rows || rows.length === 0) return `${combinedPrefix}-001`;
-    // parse last numeric suffix
     const lastNumber = parseInt(rows[0].asset_id.split("-").pop(), 10);
     return `${combinedPrefix}-${String(lastNumber + 1).padStart(3, "0")}`;
   } catch (error) {
@@ -96,10 +85,6 @@ const getLastAssetId = async (orgId, combinedPrefix) => {
   }
 };
 
-/**
- * Compute next asset code (tenant DB).
- * Example returned: ORG-AST-0001
- */
 const getLastAssetCode = async (orgId) => {
   try {
     const orgPrefix = await getOrganizationPrefix(orgId);
@@ -130,9 +115,6 @@ const getLastAssetCode = async (orgId) => {
   }
 };
 
-/**
- * Insert new asset into tenant DB.
- */
 const addAsset = async (orgId, assetData) => {
   try {
     const {
@@ -204,9 +186,6 @@ const addAsset = async (orgId, assetData) => {
   }
 };
 
-/**
- * Get all assets for tenant.
- */
 const getAssets = async (orgId) => {
   try {
     const tenantPool = await getTenantPoolForOrgId(orgId);
@@ -218,10 +197,6 @@ const getAssets = async (orgId) => {
   }
 };
 
-/**
- * Update assigned_to JSON for an asset (tenant DB).
- * Returns 'not_found'|'updated'|'inserted'
- */
 const updateAssignedTo = async (orgId, assetId, assignedTo) => {
   try {
     const tenantPool = await getTenantPoolForOrgId(orgId);
@@ -272,9 +247,6 @@ const updateAssignedTo = async (orgId, assetId, assignedTo) => {
   }
 };
 
-/**
- * Get assignment data for asset (tenant DB).
- */
 const getAssignmentData = async (orgId, assetId) => {
   try {
     const tenantPool = await getTenantPoolForOrgId(orgId);
@@ -286,9 +258,6 @@ const getAssignmentData = async (orgId, assetId) => {
   }
 };
 
-/**
- * Update return date on tenant asset assigned_to JSON.
- */
 const updateReturnDate = async (orgId, assetId, employeeName, returnDate) => {
   try {
     const tenantPool = await getTenantPoolForOrgId(orgId);
@@ -324,9 +293,6 @@ const updateReturnDate = async (orgId, assetId, employeeName, returnDate) => {
   }
 };
 
-/**
- * Get asset counts grouped by category/subcategory (tenant DB).
- */
 const getAssetCounts = async (orgId) => {
   try {
     const tenantPool = await getTenantPoolForOrgId(orgId);
@@ -338,10 +304,6 @@ const getAssetCounts = async (orgId) => {
   }
 };
 
-/**
- * Search employees by name inside tenant DB (tenant employees table).
- * NOTE: the SQL constant currently includes org_id param; we pass orgId as before.
- */
 const searchEmployeesByName = async (orgId, searchTerm) => {
   try {
     const tenantPool = await getTenantPoolForOrgId(orgId);
@@ -356,9 +318,6 @@ const searchEmployeesByName = async (orgId, searchTerm) => {
   }
 };
 
-/**
- * Fetch assigned assets for an employee (tenant DB).
- */
 const fetchAssignedAssetsByEmployee = async (orgId, employeeId) => {
   try {
     const tenantPool = await getTenantPoolForOrgId(orgId);

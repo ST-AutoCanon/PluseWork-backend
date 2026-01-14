@@ -1,13 +1,9 @@
-// notificationHandler.js
 const {
   SELECT_UNREAD_NOTIFICATIONS,
   MARK_NOTIFICATION_READ,
 } = require("../constants/notificationQueries");
 const { getTenantPool, sanitizeDbName } = require("../db/tenantPoolManager");
 
-/**
- * Resolve tenant pool for an orgId; throws if orgId missing.
- */
 async function getTenantPoolForOrgId(orgId) {
   if (!orgId) {
     const err = new Error("orgId required to get tenant pool");

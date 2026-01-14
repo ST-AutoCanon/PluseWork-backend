@@ -1,4 +1,3 @@
-// routes/reimbursementRoutes.js
 const express = require("express");
 const router = express.Router();
 const reimbursementHandler = require("../handlers/reimbursementHandler");
@@ -7,9 +6,6 @@ const fs = require("fs");
 
 const upload = reimbursementHandler.upload;
 
-/**
- * Resolve orgId from request (header, body, query, or req.user)
- */
 function resolveOrgIdFromReq(req) {
   const header =
     req.headers && (req.headers["x-org-id"] || req.headers["x_org_id"]);
@@ -38,7 +34,6 @@ router.put(
   "/reimbursement/payment-status/:id",
   reimbursementHandler.updatePaymentStatus
 );
-// new (client-friendly)
 router.put(
   "/reimbursement/:id/status",
   reimbursementHandler.updateReimbursementStatus
@@ -52,13 +47,11 @@ router.post(
   upload.array("attachments", 5),
   reimbursementHandler.createReimbursement
 );
-// metadata lookup
 router.get(
   "/reimbursement/attachment/meta",
   reimbursementHandler.getAttachmentMeta
 );
 
-// canonical serve endpoint (client will call this)
 router.get(
   "/reimbursement/attachment/serve",
   reimbursementHandler.serveAttachmentCanonical
@@ -86,15 +79,12 @@ router.get(
 
 router.get("/reimbursements/export", reimbursementHandler.exportReimbursements);
 
-// simple upload endpoint (tenant-aware — storage in multer uses orgId)
 router.post(
   "/reimbursement/upload",
   upload.array("attachments", 5),
   (req, res) => {
-    // ensure orgId present (multer storage requires it)
     const orgId = resolveOrgIdFromReq(req);
     if (!orgId) {
-      // cleanup uploaded files if any
       if (req.files && req.files.length) {
         req.files.forEach((f) => {
           try {
@@ -121,12 +111,6 @@ router.post(
   }
 );
 
-/**
- * Serve attachment file by year/month/employeeId/filename.
- * This route is tenant-aware — it will resolve orgId from header/query/user.
- * It tries tenant path first: reimbursement/{orgId}/{year}/{month}/{employeeId}/{filename}
- * and falls back to legacy path (without orgId) for backward compatibility.
- */
 router.get("/reimbursement/:year/:month/:employeeId/:filename", (req, res) => {
   try {
     const { year, month, employeeId, filename } = req.params;
@@ -142,7 +126,6 @@ router.get("/reimbursement/:year/:month/:employeeId/:filename", (req, res) => {
 
     const orgId = resolveOrgIdFromReq(req);
 
-    // tenant-aware path
     const tenantPath = orgId
       ? path.join(
           __dirname,
@@ -157,7 +140,6 @@ router.get("/reimbursement/:year/:month/:employeeId/:filename", (req, res) => {
         )
       : null;
 
-    // legacy path (no orgId)
     const legacyPath = path.join(
       __dirname,
       "..",

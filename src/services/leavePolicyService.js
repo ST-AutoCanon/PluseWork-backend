@@ -1,4 +1,3 @@
-// services/leavePolicyService.js
 const { getTenantPool, sanitizeDbName } = require("../db/tenantPoolManager");
 const queries = require("../constants/leavePolicyQueries");
 const dayjs = require("dayjs");
@@ -44,12 +43,10 @@ function parseLocalDate(dateInput) {
 
 async function getTenantPoolForOrgId(orgId) {
   if (!orgId) throw new Error("orgId required");
-  // derive database name tenant_<org id>, then sanitize and obtain pool
   const dbName = sanitizeDbName(`tenant_${orgId}`);
   return getTenantPool(dbName);
 }
 
-/* Replace previous getTenantPool usage with getTenantPoolForOrgId */
 async function getEmployeeCarryForwards(employeeId, year, orgId) {
   if (!employeeId) return {};
   try {

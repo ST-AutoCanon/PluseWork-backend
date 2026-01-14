@@ -1,15 +1,15 @@
-// handler/overtimeSummaryHandler.js
-const { getOvertimeSummaryService } = require("../services/overtimeSummaryService");
+const {
+  getOvertimeSummaryService,
+} = require("../services/overtimeSummaryService");
 
-/**
- * Handler to get overtime summary for a supervisor
- */
 const getOvertimeSummaryHandler = async (req, res) => {
   try {
-    const supervisorId = req.headers["x-employee-id"]; // Taking supervisorId from request header
-    
+    const supervisorId = req.headers["x-employee-id"];
+
     if (!supervisorId) {
-      return res.status(400).json({ error: "Supervisor ID is required in x-employee-id header" });
+      return res
+        .status(400)
+        .json({ error: "Supervisor ID is required in x-employee-id header" });
     }
 
     const summary = await getOvertimeSummaryService(supervisorId);

@@ -1,4 +1,3 @@
-// services/pdfService.js
 const { PDFDocument } = require("pdf-lib");
 const fs = require("fs");
 const fsp = require("fs").promises;
@@ -7,9 +6,6 @@ const libre = require("libreoffice-convert");
 const sharp = require("sharp");
 const { spawn, spawnSync } = require("child_process");
 
-/**
- * Helpers
- */
 async function fileExistsNonEmpty(fp) {
   try {
     const st = await fsp.stat(fp);
@@ -55,9 +51,6 @@ function convertWithSoffice(docxPath, outDir) {
   });
 }
 
-/**
- * Extract images from PDF (best-effort)
- */
 async function extractImagesFromPdf(pdfPath) {
   const images = [];
   try {
@@ -102,23 +95,12 @@ async function optimizeImageFromPath(imagePath) {
     .toBuffer();
 }
 
-/**
- * Resolve an attachment file path using tenant-aware heuristics.
- * Tries (in order):
- *  - att.file_path as-is (absolute or relative to process cwd)
- *  - tenant path: ../reimbursement/{orgId}/{att.file_path}
- *  - legacy path (without orgId): ../reimbursement/{att.file_path}
- *  - if att.file_name and has yyyy_mm prefix and att.employee_id, try tenant path ../reimbursement/{orgId}/{yyyy}/{mm}/{employeeId}/{file_name}
- *  - if att.file_name and has yyyy_mm and no emp, try ../reimbursement/{orgId}/{yyyy}/{mm}/{file_name} and fallback to legacy
- */
 async function resolveAttachmentFilePath(att = {}, orgId = null) {
   try {
     const candidatePaths = [];
 
     if (att.file_path) {
-      // first preference: as provided
       candidatePaths.push(att.file_path);
-      // tenant-aware if not absolute
       if (!path.isAbsolute(att.file_path) && orgId) {
         candidatePaths.push(
           path.join(
@@ -130,7 +112,6 @@ async function resolveAttachmentFilePath(att = {}, orgId = null) {
           )
         );
       }
-      // legacy path (without orgId)
       candidatePaths.push(
         path.join(__dirname, "..", "reimbursement", att.file_path)
       );
@@ -139,7 +120,6 @@ async function resolveAttachmentFilePath(att = {}, orgId = null) {
     const fileName =
       att.file_name || (att.file_path ? path.basename(att.file_path) : null);
     if (fileName) {
-      // try extract yyyy-mm from filename
       const m = String(fileName).match(/^(\d{4})[-_](\d{2})/);
       if (m) {
         const year = m[1];
@@ -184,7 +164,6 @@ async function resolveAttachmentFilePath(att = {}, orgId = null) {
         );
       }
 
-      // also try tenant folder with employee id only
       if (orgId && att.employee_id) {
         candidatePaths.push(
           path.join(__dirname, "..", "reimbursement", String(orgId), fileName)
@@ -201,13 +180,11 @@ async function resolveAttachmentFilePath(att = {}, orgId = null) {
         );
       }
 
-      // generic legacy fallback
       candidatePaths.push(
         path.join(__dirname, "..", "reimbursement", fileName)
       );
     }
 
-    // de-dupe and test existence
     const seen = new Set();
     for (const cp of candidatePaths) {
       if (!cp) continue;
@@ -217,30 +194,18 @@ async function resolveAttachmentFilePath(att = {}, orgId = null) {
       try {
         await fsp.access(normalized);
         return normalized;
-      } catch {
-        // skip
-      }
+      } catch {}
     }
-  } catch (e) {
-    // ignore and return null
-  }
+  } catch (e) {}
   return null;
 }
 
-/**
- * Merge attachments into an existing PDF (pdfPath).
- * attachments: array of { file_path, file_name, employee_id, ... }
- * orgId: tenant id (optional) to help resolve file locations
- *
- * Returns path to final merged PDF (original_pdf_final.pdf) or throws.
- */
 async function mergeAttachments(pdfPath, attachments = [], orgId = null) {
   const pdfBuffer = await fsp.readFile(pdfPath);
   const pdfDoc = await PDFDocument.load(pdfBuffer);
 
   for (const att of attachments) {
     try {
-      // resolve actual file path
       const resolved = await resolveAttachmentFilePath(att, orgId);
       if (!resolved) {
         console.warn("Skipping invalid attachment (not found):", att);
@@ -260,7 +225,6 @@ async function mergeAttachments(pdfPath, attachments = [], orgId = null) {
           );
           pages.forEach((page) => pdfDoc.addPage(page));
 
-          // also try and extract embedded images from this PDF as separate pages
           const imgs = await extractImagesFromPdf(resolved);
           for (const im of imgs) {
             try {
@@ -342,15 +306,6 @@ async function mergeAttachments(pdfPath, attachments = [], orgId = null) {
   return finalPdfPath;
 }
 
-/**
- * Convert DOCX -> PDF, then merge attachments (tenant-aware)
- * - docxPath: path to generated docx (absolute or relative)
- * - claim: optional claim object
- * - attachments: optional array of attachments (each should include file_path and/or file_name, employee_id optional)
- * - orgId: optional tenant id used for temp folder + resolving attachments
- *
- * Returns path to final PDF (or converted PDF if no attachments)
- */
 exports.convertDocxToPdf = async (
   docxPath,
   claim = {},
@@ -373,7 +328,6 @@ exports.convertDocxToPdf = async (
     if (!docxBuffer || docxBuffer.length === 0)
       throw new Error("DOCX buffer empty");
 
-    // try libre.convert first
     const pdfBuffer = await new Promise((resolve, reject) => {
       let timeout = setTimeout(
         () => reject(new Error("libre.convert timeout")),
@@ -426,7 +380,6 @@ exports.convertDocxToPdf = async (
     }
   }
 
-  // prepare valid attachments (must resolve to actual files)
   const valid =
     attachments && Array.isArray(attachments)
       ? attachments.filter((att) => att && (att.file_path || att.file_name))
@@ -440,13 +393,10 @@ exports.convertDocxToPdf = async (
   }
 
   if (valid.length > 0) {
-    // ensure temp dir for org exists (some flows might want to write temps)
     const tempDir = path.join(__dirname, "../temp", String(orgId || "unknown"));
     try {
       await fsp.mkdir(tempDir, { recursive: true });
-    } catch (e) {
-      // ignore
-    }
+    } catch (e) {}
 
     try {
       return await mergeAttachments(convertedPdfPath, valid, orgId);

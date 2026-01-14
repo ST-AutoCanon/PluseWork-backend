@@ -102,22 +102,18 @@ const storage = multer.diskStorage({
 
 const fileFilter = (_req, file, cb) => {
   const allowed = new Set([
-    // images
     "image/jpeg",
     "image/png",
     "image/gif",
     "image/webp",
     "image/svg+xml",
-    // documents
     "application/pdf",
     "application/msword",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "application/vnd.ms-excel",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    // generic binary (some browsers/clients use this for unknown types)
     "application/octet-stream",
   ]);
-  // allow if mimetype matches allowed list OR file extension is a common doc type
   if (allowed.has(file.mimetype)) return cb(null, true);
   const ext = (path.extname(file.originalname) || "").toLowerCase();
   const allowedExt = new Set([

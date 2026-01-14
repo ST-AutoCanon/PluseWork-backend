@@ -1,5 +1,3 @@
-
-
 const { getTenantPool, sanitizeDbName } = require("../db/tenantPoolManager");
 const {
   GET_EMPLOYEES_BY_SUPERVISOR,
@@ -13,9 +11,6 @@ const {
   GET_HOLIDAYS,
 } = require("../constants/weeklyTaskSupervisorConstants");
 
-/**
- * Get tenant pool for given orgId
- */
 async function getTenantPoolForOrgId(orgId) {
   if (!orgId) {
     const err = new Error("orgId required to get tenant pool");
@@ -46,7 +41,9 @@ const fetchAllEmployees = async (supervisorId, orgId) => {
 const fetchTasksBySupervisor = async (supervisorId, orgId) => {
   if (!orgId) throw new Error("orgId is required");
   const tenantPool = await getTenantPoolForOrgId(orgId);
-  const [rows] = await tenantPool.query(GET_TASKS_BY_SUPERVISOR, [supervisorId]); // ← ONLY ONE!
+  const [rows] = await tenantPool.query(GET_TASKS_BY_SUPERVISOR, [
+    supervisorId,
+  ]);
   return rows;
 };
 
@@ -161,20 +158,17 @@ const insertNewTask = async (taskData, orgId) => {
     conn.release();
   }
 };
-// FIXED fetchConfig
 const fetchConfig = async (supervisorId, orgId) => {
   const tenantPool = await getTenantPoolForOrgId(orgId);
   const [rows] = await tenantPool.query(GET_CONFIG, [orgId]);
   return rows;
 };
 
-// FIXED updateConfig
 const updateConfig = async (key, value, supervisorId, orgId) => {
   const tenantPool = await getTenantPoolForOrgId(orgId);
   await tenantPool.query(UPDATE_CONFIG, [value, key, orgId]);
 };
 
-// FIXED fetchHolidays
 const fetchHolidays = async (supervisorId, orgId) => {
   const tenantPool = await getTenantPoolForOrgId(orgId);
   const [rows] = await tenantPool.query(GET_HOLIDAYS, [orgId]);

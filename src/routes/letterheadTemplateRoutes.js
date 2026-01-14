@@ -6,12 +6,8 @@ const {
   getAllTemplatesHandler,
 } = require("../handlers/letterheadTemplateHandler");
 
-// SAME STYLE AS ASSETS
 router.post("/add", addTemplateHandler);
 
 router.get("/list", getAllTemplatesHandler);
 
 module.exports = router;
-
-
-

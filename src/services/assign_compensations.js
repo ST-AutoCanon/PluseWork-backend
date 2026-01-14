@@ -1,13 +1,7 @@
-const {
-  getTenantPool,
-  sanitizeDbName,
-} = require("../db/tenantPoolManager");
+const { getTenantPool, sanitizeDbName } = require("../db/tenantPoolManager");
 
 const queries = require("../constants/assign_compensation");
 
-/**
- * Resolve tenant pool (SAME PATTERN AS ASSETS)
- */
 async function getTenantPoolForOrgId(orgId) {
   if (!orgId) {
     const err = new Error("orgId required");
@@ -18,16 +12,13 @@ async function getTenantPoolForOrgId(orgId) {
   return getTenantPool(dbName);
 }
 
-/**
- * CHECK EMPLOYEE ASSIGNMENT
- */
 async function checkEmployeeAssignment(orgId, employeeId) {
   const tenantPool = await getTenantPoolForOrgId(orgId);
 
-  const [rows] = await tenantPool.query(
-    queries.CHECK_EMPLOYEE_ASSIGNMENT,
-    [orgId, employeeId]
-  );
+  const [rows] = await tenantPool.query(queries.CHECK_EMPLOYEE_ASSIGNMENT, [
+    orgId,
+    employeeId,
+  ]);
 
   if (rows.length > 0) {
     return {
@@ -44,9 +35,6 @@ async function checkEmployeeAssignment(orgId, employeeId) {
   };
 }
 
-/**
- * ASSIGN COMPENSATION
- */
 async function assignCompensation({
   orgId,
   employeeId = [],
@@ -62,7 +50,6 @@ async function assignCompensation({
 
     const allEmployeeIds = new Set(employeeId);
 
-    // 🔹 Employees from departments
     if (departmentIds.length) {
       for (const deptId of departmentIds) {
         const [rows] = await conn.query(
@@ -77,13 +64,12 @@ async function assignCompensation({
       throw new Error("No employees selected");
     }
 
-    // 🔹 Prevent duplicate assignments
     const alreadyAssigned = [];
     for (const empId of allEmployeeIds) {
-      const [existing] = await conn.query(
-        queries.CHECK_EMPLOYEE_ASSIGNMENT,
-        [orgId, empId]
-      );
+      const [existing] = await conn.query(queries.CHECK_EMPLOYEE_ASSIGNMENT, [
+        orgId,
+        empId,
+      ]);
       if (existing.length) alreadyAssigned.push(empId);
     }
 
@@ -93,7 +79,6 @@ async function assignCompensation({
       );
     }
 
-    // 🔹 Fetch employee names
     const [employees] = await conn.query(
       `
       SELECT employee_id,
@@ -129,9 +114,6 @@ async function assignCompensation({
   }
 }
 
-/**
- * GET ASSIGNED COMPENSATION
- */
 async function getAssignedCompensationDetails(orgId) {
   const tenantPool = await getTenantPoolForOrgId(orgId);
   const [rows] = await tenantPool.query(
@@ -141,9 +123,6 @@ async function getAssignedCompensationDetails(orgId) {
   return rows;
 }
 
-/**
- * ADD BONUS (SINGLE)
- */
 async function addEmployeeBonus({
   org_id,
   percentageCtc,
@@ -164,9 +143,6 @@ async function addEmployeeBonus({
   return result;
 }
 
-/**
- * ADD BONUS (BULK)
- */
 async function addEmployeeBonusBulk({ orgId, bonusList }) {
   if (!orgId) throw new Error("orgId required");
   if (!Array.isArray(bonusList) || bonusList.length === 0)
@@ -202,31 +178,22 @@ async function addEmployeeBonusBulk({ orgId, bonusList }) {
   }
 }
 
-
-
-/**
- * BONUS DETAILS
- */
 async function getEmployeeBonusDetails(org_id) {
   const tenantPool = await getTenantPoolForOrgId(org_id);
-  const [rows] = await tenantPool.query(
-    queries.GET_EMPLOYEE_BONUS_DETAILS,
-    [org_id]
-  );
+  const [rows] = await tenantPool.query(queries.GET_EMPLOYEE_BONUS_DETAILS, [
+    org_id,
+  ]);
   return rows;
 }
 
-/**
- * ADVANCE
- */
 async function addEmployeeAdvance({
-  orgId,                // ✅ RECEIVED
+  orgId,
   employeeId,
   advanceAmount,
   recoveryMonths,
   applicableMonth,
 }) {
-  const tenantPool = await getTenantPoolForOrgId(orgId); // ✅ PASS orgId
+  const tenantPool = await getTenantPoolForOrgId(orgId);
   const conn = await tenantPool.getConnection();
 
   try {
@@ -243,15 +210,12 @@ async function addEmployeeAdvance({
       throw new Error("Employee not found or not active");
     }
 
-    const [result] = await conn.query(
-      queries.ADD_EMPLOYEE_ADVANCE,
-      [
-        employeeId,
-        advanceAmount,
-        recoveryMonths,
-        applicableMonth,
-      ]
-    );
+    const [result] = await conn.query(queries.ADD_EMPLOYEE_ADVANCE, [
+      employeeId,
+      advanceAmount,
+      recoveryMonths,
+      applicableMonth,
+    ]);
 
     await conn.commit();
     return {
@@ -266,38 +230,24 @@ async function addEmployeeAdvance({
   }
 }
 
-
-/**
- * ADVANCE DETAILS
- */
 async function getEmployeeAdvanceDetails(orgId) {
   const tenantPool = await getTenantPoolForOrgId(orgId);
-  const [rows] = await tenantPool.query(
-    queries.GET_EMPLOYEE_ADVANCE_DETAILS
-  );
+  const [rows] = await tenantPool.query(queries.GET_EMPLOYEE_ADVANCE_DETAILS);
   return rows;
 }
 
-/**
- * WORKING DAYS
- */
 async function getWorkingDaysCurrentMonth(orgId) {
   const tenantPool = await getTenantPoolForOrgId(orgId);
-  const [rows] = await tenantPool.query(
-    queries.GET_WORKING_DAYS_CURRENT_MONTH
-  );
+  const [rows] = await tenantPool.query(queries.GET_WORKING_DAYS_CURRENT_MONTH);
   return rows[0]?.total_working_days || 0;
 }
-/**
- * GET ALL OVERTIME DETAILS
- */
+
 async function getAllOvertimeDetails(orgId) {
   const tenantPool = await getTenantPoolForOrgId(orgId);
 
-  const [rows] = await tenantPool.query(
-    queries.GET_ALL_OVERTIME_DETAILS,
-    [orgId]
-  );
+  const [rows] = await tenantPool.query(queries.GET_ALL_OVERTIME_DETAILS, [
+    orgId,
+  ]);
 
   return rows;
 }

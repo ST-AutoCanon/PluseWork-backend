@@ -1,4 +1,3 @@
-// handlers/invoiceHandler.js
 const invoiceService = require("../services/invoiceService");
 
 const resolveOrgIdFromReq = (req) => {
@@ -93,7 +92,6 @@ const updateInvoiceExtra = async (req, res) => {
 };
 
 const generateTemplateInvoice = async (req, res) => {
-  // template generation uses master sequence but accepts orgId for acronym lookup
   const orgId = resolveOrgIdFromReq(req);
   const { invoiceType } = req.query;
   if (!invoiceType) {

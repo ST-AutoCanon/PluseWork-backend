@@ -1,4 +1,3 @@
-// handlers/projectHandler.js
 const projectService = require("../services/projectService");
 
 function resolveOrgIdFromReq(req) {
@@ -54,7 +53,6 @@ exports.createProject = async (req, res) => {
         ? req.files.map((file) => file.filename)
         : [];
 
-    // Build array excluding orgId; projectService will append orgId
     const insertValues = [
       country,
       state,
@@ -74,7 +72,6 @@ exports.createProject = async (req, res) => {
       payment_type,
       description,
       JSON.stringify(attachments),
-      // orgId intentionally omitted here; service will add it
     ];
 
     const projectId = await projectService.addProject(orgId, insertValues);
@@ -88,7 +85,6 @@ exports.createProject = async (req, res) => {
       req.body.key_considerations,
     ]);
 
-    // milestones & financials: pass orgId so the inserts go to tenant DB
     let milestoneIds = [];
     const { milestones = [] } = req.body;
     const parsedMilestones =
@@ -314,7 +310,6 @@ exports.updateProject = async (req, res) => {
       return res.status(400).json({ error: "orgId header is required" });
     }
 
-    // Build attachments array same as before
     const existingProject = await projectService.getProjectById(orgId, id);
     if (!existingProject) {
       return res.status(404).json({ message: "Project not found" });
@@ -368,7 +363,6 @@ exports.updateProject = async (req, res) => {
       req.body.payment_type,
       req.body.description,
       attachmentsJson,
-      // id appended by service
     ];
 
     await projectService.updateProject(orgId, id, updateParams);
@@ -379,10 +373,8 @@ exports.updateProject = async (req, res) => {
       req.body.sts_contact,
       employeeListJson,
       req.body.key_considerations,
-      // id appended by service
     ]);
 
-    // Milestones / financials — keep similar flow but pass orgId into service calls
     let parsedMilestones = [];
     if (req.body.milestones) {
       parsedMilestones =
@@ -423,7 +415,6 @@ exports.updateProject = async (req, res) => {
       }
     }
 
-    // Financial details: upsert/update/add via tenant DB
     let parsedFinancial = [];
     if (req.body.financialDetails) {
       parsedFinancial =

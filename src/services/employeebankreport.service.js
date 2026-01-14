@@ -1,5 +1,3 @@
-// src/services/employeebankreport.service.js - WITH DETAILED ERROR LOGGING
-
 const { getTenantPoolByOrgId } = require("../db/tenantPoolManager");
 
 const getEmployeePersonalDetails = async (orgId, employeeIds) => {
@@ -13,13 +11,12 @@ const getEmployeePersonalDetails = async (orgId, employeeIds) => {
   }
 
   const validIds = employeeIds.filter(
-    id => typeof id === "string" && id.trim()
+    (id) => typeof id === "string" && id.trim()
   );
 
   if (validIds.length === 0) return [];
 
   const tenantPool = await getTenantPoolByOrgId(orgId);
-
 
   if (!tenantPool || typeof tenantPool.query !== "function") {
     throw new Error("Invalid tenant pool");
@@ -41,5 +38,5 @@ const getEmployeePersonalDetails = async (orgId, employeeIds) => {
 };
 
 module.exports = {
-  getEmployeePersonalDetails
+  getEmployeePersonalDetails,
 };

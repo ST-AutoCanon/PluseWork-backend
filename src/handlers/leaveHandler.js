@@ -1,4 +1,3 @@
-// handlers/leaveHandler.js
 const LeaveService = require("../services/leaveService");
 const ErrorHandler = require("../utils/errorHandler");
 

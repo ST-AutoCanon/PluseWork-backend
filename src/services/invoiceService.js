@@ -1,11 +1,7 @@
-// services/invoiceService.js
-const db = require("../config"); // master DB (sequences, org lookup)
+const db = require("../config");
 const invoiceQueries = require("../constants/invoiceQueries");
 const { getTenantPool, sanitizeDbName } = require("../db/tenantPoolManager");
 
-/**
- * Resolve tenant pool for an orgId; throws if orgId missing.
- */
 async function getTenantPoolForOrgId(orgId) {
   if (!orgId) {
     const err = new Error("orgId required to get tenant pool");
@@ -15,10 +11,6 @@ async function getTenantPoolForOrgId(orgId) {
   const dbName = sanitizeDbName(`tenant_${orgId}`);
   return getTenantPool(dbName);
 }
-
-/* -------------------------
-   Helpers (master DB)
-   ------------------------- */
 
 const getFinancialYear = (invoiceDate) => {
   const dateObj = new Date(invoiceDate);
@@ -43,9 +35,7 @@ async function getOrgNameMaster(connection, orgId) {
       [orgId]
     );
     if (rows && rows.length > 0) return String(rows[0].name).trim();
-  } catch (e) {
-    // swallow and return null
-  }
+  } catch (e) {}
   return null;
 }
 
@@ -69,13 +59,6 @@ function makeOrgAcronym(orgName) {
   const single = words[0];
   return (single && single.slice(0, 3).toUpperCase()) || "STS";
 }
-
-/* -------------------------
-   Sequence operations (master DB)
-   - GET_NEXT_SEQUENCE
-   - INSERT_INITIAL_SEQUENCE
-   - UPDATE_SEQUENCE
-   ------------------------- */
 
 const getNextSequenceMaster = async (invoiceType, financialYear, orgId) => {
   const tenantPool = await getTenantPoolForOrgId(orgId);
@@ -132,10 +115,6 @@ const updateSequenceMaster = async (
   }
 };
 
-/* -------------------------
-   Template / invoice number generation (uses master DB)
-   ------------------------- */
-
 const generateTemplateInvoiceNo = async (invoiceType, orgId = null) => {
   const today = new Date();
   const financialYear = getFinancialYear(today);
@@ -170,10 +149,6 @@ const generateTemplateInvoiceNo = async (invoiceType, orgId = null) => {
   }
 };
 
-/**
- * Generate invoice number and increment master sequence (master DB only).
- * Returns the generated invoice number string.
- */
 const generateInvoiceNo = async (invoiceDate, invoiceType, orgId) => {
   const financialYear = getFinancialYear(invoiceDate);
   const tenantPool = await getTenantPoolForOrgId(orgId);
@@ -224,14 +199,6 @@ const generateInvoiceNo = async (invoiceDate, invoiceType, orgId) => {
   }
 };
 
-/* -------------------------
-   Tenant-scoped invoice operations (tenant DBs)
-   ------------------------- */
-
-/**
- * Get invoices for a project from tenant DB.
- * orgId required (tenant lookup).
- */
 const getInvoicesByProject = async (orgId, projectId) => {
   if (!orgId) throw new Error("orgId required");
   const tenantPool = await getTenantPoolForOrgId(orgId);
@@ -256,9 +223,6 @@ const getInvoicesByProject = async (orgId, projectId) => {
   }
 };
 
-/**
- * Get invoice by id from tenant DB.
- */
 const getInvoiceById = async (orgId, id) => {
   if (!orgId) throw new Error("orgId required");
   const tenantPool = await getTenantPoolForOrgId(orgId);
@@ -289,24 +253,16 @@ const getInvoiceById = async (orgId, id) => {
   }
 };
 
-/**
- * Create invoice:
- *  - Generate invoice number (master DB sequence)
- *  - Insert invoice row into tenant DB
- *  - Return inserted invoice (from tenant DB).
- */
 const createInvoice = async (invoiceData, orgId) => {
   if (!orgId) throw new Error("orgId required to create invoice");
   const tenantPool = await getTenantPoolForOrgId(orgId);
 
-  // compute invoice number using master DB
   const invoiceNo = await generateInvoiceNo(
     invoiceData.invoiceDate,
     invoiceData.invoiceType,
     orgId
   );
 
-  // insert into tenant DB
   const conn = await tenantPool.getConnection();
   try {
     const [results] = await conn.execute(invoiceQueries.INSERT_INVOICE, [
@@ -341,9 +297,6 @@ const createInvoice = async (invoiceData, orgId) => {
   }
 };
 
-/**
- * Update invoice basic fields in tenant DB, then return updated invoice.
- */
 const updateInvoice = async (orgId, id, invoiceData) => {
   if (!orgId) throw new Error("orgId required");
   const tenantPool = await getTenantPoolForOrgId(orgId);
@@ -385,9 +338,6 @@ const updateInvoice = async (orgId, id, invoiceData) => {
   }
 };
 
-/**
- * Update invoice extra (gstPayment, milestoneId, status) and perform any project financial updates.
- */
 const updateInvoiceExtra = async (orgId, id, invoiceData) => {
   if (!orgId) throw new Error("orgId required");
   const tenantPool = await getTenantPoolForOrgId(orgId);
@@ -427,13 +377,11 @@ const updateInvoiceExtra = async (orgId, id, invoiceData) => {
       id,
     ]);
 
-    // fetch payment_type from tenant add_project table (tenant DB)
     const [[{ payment_type }]] = await conn.query(
       `SELECT payment_type FROM add_project WHERE id = ?`,
       [invoiceData.projectId]
     );
 
-    // Update financials in tenant DB
     if (invoiceData.gstPayment === "Completed" && invoiceData.milestoneId) {
       const common = {
         m_actual_amount: invoiceData.totalExcludingTax,
@@ -445,7 +393,6 @@ const updateInvoiceExtra = async (orgId, id, invoiceData) => {
       };
 
       if (payment_type === "Monthly Scheduled") {
-        // financial_details.id refers to financial row id (tenant DB)
         await require("./projectService").updateFinancialDetailsById(orgId, {
           financial_id: Number(invoiceData.milestoneId),
           ...common,
@@ -469,11 +416,6 @@ const updateInvoiceExtra = async (orgId, id, invoiceData) => {
     } catch (e) {}
   }
 };
-
-/* -------------------------
-   Sequence admin (master DB) — updateSequence
-   (this operates on master invoice_numbers table)
-   ------------------------- */
 
 const updateSequence = async (invoiceType, orgId) => {
   const today = new Date();
@@ -512,12 +454,6 @@ const updateSequence = async (invoiceType, orgId) => {
     conn.release();
   }
 };
-
-/* -------------------------
-   Download details (tenant DB) + possible master sequence update
-   - Insert tenant download_details
-   - If invoice number contains a sequence, ensure master sequence >= usedSeq + 1
-   ------------------------- */
 
 function parseSequenceFromInvoiceNumber(invoiceNumber) {
   if (!invoiceNumber || typeof invoiceNumber !== "string") return null;
@@ -590,7 +526,6 @@ const recordDownloadDetails = async (
       ]
     );
 
-    // parse and update master sequence if necessary
     const usedSeq = parseSequenceFromInvoiceNumber(invoiceNumber);
     const fy = getFinancialYear(invoiceDate || new Date());
     if (usedSeq != null && orgId) {
@@ -600,7 +535,6 @@ const recordDownloadDetails = async (
       );
 
       if (!rows || rows.length === 0) {
-        // insert initial sequence (set sequence to usedSeq + 1)
         await tenantConn.execute(invoiceQueries.INSERT_INITIAL_SEQUENCE, [
           invoiceType,
           fy,
@@ -642,9 +576,6 @@ const recordDownloadDetails = async (
   }
 };
 
-/**
- * Get all download_details for org (tenant DB)
- */
 const getAllDownloadDetails = async (orgId) => {
   if (!orgId) throw new Error("orgId required");
   const tenantPool = await getTenantPoolForOrgId(orgId);
@@ -678,6 +609,5 @@ module.exports = {
   updateInvoiceExtra,
   recordDownloadDetails,
   getAllDownloadDetails,
-  // Expose master-sequence helper for other callers if needed:
-  generateInvoiceNo, // used internally, but exported for tests/consumers
+  generateInvoiceNo,
 };

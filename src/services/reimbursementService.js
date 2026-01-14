@@ -1,9 +1,7 @@
-// services/reimbursementService.js
 const queries = require("../constants/reimbursementQueries");
 const path = require("path");
 const fs = require("fs").promises;
 
-// tenant pool manager (you must have src/db/tenantPoolManager.js)
 const { sanitizeDbName, getTenantPool } = require("../db/tenantPoolManager");
 
 const XLSX = require("xlsx");
@@ -93,9 +91,6 @@ function coerceNullableNumber(v) {
   return Number.isFinite(n) ? n : null;
 }
 
-/**
- * Create or return tenant pool for given orgId.
- */
 async function getTenantPoolForOrgId(orgId) {
   if (!orgId) {
     const err = new Error("orgId required");
@@ -106,18 +101,11 @@ async function getTenantPoolForOrgId(orgId) {
   return getTenantPool(dbName);
 }
 
-/**
- * Build a best-effort URL/path for attachment display.
- * This is used by the UI code to fetch attachments via the server route.
- * Supports tenant path with orgId or legacy path without orgId.
- */
 const buildAttachmentUrl = (filePath, fileName, employeeIdHint = null) => {
   try {
     const fname = String(fileName || "").trim();
     if (filePath) {
       const p = String(filePath).replace(/\\/g, "/");
-      // try match both tenant and legacy patterns:
-      // tenant: /reimbursement/{orgId}/{year}/{month}/{emp}/{file}
       let m = p.match(
         /\/reimbursement\/([^/]+)\/(\d{4})\/(\d{2})\/([^/]+)\/([^/]+)$/
       );
@@ -131,7 +119,6 @@ const buildAttachmentUrl = (filePath, fileName, employeeIdHint = null) => {
           month
         )}/${encodeURIComponent(emp)}/${encodeURIComponent(file)}`;
       }
-      // legacy: /reimbursement/{year}/{month}/{emp}/{file}
       m = p.match(/\/reimbursement\/(\d{4})\/(\d{2})\/([^/]+)\/([^/]+)$/);
       if (m) {
         const year = m[1],
@@ -169,9 +156,6 @@ const buildAttachmentUrl = (filePath, fileName, employeeIdHint = null) => {
   }
 };
 
-/**
- * Normalize multer files -> attachment objects used by DB insertion (tenant-aware).
- */
 const buildAttachmentsFromFiles = (files = [], attachmentsMeta = {}) => {
   if (!Array.isArray(files) || files.length === 0) return [];
 
@@ -209,10 +193,6 @@ const buildAttachmentsFromFiles = (files = [], attachmentsMeta = {}) => {
   });
 };
 
-/**
- * Save attachments in bulk in tenant DB.
- * values expected: array of objects { file_name, file_path, line_id (nullable) }
- */
 const saveAttachmentsBulk = async (reimbursementId, files = [], orgId) => {
   if (!files || !files.length) return;
   const tenantPool = await getTenantPoolForOrgId(orgId);
@@ -226,9 +206,6 @@ const saveAttachmentsBulk = async (reimbursementId, files = [], orgId) => {
   await tenantPool.query(queries.SAVE_ATTACHMENTS, [attachmentValues]);
 };
 
-/**
- * Process uploaded files and persist attachment records (tenant-aware).
- */
 exports.processUploadedFiles = async (
   files,
   reimbursementId,
@@ -269,7 +246,6 @@ exports.processUploadedFiles = async (
       };
     });
 
-    // persist to tenant DB
     const toSave = normalized.map((n) => ({
       file_name: n.file_name,
       file_path: n.file_path || "",
@@ -286,14 +262,6 @@ exports.processUploadedFiles = async (
   }
 };
 
-/* ===========================
-   Tenant-aware service functions
-   All exported functions accept orgId as last argument (where applicable)
-   =========================== */
-
-/**
- * Get reimbursements by employee (tenant-aware)
- */
 exports.getReimbursementsByEmployee = async (
   employeeId,
   fromDate = null,
@@ -420,9 +388,6 @@ exports.getReimbursementsByEmployee = async (
   return result;
 };
 
-/**
- * Get all reimbursements grouped by employee (tenant-aware)
- */
 exports.getAllReimbursements = async (
   submittedFrom = null,
   submittedFromForBetween = null,
@@ -623,9 +588,6 @@ exports.getAllReimbursements = async (
   }
 };
 
-/**
- * Get employees (tenant-aware)
- */
 exports.getEmployees = async (
   q = null,
   departmentId = null,
@@ -686,9 +648,6 @@ exports.getEmployees = async (
   }
 };
 
-/**
- * Create reimbursement (tenant-aware)
- */
 exports.createReimbursement = async (reimbursementData, orgId) => {
   const tenantPool = await getTenantPoolForOrgId(orgId);
   const conn = await tenantPool.getConnection();
@@ -779,7 +738,6 @@ exports.createReimbursement = async (reimbursementData, orgId) => {
       await conn.query(queries.SAVE_REIMBURSEMENT_LINES_BULK, [values]);
     }
 
-    // attachments
     if (
       Array.isArray(reimbursementData.attachments) &&
       reimbursementData.attachments.length
@@ -821,9 +779,6 @@ exports.createReimbursement = async (reimbursementData, orgId) => {
   }
 };
 
-/**
- * Update reimbursement (tenant-aware)
- */
 exports.updateReimbursement = async (reimbursementId, updateData, orgId) => {
   const tenantPool = await getTenantPoolForOrgId(orgId);
   const conn = await tenantPool.getConnection();
@@ -920,7 +875,6 @@ exports.updateReimbursement = async (reimbursementId, updateData, orgId) => {
       await conn.query(queries.SAVE_REIMBURSEMENT_LINES_BULK, [values]);
     }
 
-    // attachments update
     if (
       Array.isArray(updateData.attachments) &&
       updateData.attachments.length
@@ -1052,9 +1006,6 @@ exports.updateReimbursement = async (reimbursementId, updateData, orgId) => {
   }
 };
 
-/**
- * Get team reimbursements (tenant-aware)
- */
 exports.getTeamReimbursements = async (
   departmentId,
   submittedFrom,
@@ -1258,9 +1209,6 @@ exports.getTeamReimbursements = async (
   }
 };
 
-/**
- * Update reimbursement status (tenant-aware)
- */
 exports.updateReimbursementStatus = async (
   id,
   status,
@@ -1321,9 +1269,6 @@ exports.updateReimbursementStatus = async (
   }
 };
 
-/**
- * Update payment status (tenant-aware)
- */
 exports.updatePaymentStatus = async (
   id,
   payment_status,
@@ -1352,9 +1297,6 @@ exports.updatePaymentStatus = async (
   }
 };
 
-/**
- * Get attachments for a reimbursement (tenant-aware)
- */
 exports.getAttachments = async (reimbursementId, orgId) => {
   const tenantPool = await getTenantPoolForOrgId(orgId);
   try {
@@ -1369,9 +1311,6 @@ exports.getAttachments = async (reimbursementId, orgId) => {
   }
 };
 
-/**
- * Get attachments by reimbursement IDs (tenant-aware)
- */
 exports.getAttachmentsByReimbursementIds = async (
   reimbursementIds = [],
   orgId
@@ -1389,7 +1328,6 @@ exports.getAttachmentsByReimbursementIds = async (
     throw err;
   }
 };
-// GET /reimbursement/attachment/meta?claimId=...&filename=...
 exports.getAttachmentMeta = async (req, res) => {
   try {
     const orgId = resolveOrgIdFromReq(req);
@@ -1408,7 +1346,6 @@ exports.getAttachmentMeta = async (req, res) => {
       return res.status(404).json({ message: "No attachments found." });
     }
 
-    // If filename provided, try to match exactly; otherwise return all
     const matches = filename
       ? attachments.filter(
           (a) =>
@@ -1425,9 +1362,6 @@ exports.getAttachmentMeta = async (req, res) => {
   }
 };
 
-/**
- * Delete reimbursement (tenant-aware)
- */
 exports.deleteReimbursement = async (id, orgId) => {
   const tenantPool = await getTenantPoolForOrgId(orgId);
   try {
@@ -1440,9 +1374,6 @@ exports.deleteReimbursement = async (id, orgId) => {
   }
 };
 
-/**
- * Get approver details (tenant-aware)
- */
 exports.getApproverDetails = async (approver_id, orgId) => {
   const tenantPool = await getTenantPoolForOrgId(orgId);
   try {
@@ -1456,9 +1387,6 @@ exports.getApproverDetails = async (approver_id, orgId) => {
   }
 };
 
-/**
- * Get all projects (tenant-aware)
- */
 exports.getAllProjects = async (orgId) => {
   const tenantPool = await getTenantPoolForOrgId(orgId);
   try {

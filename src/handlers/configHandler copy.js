@@ -1,4 +1,3 @@
-
 const { fetchConfig, saveConfig } = require("../services/configService");
 
 const getOrgIdFromHeaders = (req) => {
@@ -37,7 +36,6 @@ const getConfig = async (req, res) => {
   }
 };
 
-// PUT /api/config
 const updateConfig = async (req, res) => {
   try {
     const orgId = getOrgIdFromHeaders(req);

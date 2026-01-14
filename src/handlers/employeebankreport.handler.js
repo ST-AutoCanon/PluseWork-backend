@@ -1,10 +1,7 @@
-// controllers/employeeBankReportController.js
+const {
+  getEmployeePersonalDetails,
+} = require("../services/employeebankreport.service");
 
-const { getEmployeePersonalDetails } = require("../services/employeebankreport.service");
-
-/**
- * Helper to extract orgId from headers (consistent with assets & LOP)
- */
 const getOrgIdFromHeaders = (req) => {
   return (
     req.headers["x-org-id"] ||
@@ -14,10 +11,6 @@ const getOrgIdFromHeaders = (req) => {
   );
 };
 
-/**
- * Handler: Fetch PAN & UAN for list of employee IDs
- * POST /api/employee-bank-report (or whatever route you use)
- */
 const fetchEmployeeBankDetails = async (req, res) => {
   const orgId = getOrgIdFromHeaders(req);
 
@@ -40,7 +33,6 @@ const fetchEmployeeBankDetails = async (req, res) => {
   try {
     const details = await getEmployeePersonalDetails(orgId, employeeIds);
 
-    // Convert to map: { employee_id: { pan_number, uan_number } }
     const detailsMap = details.reduce((map, detail) => {
       map[detail.employee_id] = {
         pan_number: detail.pan_number || "N/A",
@@ -56,7 +48,6 @@ const fetchEmployeeBankDetails = async (req, res) => {
   } catch (error) {
     console.error("Error fetching employee bank/personal details:", error);
 
-    // Optional: handle specific known errors (e.g., tenant not found)
     if (error.message.includes("orgId")) {
       return res.status(400).json({ success: false, error: "Invalid orgId" });
     }

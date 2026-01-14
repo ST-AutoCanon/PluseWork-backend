@@ -1,11 +1,6 @@
-
-
 const { getTenantPool, sanitizeDbName } = require("../db/tenantPoolManager");
 const taskQueries = require("../constants/taskConstants");
 
-/**
- * Get tenant-specific pool
- */
 async function getTenantPoolForOrgId(orgId) {
   if (!orgId) {
     const err = new Error("orgId required to get tenant pool");
@@ -19,7 +14,15 @@ async function getTenantPoolForOrgId(orgId) {
 const createTask = async (taskData, orgId) => {
   if (!orgId) throw new Error("orgId is required");
 
-  const { employee_id, task_title, description, start_date, due_date, status, percentage } = taskData;
+  const {
+    employee_id,
+    task_title,
+    description,
+    start_date,
+    due_date,
+    status,
+    percentage,
+  } = taskData;
 
   const tenantPool = await getTenantPoolForOrgId(orgId);
   const conn = await tenantPool.getConnection();

@@ -1,10 +1,6 @@
-// notificationService.js
 const { INSERT_NOTIFICATION } = require("../constants/notificationQueries");
 const { getTenantPool, sanitizeDbName } = require("../db/tenantPoolManager");
 
-/**
- * Resolve tenant pool for an orgId; throws if orgId missing.
- */
 async function getTenantPoolForOrgId(orgId) {
   if (!orgId) {
     const err = new Error("orgId required to get tenant pool");
@@ -15,14 +11,6 @@ async function getTenantPoolForOrgId(orgId) {
   return getTenantPool(dbName);
 }
 
-/**
- * Insert notification for a meeting follow-up.
- * Caller should pass orgId; otherwise function will attempt to read meeting.org_id.
- *
- * NOTE: SQL INSERT_NOTIFICATION columns order is:
- *   (user_id, meeting_id, policy_id, message, triggered_at, is_read, created_at)
- * => placeholders: user_id, meeting_id, policy_id, message, triggered_at
- */
 async function sendMeetingReminder(meeting, orgId) {
   const {
     id: meetingId,
@@ -41,20 +29,15 @@ async function sendMeetingReminder(meeting, orgId) {
   const triggeredAt = follow_up_date || new Date();
 
   const tenantPool = await getTenantPoolForOrgId(resolvedOrgId);
-  // policy_id = null for meeting reminder
   await tenantPool.query(INSERT_NOTIFICATION, [
     userId,
     meetingId,
-    null, // policy_id
+    null,
     message,
     triggeredAt,
   ]);
 }
 
-/**
- * Insert notification for assignment.
- * Caller should pass orgId; otherwise function will attempt to read meeting.org_id.
- */
 async function sendAssignmentNotification(meeting, orgId) {
   const {
     assigned_to: userId,
@@ -77,7 +60,7 @@ async function sendAssignmentNotification(meeting, orgId) {
   await tenantPool.query(INSERT_NOTIFICATION, [
     userId,
     meetingId,
-    null, // policy_id
+    null,
     message,
     triggeredAt,
   ]);

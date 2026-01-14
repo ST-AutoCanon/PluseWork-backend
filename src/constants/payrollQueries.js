@@ -1,8 +1,4 @@
 module.exports = {
-  /* ==============================
-     EMPLOYEE DETAILS
-  ============================== */
- 
   GET_EMPLOYEE_DETAILS_QUERY: `
   SELECT
     a.date,
@@ -16,11 +12,7 @@ module.exports = {
   ORDER BY a.date DESC
 `,
 
-
-  /* ==============================
-     EMPLOYEE BANK DETAILS
-  ============================== */
- GETEMPLOYEEBANKDETAILSQUERY: `
+  GETEMPLOYEEBANKDETAILSQUERY: `
   SELECT
     COALESCE(ebd.bank_name, '') AS bank_name,
     COALESCE(ebd.account_number, '') AS account_number,

@@ -16,20 +16,9 @@ const {
   getWorkingDaysCurrentMonth,
 } = require("../services/assign_compensations");
 
-/**
- * ✅ Unified orgId extractor
- */
 const getOrgId = (req) =>
-  req.user?.org_id ||
-  req.headers["x-org-id"] ||
-  req.headers["org-id"] ||
-  null;
+  req.user?.org_id || req.headers["x-org-id"] || req.headers["org-id"] || null;
 
-/**
- * ================================
- * WORKING DAYS
- * ================================
- */
 const getWorkingDaysHandler = async (req, res) => {
   try {
     const orgId = getOrgId(req);
@@ -57,11 +46,6 @@ const getWorkingDaysHandler = async (req, res) => {
   }
 };
 
-/**
- * ================================
- * CHECK EMPLOYEE ASSIGNMENT
- * ================================
- */
 const checkEmployeeAssignmentHandler = async (req, res) => {
   try {
     const orgId = getOrgId(req);
@@ -89,11 +73,6 @@ const checkEmployeeAssignmentHandler = async (req, res) => {
   }
 };
 
-/**
- * ================================
- * ASSIGN COMPENSATION
- * ================================
- */
 const assignCompensationHandler = async (req, res) => {
   try {
     const orgId = getOrgId(req);
@@ -144,11 +123,6 @@ const assignCompensationHandler = async (req, res) => {
   }
 };
 
-/**
- * ================================
- * GET ASSIGNED COMPENSATIONS
- * ================================
- */
 const getAssignedCompensationDetailsHandler = async (req, res) => {
   try {
     const orgId = getOrgId(req);
@@ -177,11 +151,6 @@ const getAssignedCompensationDetailsHandler = async (req, res) => {
   }
 };
 
-/**
- * ================================
- * ADD BONUS (SINGLE)
- * ================================
- */
 const addEmployeeBonusHandler = async (req, res) => {
   try {
     const orgId = getOrgId(req);
@@ -228,11 +197,6 @@ const addEmployeeBonusHandler = async (req, res) => {
   }
 };
 
-/**
- * ================================
- * ADD BONUS (BULK)
- * ================================
- */
 const addEmployeeBonusBulkHandler = async (req, res) => {
   try {
     const orgId = getOrgId(req);
@@ -245,10 +209,13 @@ const addEmployeeBonusBulkHandler = async (req, res) => {
 
     let { bonusList } = req.body;
 
-    // If frontend sends single object, wrap it in array
     if (!bonusList) {
-      // check if req.body is a single object
-      if (req.body.percentageCtc || req.body.percentageMonthlySalary || req.body.fixedAmount || req.body.applicableMonth) {
+      if (
+        req.body.percentageCtc ||
+        req.body.percentageMonthlySalary ||
+        req.body.fixedAmount ||
+        req.body.applicableMonth
+      ) {
         bonusList = [req.body];
       } else {
         return res.status(400).json({
@@ -262,7 +229,6 @@ const addEmployeeBonusBulkHandler = async (req, res) => {
       bonusList = [bonusList];
     }
 
-    // Add orgId to each object
     const payload = bonusList.map((b) => ({
       org_id: orgId,
       percentageCtc: b.percentageCtc ?? null,
@@ -271,7 +237,7 @@ const addEmployeeBonusBulkHandler = async (req, res) => {
       applicableMonth: b.applicableMonth,
     }));
 
-const result = await addEmployeeBonusBulk({ orgId, bonusList: payload });
+    const result = await addEmployeeBonusBulk({ orgId, bonusList: payload });
     res.status(200).json({
       success: true,
       message: "Bonus added successfully",
@@ -286,13 +252,6 @@ const result = await addEmployeeBonusBulk({ orgId, bonusList: payload });
   }
 };
 
-
-
-/**
- * ================================
- * GET BONUS DETAILS
- * ================================
- */
 const getEmployeeBonusDetailsHandler = async (req, res) => {
   try {
     const orgId = getOrgId(req);
@@ -319,16 +278,6 @@ const getEmployeeBonusDetailsHandler = async (req, res) => {
   }
 };
 
-/**
- * ================================
- * ADD EMPLOYEE ADVANCE
- * ================================
- */
-/**
- * ================================
- * ADD EMPLOYEE ADVANCE
- * ================================
- */
 const addEmployeeAdvanceHandler = async (req, res) => {
   try {
     const orgId = getOrgId(req);
@@ -340,14 +289,9 @@ const addEmployeeAdvanceHandler = async (req, res) => {
       });
     }
 
-    const {
-      employeeId,
-      advanceAmount,
-      recoveryMonths,
-      applicableMonth, // can be string or Date
-    } = req.body;
+    const { employeeId, advanceAmount, recoveryMonths, applicableMonth } =
+      req.body;
 
-    // Validate required fields
     if (!employeeId || !advanceAmount || !recoveryMonths || !applicableMonth) {
       return res.status(400).json({
         success: false,
@@ -355,12 +299,11 @@ const addEmployeeAdvanceHandler = async (req, res) => {
       });
     }
 
-    // 🔹 Format applicableMonth as 'YYYY-MM' string
     let formattedMonth;
     if (typeof applicableMonth === "string") {
       formattedMonth = applicableMonth;
     } else if (applicableMonth instanceof Date) {
-      formattedMonth = applicableMonth.toISOString().slice(0, 7); // 'YYYY-MM'
+      formattedMonth = applicableMonth.toISOString().slice(0, 7);
     } else {
       return res.status(400).json({
         success: false,
@@ -368,7 +311,6 @@ const addEmployeeAdvanceHandler = async (req, res) => {
       });
     }
 
-    // Debug: log payload
     console.log("Advance payload:", {
       orgId,
       employeeId,
@@ -377,13 +319,12 @@ const addEmployeeAdvanceHandler = async (req, res) => {
       applicableMonth: formattedMonth,
     });
 
-    // Call service
     const result = await addEmployeeAdvance({
       orgId,
       employeeId,
       advanceAmount,
       recoveryMonths,
-      applicableMonth: formattedMonth, // ✅ pass formatted string
+      applicableMonth: formattedMonth,
     });
 
     res.status(201).json({
@@ -400,13 +341,6 @@ const addEmployeeAdvanceHandler = async (req, res) => {
   }
 };
 
-
-
-/**
- * ================================
- * GET ADVANCE DETAILS
- * ================================
- */
 const getEmployeeAdvanceDetailsHandler = async (req, res) => {
   try {
     const orgId = getOrgId(req);
@@ -433,11 +367,6 @@ const getEmployeeAdvanceDetailsHandler = async (req, res) => {
   }
 };
 
-/**
- * ================================
- * EXTRA HOURS
- * ================================
- */
 const fetchEmployeeExtraHours = async (req, res) => {
   try {
     const orgId = getOrgId(req);
@@ -450,11 +379,7 @@ const fetchEmployeeExtraHours = async (req, res) => {
       });
     }
 
-    const data = await getEmployeeExtraHoursService(
-      orgId,
-      startDate,
-      endDate
-    );
+    const data = await getEmployeeExtraHoursService(orgId, startDate, endDate);
 
     res.status(200).json({
       success: true,
@@ -470,11 +395,6 @@ const fetchEmployeeExtraHours = async (req, res) => {
   }
 };
 
-/**
- * ================================
- * OVERTIME
- * ================================
- */
 const handleAddOvertimeDetailsBulk = async (req, res) => {
   try {
     const orgId = getOrgId(req);
@@ -564,11 +484,6 @@ const getOvertimeDetailsHandler = async (req, res) => {
   }
 };
 
-/**
- * ================================
- * LOP
- * ================================
- */
 const getEmployeeLopHandler = async (req, res) => {
   try {
     const orgId = getOrgId(req);

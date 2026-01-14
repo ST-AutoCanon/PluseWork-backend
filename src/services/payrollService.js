@@ -1,9 +1,5 @@
 const payrollQueries = require("../constants/payrollQueries");
 
-/* ==============================
-   FIND SALARY TABLE
-   format: 1_jan_2026
-============================== */
 const findSalaryTable = async (tenantPool, month, year) => {
   if (!Number.isInteger(month) || month < 1 || month > 12) {
     throw new Error("Invalid month");
@@ -19,8 +15,6 @@ const findSalaryTable = async (tenantPool, month, year) => {
 
   const expectedTable = `1_${monthName}_${year}`;
 
-  // ❌ DO NOT use execute() here
-  // ✅ Use query() instead
   const [rows] = await tenantPool.query(
     `SHOW TABLES LIKE ${tenantPool.escape(expectedTable)}`
   );
@@ -30,10 +24,6 @@ const findSalaryTable = async (tenantPool, month, year) => {
   return Object.values(rows[0])[0];
 };
 
-
-/* ==============================
-   GET SALARY SLIP
-============================== */
 const getSalarySlip = async (tenantPool, employee_id, month, year) => {
   const tableName = await findSalaryTable(
     tenantPool,
@@ -43,7 +33,6 @@ const getSalarySlip = async (tenantPool, employee_id, month, year) => {
 
   if (!tableName) return null;
 
-  // ✅ table name interpolated correctly
   const query = `
     SELECT *
     FROM \`${tableName}\`
@@ -58,9 +47,6 @@ const getSalarySlip = async (tenantPool, employee_id, month, year) => {
   return rows[0];
 };
 
-/* ==============================
-   BANK DETAILS
-============================== */
 const getEmployeeBankDetails = async (tenantPool, employee_id) => {
   const [rows] = await tenantPool.execute(
     payrollQueries.GETEMPLOYEEBANKDETAILSQUERY,
@@ -70,9 +56,6 @@ const getEmployeeBankDetails = async (tenantPool, employee_id) => {
   return rows[0] || null;
 };
 
-/* ==============================
-   EMPLOYEE DETAILS
-============================== */
 const getEmployeeDetails = async (tenantPool, employee_id) => {
   const [rows] = await tenantPool.execute(
     payrollQueries.GET_EMPLOYEE_DETAILS_QUERY,

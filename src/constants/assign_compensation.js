@@ -1,4 +1,3 @@
-
 module.exports = {
   ADD_COMPENSATION_ASSIGNMENT: `
   INSERT INTO assigned_compensations (
@@ -20,7 +19,6 @@ module.exports = {
   FROM compensation_plans cp
   WHERE cp.id = ?
 `,
-
 
   UPDATE_COMPENSATION_ASSIGNMENT: `
     UPDATE assigned_compensations
@@ -51,8 +49,7 @@ module.exports = {
       )
   `,
 
- // In ../constants/assign_compensation.js
-GET_ASSIGNED_COMPENSATION_DETAILS: `
+  GET_ASSIGNED_COMPENSATION_DETAILS: `
 SELECT 
     ac.id,
     ac.compensation_plan_name,
@@ -87,14 +84,12 @@ LIMIT 0, 1000;
   VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 `,
 
-
-ADD_EMPLOYEE_BONUS_BULK: `
+  ADD_EMPLOYEE_BONUS_BULK: `
   INSERT INTO employee_bonus_details 
   (org_id, percentage_ctc, percentage_monthly_salary, fixed_amount, applicable_month)
   VALUES 
   (?, ?, ?, ?, ?)
 `,
-
 
   GET_EMPLOYEE_BONUS_DETAILS: `
   SELECT 
@@ -109,9 +104,7 @@ ADD_EMPLOYEE_BONUS_BULK: `
   WHERE org_id = ?
     AND applicable_month = DATE_FORMAT(CURDATE(), '%Y-%m')
   ORDER BY id ASC
-`
-,
-// Advance queries
+`,
   ADD_EMPLOYEE_ADVANCE: `
   INSERT INTO employee_advance_details (
     employee_id,
@@ -123,7 +116,7 @@ ADD_EMPLOYEE_BONUS_BULK: `
   VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
 `,
 
- GET_EMPLOYEE_ADVANCE_DETAILS: `
+  GET_EMPLOYEE_ADVANCE_DETAILS: `
   SELECT 
     ead.id,
     ead.employee_id,
@@ -139,7 +132,7 @@ ADD_EMPLOYEE_BONUS_BULK: `
   ORDER BY ead.created_at DESC
   LIMIT 0, 1000
 `,
- GET_ALL_OVERTIME_DETAILS : `
+  GET_ALL_OVERTIME_DETAILS: `
   SELECT 
     employee_id,
     work_date,
@@ -152,9 +145,7 @@ ADD_EMPLOYEE_BONUS_BULK: `
   ORDER BY work_date DESC
 `,
 
-
-
-GET_EMPLOYEE_EXTRA_HOURS: `
+  GET_EMPLOYEE_EXTRA_HOURS: `
   SELECT 
     ea.punch_id,
     ea.employee_id,
@@ -189,12 +180,9 @@ GET_EMPLOYEE_EXTRA_HOURS: `
     AND ea.punchin_time < DATE_ADD(?, INTERVAL 1 DAY)
 
   ORDER BY ea.employee_id, ea.punchin_time;
-`
+`,
 
-,
-
-
-ADD_OVERTIME_DETAILS_BULK: `
+  ADD_OVERTIME_DETAILS_BULK: `
   INSERT INTO overtime_details (
     punch_id,
     work_date,
@@ -219,10 +207,7 @@ ADD_OVERTIME_DETAILS_BULK: `
     updated_at = CURRENT_TIMESTAMP
 `,
 
-
-
-// Insert a single row as "Approved"
-ADD_OVERTIME_DETAILS_APPROVED: `
+  ADD_OVERTIME_DETAILS_APPROVED: `
   INSERT INTO overtime_details (
     punch_id,
     work_date,
@@ -239,8 +224,7 @@ ADD_OVERTIME_DETAILS_APPROVED: `
   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Approved', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 `,
 
-// Insert a single row as "Rejected"
-ADD_OVERTIME_DETAILS_REJECTED: `
+  ADD_OVERTIME_DETAILS_REJECTED: `
   INSERT INTO overtime_details (
     punch_id,
     work_date,
@@ -256,7 +240,7 @@ ADD_OVERTIME_DETAILS_REJECTED: `
   )
   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Rejected', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 `,
-GET_ALL_OVERTIME_DETAILS : `
+  GET_ALL_OVERTIME_DETAILS: `
   SELECT 
   punch_id,
   work_date,
@@ -376,10 +360,8 @@ WHERE status = 'Approved'
     )
   )
 ORDER BY work_date DESC, updated_at DESC;
-`
-,
-
-GET_EMPLOYEE_LOP_DAYS_FOR_CURRENT_PERIOD: `
+`,
+  GET_EMPLOYEE_LOP_DAYS_FOR_CURRENT_PERIOD: `
   SELECT
     employee_id,
     lop
@@ -400,17 +382,15 @@ GET_EMPLOYEE_LOP_DAYS_FOR_CURRENT_PERIOD: `
         ELSE year = YEAR(CURDATE())
       END
     )
-`
+`,
 
-  ,
-CHECK_EMPLOYEE_ASSIGNMENT: `
+  CHECK_EMPLOYEE_ASSIGNMENT: `
   SELECT id, compensation_plan_name
   FROM assigned_compensations
   WHERE org_id = ?
     AND JSON_SEARCH(assigned_data, 'one', ?) IS NOT NULL
-`
+`,
 
-,
   ADD_ASSIGNED_COMPENSATION: `
 INSERT INTO assigned_compensations (
   org_id,
@@ -426,10 +406,7 @@ VALUES (
   ?,
   CURRENT_TIMESTAMP
 )
-`
-
-,
-
+`,
 
   GET_WORKING_DAYS_CURRENT_MONTH: `
     WITH RECURSIVE month_days AS (
@@ -465,9 +442,5 @@ VALUES (
           WHERE MONTH(date) = MONTH(NOW()) 
             AND YEAR(date) = YEAR(NOW())
       );
-  `
-
-
-
+  `,
 };
-

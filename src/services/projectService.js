@@ -1,11 +1,7 @@
-// services/projectService.js
-const db = require("../config"); // master DB (fallback/global)
+const db = require("../config");
 const queries = require("../constants/projectQueries");
 const { getTenantPool, sanitizeDbName } = require("../db/tenantPoolManager");
 
-/**
- * Resolve tenant pool for an orgId; throws if orgId missing.
- */
 async function getTenantPoolForOrgId(orgId) {
   if (!orgId) {
     const err = new Error("orgId required to get tenant pool");
@@ -16,17 +12,10 @@ async function getTenantPoolForOrgId(orgId) {
   return getTenantPool(dbName);
 }
 
-/**
- * Insert project into tenant DB.
- * projectData should be an array of values (same order as INSERT_PROJECT) excluding orgId;
- * this function appends orgId internally to match the SQL.
- */
 const addProject = async (orgId, projectData) => {
   try {
     const tenantPool = await getTenantPoolForOrgId(orgId);
-    // ensure orgId appended (INSERT_PROJECT expects org_id as last param)
     const values = Array.isArray(projectData) ? [...projectData] : [];
-    // If caller already included orgId as last value, don't append twice
     if (String(values[values.length - 1]) !== String(orgId)) {
       values.push(orgId);
     }
@@ -72,10 +61,6 @@ const addFinancialDetails = async (orgId, financialData) => {
   }
 };
 
-/**
- * Get all projects.
- * If orgId provided -> tenant DB; otherwise fallback to master db (global).
- */
 const getAllProjects = async (orgId = null) => {
   try {
     if (orgId !== undefined && orgId !== null && String(orgId).trim() !== "") {
@@ -93,10 +78,6 @@ const getAllProjects = async (orgId = null) => {
   }
 };
 
-/**
- * Get projects for an employee.
- * If orgId provided -> tenant DB; otherwise fallback to master DB.
- */
 const getEmployeeProjects = async (employeeId, orgId = null) => {
   try {
     const jsonEmployeeId = `"${employeeId}"`;
@@ -119,10 +100,6 @@ const getEmployeeProjects = async (employeeId, orgId = null) => {
   }
 };
 
-/**
- * Get project by id (tenant DB). Requires orgId.
- * If orgId is missing, attempt a safe fallback to master DB to preserve prior behaviour.
- */
 const getProjectById = async (orgId, id) => {
   try {
     if (orgId && String(orgId).trim() !== "") {
@@ -131,7 +108,6 @@ const getProjectById = async (orgId, id) => {
       if (!rows || rows.length === 0) return null;
       const row = rows[0];
 
-      // parse JSON fields
       const parseJSONField = (field) => {
         if (typeof field === "string") {
           try {
@@ -159,11 +135,9 @@ const getProjectById = async (orgId, id) => {
         total_amount: parseFloat(row.total_amount) || 0,
       };
 
-      // keep backward-compatible property name
       project.financialDetails = project.financial_details;
       return project;
     } else {
-      // fallback to master DB (previous behavior)
       const [rows] = await db.query(queries.GET_PROJECT_BY_ID, [id]);
       if (!rows || rows.length === 0) return null;
       const row = rows[0];
@@ -208,15 +182,12 @@ const updateProject = async (orgId, id, projectData) => {
   try {
     if (orgId && String(orgId).trim() !== "") {
       const tenantPool = await getTenantPoolForOrgId(orgId);
-      // ensure id is final param (UPDATE_PROJECT expects id as last param)
       const params = Array.isArray(projectData) ? [...projectData] : [];
-      // if caller didn't include id, append it
       if (String(params[params.length - 1]) !== String(id)) {
         params.push(id);
       }
       await tenantPool.query(queries.UPDATE_PROJECT, params);
     } else {
-      // fallback to master
       const params = Array.isArray(projectData) ? [...projectData] : [];
       if (String(params[params.length - 1]) !== String(id)) {
         params.push(id);
@@ -234,7 +205,6 @@ const updateSTSOwner = async (orgId, id, stsOwnerData) => {
     if (orgId && String(orgId).trim() !== "") {
       const tenantPool = await getTenantPoolForOrgId(orgId);
       const params = Array.isArray(stsOwnerData) ? [...stsOwnerData] : [];
-      // ensure id appended
       if (String(params[params.length - 1]) !== String(id)) params.push(id);
       await tenantPool.query(queries.UPDATE_STS_OWNER, params);
     } else {
@@ -289,7 +259,6 @@ const searchEmployees = async (search, orgId) => {
     }
 
     if (orgId !== undefined && orgId !== null && String(orgId).trim() !== "") {
-      // tenant DB employee table lookup
       const tenantPool = await getTenantPoolForOrgId(orgId);
       baseSql += ` AND e.Org_id = ?`;
       params.push(orgId);

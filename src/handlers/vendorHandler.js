@@ -2,9 +2,6 @@ const vendorService = require("../services/vendorService");
 const path = require("path");
 const fs = require("fs");
 
-/**
- * Common orgId resolver — kept broader than assets version for flexibility
- */
 const getOrgIdFromHeaders = (req) => {
   return (
     req.headers.org_id ||
@@ -17,9 +14,6 @@ const getOrgIdFromHeaders = (req) => {
   );
 };
 
-/**
- * ADD VENDOR
- */
 const addVendorHandler = async (req, res) => {
   const orgId = getOrgIdFromHeaders(req);
   if (!orgId) {
@@ -69,7 +63,8 @@ const addVendorHandler = async (req, res) => {
     const pan_card = files.pan_card?.[0]?.path || null;
     const cancelled_cheque = files.cancelled_cheque?.[0]?.path || null;
     const msme_certificate = files.msme_certificate?.[0]?.path || null;
-    const incorporation_certificate = files.incorporation_certificate?.[0]?.path || null;
+    const incorporation_certificate =
+      files.incorporation_certificate?.[0]?.path || null;
 
     const vendorData = [
       company_name || null,
@@ -124,9 +119,6 @@ const addVendorHandler = async (req, res) => {
   }
 };
 
-/**
- * GET ALL VENDORS
- */
 const getAllVendorsHandler = async (req, res) => {
   const orgId = getOrgIdFromHeaders(req);
   if (!orgId) {
@@ -145,9 +137,6 @@ const getAllVendorsHandler = async (req, res) => {
   }
 };
 
-/**
- * Resolve old file path for deletion
- */
 function resolveDiskPathFromStored(dbValue, orgId) {
   if (!dbValue) return null;
 
@@ -157,7 +146,14 @@ function resolveDiskPathFromStored(dbValue, orgId) {
     }
   } catch (e) {}
 
-  const vendorFilesDir = path.join(__dirname, "..", "..", "..", "vendorfiles", orgId);
+  const vendorFilesDir = path.join(
+    __dirname,
+    "..",
+    "..",
+    "..",
+    "vendorfiles",
+    orgId
+  );
   const base = path.basename(dbValue);
   const candidate = path.join(vendorFilesDir, base);
 
@@ -165,9 +161,6 @@ function resolveDiskPathFromStored(dbValue, orgId) {
   return null;
 }
 
-/**
- * UPDATE VENDOR
- */
 const updateVendorHandler = async (req, res) => {
   const orgId = getOrgIdFromHeaders(req);
   if (!orgId) {
@@ -253,7 +246,11 @@ const updateVendorHandler = async (req, res) => {
       finalFileValues.incorporation_certificate,
     ];
 
-    const result = await vendorService.updateVendorById(vendorData, vendorId, orgId);
+    const result = await vendorService.updateVendorById(
+      vendorData,
+      vendorId,
+      orgId
+    );
 
     res.status(200).json({
       success: true,

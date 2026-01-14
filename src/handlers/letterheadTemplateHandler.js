@@ -1,8 +1,5 @@
 const templateService = require("../services/letterheadTemplateService");
 
-/**
- * SAME AS ASSETS: orgId ONLY from headers
- */
 const getOrgIdFromHeaders = (req) => {
   return (
     req.headers.org_id ||
@@ -12,9 +9,6 @@ const getOrgIdFromHeaders = (req) => {
   );
 };
 
-/**
- * ADD / UPDATE TEMPLATE
- */
 const addTemplateHandler = async (req, res) => {
   const orgId = getOrgIdFromHeaders(req);
 
@@ -85,9 +79,6 @@ const addTemplateHandler = async (req, res) => {
   }
 };
 
-/**
- * LIST TEMPLATES
- */
 const getAllTemplatesHandler = async (req, res) => {
   const orgId = getOrgIdFromHeaders(req);
 

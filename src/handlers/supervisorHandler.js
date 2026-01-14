@@ -1,8 +1,5 @@
-
-
 const supervisorService = require("../services/supervisorService");
 
-// Consistent orgId extraction (same as every other module)
 const getOrgIdFromHeaders = (req) => {
   return (
     req.headers["x-org-id"] ||
@@ -13,7 +10,6 @@ const getOrgIdFromHeaders = (req) => {
   );
 };
 
-// Optional: extract supervisorId flexibly (from param or header)
 const getSupervisorId = (req) => {
   return req.params.supervisorId || req.headers["x-employee-id"];
 };
@@ -22,7 +18,9 @@ const getEmployeesWithUpdates = async (req, res) => {
   try {
     const orgId = getOrgIdFromHeaders(req);
     if (!orgId) {
-      return res.status(400).json({ error: "Missing required header: x-org-id" });
+      return res
+        .status(400)
+        .json({ error: "Missing required header: x-org-id" });
     }
 
     const supervisorId = getSupervisorId(req);
@@ -69,7 +67,7 @@ const getEmployeesWithUpdates = async (req, res) => {
           name: emp.name,
           position: emp.position,
           weeklyUpdates: Object.keys(weeklyUpdates)
-            .sort((a, b) => b.localeCompare(a)) // optional: newest week first
+            .sort((a, b) => b.localeCompare(a))
             .map((weekId) => ({
               week: weekId,
               tasks: weeklyUpdates[weekId].tasks,
@@ -90,7 +88,9 @@ const addComment = async (req, res) => {
   try {
     const orgId = getOrgIdFromHeaders(req);
     if (!orgId) {
-      return res.status(400).json({ error: "Missing required header: x-org-id" });
+      return res
+        .status(400)
+        .json({ error: "Missing required header: x-org-id" });
     }
 
     const { interaction_id, supervisor_comment } = req.body;

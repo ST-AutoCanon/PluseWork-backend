@@ -9,9 +9,6 @@ const {
   getEmployeesByDepartmentId,
 } = require("../services/compensationService");
 
-/**
- * Unified org_id resolver (same pattern as assets)
- */
 const getOrgIdFromRequest = (req) =>
   req.headers["x-org-id"] ||
   req.headers["org-id"] ||
@@ -19,9 +16,6 @@ const getOrgIdFromRequest = (req) =>
   req.query.org_id ||
   null;
 
-/**
- * ADD COMPENSATION
- */
 const addCompensationHandler = async (req, res) => {
   const orgId = getOrgIdFromRequest(req);
   if (!orgId) {
@@ -56,9 +50,6 @@ const addCompensationHandler = async (req, res) => {
   }
 };
 
-/**
- * LIST COMPENSATIONS
- */
 const getAllCompensationsHandler = async (req, res) => {
   try {
     const orgId = getOrgIdFromRequest(req);
@@ -74,9 +65,6 @@ const getAllCompensationsHandler = async (req, res) => {
   }
 };
 
-/**
- * GET BY EMPLOYEE ID
- */
 const getCompensationByEmployeeIdHandler = async (req, res) => {
   const orgId = getOrgIdFromRequest(req);
   const { id } = req.params;
@@ -94,9 +82,6 @@ const getCompensationByEmployeeIdHandler = async (req, res) => {
   }
 };
 
-/**
- * UPDATE COMPENSATION
- */
 const updateCompensationHandler = async (req, res) => {
   const orgId = getOrgIdFromRequest(req);
   const { id } = req.params;
@@ -123,9 +108,6 @@ const updateCompensationHandler = async (req, res) => {
   }
 };
 
-/**
- * DELETE COMPENSATION
- */
 const deleteCompensationHandler = async (req, res) => {
   const orgId = getOrgIdFromRequest(req);
   const { id } = req.params;
@@ -146,9 +128,6 @@ const deleteCompensationHandler = async (req, res) => {
   }
 };
 
-/**
- * EMPLOYEE NAMES
- */
 const getAllEmployeeNamesHandler = async (req, res) => {
   const orgId = getOrgIdFromRequest(req);
   if (!orgId) {
@@ -159,17 +138,11 @@ const getAllEmployeeNamesHandler = async (req, res) => {
   res.status(200).json({ success: true, data });
 };
 
-/**
- * DEPARTMENT NAMES
- */
 const getAllDepartmentNamesHandler = async (req, res) => {
   const data = await getAllDepartmentNames();
   res.status(200).json({ success: true, data });
 };
 
-/**
- * EMPLOYEES BY DEPARTMENT
- */
 const handleGetEmployeesByDepartmentId = async (req, res) => {
   const orgId = getOrgIdFromRequest(req);
   const { departmentId } = req.params;
