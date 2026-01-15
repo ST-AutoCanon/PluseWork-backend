@@ -35,6 +35,12 @@ INSERT INTO organizations
 VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
+const UPDATE_ORGANIZATION_DBNAME = `
+  UPDATE organizations
+    SET db_name = ?
+  WHERE id = ?
+`;
+
 const SELECT_ORG_BY_ID = `
 SELECT id, name, subdomain, employee_prefix, employee_counter, no_employees
 FROM organizations
@@ -116,4 +122,5 @@ module.exports = {
   CREATE_TENANT_DATABASE_TEMPLATE,
   USE_DATABASE_PREFIX,
   SELECT_ORG_BY_SUBDOMAIN,
+  UPDATE_ORGANIZATION_DBNAME,
 };

@@ -10,7 +10,7 @@ const { getTenantPool, sanitizeDbName } = require("../db/tenantPoolManager");
 
 function selectSendResetEmailFn(orgId) {
   if (String(orgId) === "1") return sendResetEmailMailer;
-  return sendResetEmailBrevo;
+  return sendResetEmail;
 }
 
 async function getTenantPoolForOrgId(orgId) {

@@ -326,9 +326,10 @@ SELECT employee_id
   SAVE_RESET_TOKEN: `
   INSERT INTO password_resets (email, token, expiry_time, org_id) 
   VALUES (?, ?, ?, ?)
-  ON DUPLICATE KEY UPDATE 
-    token = VALUES(token), 
-    expiry_time = VALUES(expiry_time)
+ ON DUPLICATE KEY UPDATE 
+  token = VALUES(token), 
+  expiry_time = VALUES(expiry_time),
+  org_id = VALUES(org_id)
 `,
 
   SAVE_RESET_TOKEN_MASTER: `

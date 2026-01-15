@@ -16,6 +16,7 @@ const {
   UPDATE_ORGANIZATION,
   CREATE_TENANT_DATABASE_TEMPLATE,
   USE_DATABASE_PREFIX,
+  UPDATE_ORGANIZATION_DBNAME,
 } = require("../constants/organizationTableQueries");
 
 const empQueries = require("../constants/empDetailsQueries");
@@ -152,6 +153,15 @@ const createOrganization = async (orgData, sidebarAccess) => {
       );
     }
 
+    try {
+      await conn.execute(UPDATE_ORGANIZATION_DBNAME, [tenantDbName, orgId]);
+    } catch (e) {
+      console.error(
+        `[createOrganization] failed to save db_name for org ${orgId}:`,
+        e
+      );
+    }
+
     if (sidebarAccess && sidebarAccess.length) {
       let tenantConn;
       try {
@@ -271,7 +281,12 @@ const createOrganization = async (orgData, sidebarAccess) => {
           await employeeService.sendResetEmailAndSave(
             admin_email,
             `${first_name || ""} ${last_name || ""}`,
-            { role: "Admin", orgName: Name, platformName: "PULSEWORK" },
+            {
+              role: "Admin",
+              orgName: Name,
+              platformName: "PULSEWORK",
+              org_id: orgId,
+            },
             tenantConn
           );
         } catch (mailErr) {
@@ -571,13 +586,21 @@ const updateOrganization = async (id, orgData, sidebarAccess) => {
 
 const deleteOrganization = async (id) => {
   const conn = await db.getConnection();
+
   try {
     await conn.beginTransaction();
-    await conn.execute(DELETE_SIDEBAR_ACCESS_BY_ORG, [id]);
+
+    // 1. Drop tenant database (this removes sidebar_menu_access automatically)
     const tenantDbName = sanitizeDbName(`tenant_${id}`);
     await adminPool.query(`DROP DATABASE IF EXISTS \`${tenantDbName}\``);
+
+    // 2. Delete organization from master DB
     const [result] = await conn.execute(DELETE_ORGANIZATION, [id]);
-    if (result.affectedRows === 0) throw new Error("Organization not found");
+
+    if (result.affectedRows === 0) {
+      throw new Error("Organization not found");
+    }
+
     await conn.commit();
     return { success: true };
   } catch (err) {

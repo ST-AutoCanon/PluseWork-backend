@@ -301,7 +301,7 @@ CREATE TABLE IF NOT EXISTS invoices (
 
 CREATE TABLE IF NOT EXISTS emp_attendence (
   punch_id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  employee_i varchar(20),
+  employee_id varchar(20),
   punch_status enum('Punch In','Punch Out') NOT NULL,
   punchin_time datetime DEFAULT NULL,
   punchin_device varchar(255) DEFAULT NULL,
@@ -567,7 +567,7 @@ CREATE TABLE IF NOT EXISTS holidays (
   id int NOT NULL AUTO_INCREMENT,
   name varchar(255) DEFAULT NULL,
   department_id int DEFAULT NULL,
-  rank tinyint DEFAULT NULL,
+  `rank` tinyint DEFAULT NULL,
   PRIMARY KEY (id),
   KEY department_id (department_id),
   CONSTRAINT positions_ibfk_1 FOREIGN KEY (department_id) REFERENCES departments (id)
@@ -643,12 +643,12 @@ CREATE TABLE IF NOT EXISTS compensation_working_days (
 );
 
 CREATE TABLE IF NOT EXISTS config (
-  key varchar(50) NOT NULL,
+  `key` varchar(50) NOT NULL,
   org_id varchar(20) NOT NULL,
-  value varchar(255) NOT NULL,
+  `value` varchar(255) NOT NULL,
   updated_at timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (key,org_id),
-  KEY idx_config_org_key (org_id,key)
+  PRIMARY KEY (`key`,org_id),
+  KEY idx_config_org_key (org_id,`key`)
 );
 
 CREATE TABLE IF NOT EXISTS employee_advance_details (
@@ -835,19 +835,6 @@ CREATE TABLE IF NOT EXISTS saturday_holidays (
   PRIMARY KEY (id)
 );
 
-CREATE TABLE IF NOT EXISTS task_messages (
-  message_id int NOT NULL AUTO_INCREMENT,
-  task_id int NOT NULL,
-  employee_id varchar(25) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
-  message_data json NOT NULL,
-  created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (message_id),
-  UNIQUE KEY uq_task (task_id),
-  KEY idx_employee (employee_id),
-  CONSTRAINT fk_task_messages_employee FOREIGN KEY (employee_id) REFERENCES employees (employee_id) ON DELETE SET NULL,
-  CONSTRAINT fk_task_messages_task FOREIGN KEY (task_id) REFERENCES tasks (task_id) ON DELETE CASCADE
-);
-
 CREATE TABLE IF NOT EXISTS tasks (
   task_id int NOT NULL AUTO_INCREMENT,
   employee_id varchar(25) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
@@ -864,6 +851,21 @@ CREATE TABLE IF NOT EXISTS tasks (
   KEY fk_employee (employee_id),
   CONSTRAINT fk_employee FOREIGN KEY (employee_id) REFERENCES employees (employee_id) ON DELETE CASCADE ON UPDATE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS task_messages (
+  message_id int NOT NULL AUTO_INCREMENT,
+  task_id int NOT NULL,
+  employee_id varchar(25) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
+  message_data json NOT NULL,
+  created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (message_id),
+  UNIQUE KEY uq_task (task_id),
+  KEY idx_employee (employee_id),
+  CONSTRAINT fk_task_messages_employee FOREIGN KEY (employee_id) REFERENCES employees (employee_id) ON DELETE SET NULL,
+  CONSTRAINT fk_task_messages_task FOREIGN KEY (task_id) REFERENCES tasks (task_id) ON DELETE CASCADE
+);
+
+
 
 CREATE TABLE IF NOT EXISTS vendors (
   vendor_id int NOT NULL AUTO_INCREMENT,
