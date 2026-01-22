@@ -1,15 +1,20 @@
 module.exports = {
-  GET_EMPLOYEE_DETAILS_QUERY: `
-  SELECT
-    a.date,
-    a.login_time,
-    a.logout_time,
-    a.location,
-    CONCAT(COALESCE(e.first_name, ''), ' ', COALESCE(e.last_name, '')) AS employee_name
-  FROM attendance a
-  LEFT JOIN employees e ON a.employee_id = e.employee_id
-  WHERE a.employee_id = ?
-  ORDER BY a.date DESC
+ GET_EMPLOYEE_DETAILS_QUERY: `
+  SELECT 
+    ep.gender,
+    epro.joining_date,
+    epro.position AS designation,
+    ep.pf_number,
+    ep.esi_number,
+    ep.uan_number,
+    ep.pan_number,
+    CONCAT(COALESCE(e.first_name, ''), ' ', COALESCE(e.last_name, '')) AS full_name,
+    e.employee_id
+  FROM employees e
+  LEFT JOIN employee_personal ep ON e.employee_id = ep.employee_id
+  LEFT JOIN employee_professional epro ON e.employee_id = epro.employee_id
+  WHERE e.employee_id = ?
+  LIMIT 1
 `,
 
   GETEMPLOYEEBANKDETAILSQUERY: `
