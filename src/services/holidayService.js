@@ -34,9 +34,18 @@ const insertHolidays = async (rows, orgId) => {
   try {
     await conn.beginTransaction();
 
+    const yearSet = new Set(rows.map((r) => String(r.date).slice(0, 4)));
+    const years = Array.from(yearSet);
+
+    if (years.length > 0) {
+      const deleteSql = queries.DELETE_HOLIDAYS_BY_YEARS(years.length);
+      await conn.query(deleteSql, [orgId, ...years]);
+    }
+
     const [result] = await conn.query(queries.INSERT_HOLIDAYS_UPSERT, [values]);
 
     await conn.commit();
+
     return result && typeof result.affectedRows === "number"
       ? result.affectedRows
       : rows.length;
