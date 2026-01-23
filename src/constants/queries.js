@@ -38,4 +38,15 @@ module.exports = {
   `,
   INSERT_HOLIDAYS_UPSERT:
     "INSERT INTO holidays (org_id, `date`, `occasion`, `type`) VALUES ? ON DUPLICATE KEY UPDATE occasion = VALUES(occasion), type = VALUES(type)",
+
+  DELETE_HOLIDAYS_BY_YEARS: (yearCount) => {
+    if (!yearCount || yearCount <= 0) {
+      throw new Error("yearCount must be a positive integer");
+    }
+    const placeholders = new Array(yearCount).fill("?").join(",");
+    return `DELETE FROM holidays WHERE org_id = ? AND YEAR(\`date\`) IN (${placeholders})`;
+  },
+
+  DELETE_HOLIDAYS_CURRENT_YEAR:
+    "DELETE FROM holidays WHERE org_id = ? AND YEAR(`date`) = YEAR(CURDATE())",
 };
