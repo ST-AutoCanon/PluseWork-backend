@@ -1,3 +1,4 @@
+// handlers/leavePolicyHandler.js
 const LeavePolicyService = require("../services/leavePolicyService");
 const ErrorHandler = require("../utils/errorHandler");
 
@@ -24,8 +25,8 @@ class LeavePolicyHandler {
           .json(
             ErrorHandler.generateErrorResponse(
               400,
-              "Missing orgId (x-org-id header or orgId in body/query)."
-            )
+              "Missing orgId (x-org-id header or orgId in body/query).",
+            ),
           );
       }
 
@@ -34,12 +35,12 @@ class LeavePolicyHandler {
       const created = await LeavePolicyService.autoExtendRecentPolicies(
         extensionDays,
         actorId,
-        orgId
+        orgId,
       );
 
       return res.json({
         success: true,
-        created,
+        data: created,
       });
     } catch (err) {
       console.error("[autoExtendHandler] error:", err);
@@ -52,33 +53,73 @@ class LeavePolicyHandler {
   static async getAllPolicies(req, res) {
     try {
       const orgId = resolveOrgId(req);
+
       if (!orgId) {
         return res
           .status(400)
           .json(
             ErrorHandler.generateErrorResponse(
               400,
-              "Missing orgId (x-org-id header or orgId in body/query)."
-            )
+              "Missing orgId (x-org-id header or orgId in body/query).",
+            ),
           );
       }
 
+      // Prevent caching for policy list (avoid 304 stale)
+      res.setHeader(
+        "Cache-Control",
+        "no-store, no-cache, must-revalidate, proxy-revalidate",
+      );
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
+      res.setHeader("Surrogate-Control", "no-store");
+
       const policies = await LeavePolicyService.getAllPolicies(orgId);
+
+      if (!policies || policies.length === 0) {
+        // Build dynamic defaults from leave_types table (service will fallback to sane defaults)
+        let defaultLeaveSettings = [];
+        try {
+          defaultLeaveSettings =
+            await LeavePolicyService.buildDefaultSettingsFromLeaveTypes(
+              orgId,
+              {},
+            );
+        } catch (e) {
+          console.warn(
+            "[LeavePolicyHandler] buildDefaultSettingsFromLeaveTypes failed:",
+            e,
+          );
+          defaultLeaveSettings = [];
+        }
+
+        // Keep data as an array (empty) so existing frontend code that does `json.data || []`
+        // continues to work. Provide defaults in a top-level field the frontend can optionally read.
+        return res.status(200).json({
+          success: true,
+          data: [],
+          defaultLeaveSettings,
+          fallbackFrom: "leave_types",
+          message:
+            "No policies found — returning defaults derived from leave_types (in defaultLeaveSettings).",
+        });
+      }
+
       return res
         .status(200)
         .json(
           ErrorHandler.generateSuccessResponse(
             200,
             "Policies fetched.",
-            policies
-          )
+            policies,
+          ),
         );
     } catch (err) {
       console.error("getAllPolicies:", err);
       return res
         .status(500)
         .json(
-          ErrorHandler.generateErrorResponse(500, "Internal server error.")
+          ErrorHandler.generateErrorResponse(500, "Internal server error."),
         );
     }
   }
@@ -100,34 +141,49 @@ class LeavePolicyHandler {
           .json(
             ErrorHandler.generateErrorResponse(
               400,
-              "orgId, period, year_start, year_end and leave_settings[] are required."
-            )
+              "orgId, period, year_start, year_end and leave_settings[] are required.",
+            ),
           );
       }
 
-      const newPolicy = await LeavePolicyService.createPolicy({
-        period,
-        year_start,
-        year_end,
-        leave_settings,
-        orgId,
-      });
+      try {
+        const newPolicy = await LeavePolicyService.createPolicy({
+          period,
+          year_start,
+          year_end,
+          leave_settings,
+          orgId,
+        });
 
-      return res
-        .status(201)
-        .json(
-          ErrorHandler.generateSuccessResponse(
-            201,
-            "Policy created.",
-            newPolicy
-          )
-        );
+        return res
+          .status(201)
+          .json(
+            ErrorHandler.generateSuccessResponse(
+              201,
+              "Policy created.",
+              newPolicy,
+            ),
+          );
+      } catch (err) {
+        // service signals overlap with err.code === "OVERLAP"
+        if (err && err.code === "OVERLAP") {
+          return res
+            .status(409)
+            .json(
+              ErrorHandler.generateErrorResponse(
+                409,
+                "Policy period overlaps an existing policy for this organization.",
+              ),
+            );
+        }
+        throw err;
+      }
     } catch (err) {
       console.error("createPolicy:", err);
       return res
         .status(500)
         .json(
-          ErrorHandler.generateErrorResponse(500, "Internal server error.")
+          ErrorHandler.generateErrorResponse(500, "Internal server error."),
         );
     }
   }
@@ -151,27 +207,47 @@ class LeavePolicyHandler {
           .json(
             ErrorHandler.generateErrorResponse(
               400,
-              "orgId, id, period, year_start, year_end and leave_settings[] are required."
-            )
+              "orgId, id, period, year_start, year_end and leave_settings[] are required.",
+            ),
           );
       }
 
-      await LeavePolicyService.updatePolicy(id, orgId, {
-        period,
-        year_start,
-        year_end,
-        leave_settings,
-      });
+      try {
+        const updated = await LeavePolicyService.updatePolicy(id, orgId, {
+          period,
+          year_start,
+          year_end,
+          leave_settings,
+        });
 
-      return res
-        .status(200)
-        .json(ErrorHandler.generateSuccessResponse(200, "Policy updated."));
+        return res
+          .status(200)
+          .json(
+            ErrorHandler.generateSuccessResponse(
+              200,
+              "Policy updated.",
+              updated,
+            ),
+          );
+      } catch (err) {
+        if (err && err.code === "OVERLAP") {
+          return res
+            .status(409)
+            .json(
+              ErrorHandler.generateErrorResponse(
+                409,
+                "Updated policy period overlaps another policy for this organization.",
+              ),
+            );
+        }
+        throw err;
+      }
     } catch (err) {
       console.error("updatePolicy:", err);
       return res
         .status(500)
         .json(
-          ErrorHandler.generateErrorResponse(500, "Internal server error.")
+          ErrorHandler.generateErrorResponse(500, "Internal server error."),
         );
     }
   }
@@ -186,8 +262,8 @@ class LeavePolicyHandler {
           .json(
             ErrorHandler.generateErrorResponse(
               400,
-              "Missing orgId (x-org-id header or orgId in body/query)."
-            )
+              "Missing orgId (x-org-id header or orgId in body/query).",
+            ),
           );
       }
       if (!id) {
@@ -204,7 +280,7 @@ class LeavePolicyHandler {
       return res
         .status(500)
         .json(
-          ErrorHandler.generateErrorResponse(500, "Internal server error.")
+          ErrorHandler.generateErrorResponse(500, "Internal server error."),
         );
     }
   }
@@ -219,15 +295,15 @@ class LeavePolicyHandler {
           .json(
             ErrorHandler.generateErrorResponse(
               400,
-              "Missing orgId (x-org-id header or orgId in body/query)."
-            )
+              "Missing orgId (x-org-id header or orgId in body/query).",
+            ),
           );
       }
       if (!employeeId) {
         return res
           .status(400)
           .json(
-            ErrorHandler.generateErrorResponse(400, "Employee ID is required.")
+            ErrorHandler.generateErrorResponse(400, "Employee ID is required."),
           );
       }
       const data = await LeavePolicyService.getLeaveBalance(employeeId, orgId);
@@ -237,15 +313,15 @@ class LeavePolicyHandler {
           ErrorHandler.generateSuccessResponse(
             200,
             "Leave balance fetched.",
-            data
-          )
+            data,
+          ),
         );
     } catch (err) {
       console.error("getLeaveBalanceHandler:", err);
       return res
         .status(500)
         .json(
-          ErrorHandler.generateErrorResponse(500, "Internal server error.")
+          ErrorHandler.generateErrorResponse(500, "Internal server error."),
         );
     }
   }
@@ -260,15 +336,15 @@ class LeavePolicyHandler {
           .json(
             ErrorHandler.generateErrorResponse(
               400,
-              "Missing orgId (x-org-id header or orgId in body/query)."
-            )
+              "Missing orgId (x-org-id header or orgId in body/query).",
+            ),
           );
       }
       if (!employeeId) {
         return res
           .status(400)
           .json(
-            ErrorHandler.generateErrorResponse(400, "Employee ID is required.")
+            ErrorHandler.generateErrorResponse(400, "Employee ID is required."),
           );
       }
 
@@ -284,7 +360,7 @@ class LeavePolicyHandler {
         employeeId,
         month,
         year,
-        orgId
+        orgId,
       );
 
       return res
@@ -293,15 +369,15 @@ class LeavePolicyHandler {
           ErrorHandler.generateSuccessResponse(
             200,
             "Monthly LOP fetched.",
-            data
-          )
+            data,
+          ),
         );
     } catch (err) {
       console.error("getMonthlyLOPHandler:", err);
       return res
         .status(500)
         .json(
-          ErrorHandler.generateErrorResponse(500, "Internal server error.")
+          ErrorHandler.generateErrorResponse(500, "Internal server error."),
         );
     }
   }
@@ -316,15 +392,15 @@ class LeavePolicyHandler {
           .json(
             ErrorHandler.generateErrorResponse(
               400,
-              "Missing orgId (x-org-id header or orgId in body/query)."
-            )
+              "Missing orgId (x-org-id header or orgId in body/query).",
+            ),
           );
       }
       if (!employeeId) {
         return res
           .status(400)
           .json(
-            ErrorHandler.generateErrorResponse(400, "Employee ID is required.")
+            ErrorHandler.generateErrorResponse(400, "Employee ID is required."),
           );
       }
 
@@ -342,7 +418,7 @@ class LeavePolicyHandler {
         employeeId,
         month,
         year,
-        orgId
+        orgId,
       );
 
       return res
@@ -351,15 +427,15 @@ class LeavePolicyHandler {
           ErrorHandler.generateSuccessResponse(
             200,
             "Monthly LOP computed & stored.",
-            data
-          )
+            data,
+          ),
         );
     } catch (err) {
       console.error("computeMonthlyLOPHandler:", err);
       return res
         .status(500)
         .json(
-          ErrorHandler.generateErrorResponse(500, "Internal server error.")
+          ErrorHandler.generateErrorResponse(500, "Internal server error."),
         );
     }
   }

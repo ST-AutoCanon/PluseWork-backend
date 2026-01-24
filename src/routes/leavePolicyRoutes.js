@@ -1,5 +1,7 @@
 const express = require("express");
 const LeavePolicyHandler = require("../handlers/leavePolicyHandler");
+const leaveHandler = require("../handlers/leaveHandler");
+
 const router = express.Router();
 
 router.get("/", LeavePolicyHandler.getAllPolicies);

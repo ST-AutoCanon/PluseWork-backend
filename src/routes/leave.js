@@ -1,22 +1,27 @@
+// src/routes/leave.js
 const express = require("express");
-const {
-  submitLeaveRequestHandler,
-  getLeaveRequestsHandler,
-  getLeaveQueries,
-  updateLeaveRequest,
-  editLeaveRequestHandler,
-  cancelLeaveRequestHandler,
-  getLeaveRequestsForTeamLeadHandler,
-} = require("../handlers/leaveHandler");
+const LeaveHandler = require("../handlers/leaveHandler"); // <--- use this name
 
 const router = express.Router();
 
-router.post("/employee/leave", submitLeaveRequestHandler);
-router.get("/employee/leave/:employeeId", getLeaveRequestsHandler);
-router.get("/admin/leave", getLeaveQueries);
-router.put("/admin/leave/:leaveId", updateLeaveRequest);
-router.put("/edit/:leaveId", editLeaveRequestHandler);
-router.delete("/cancel/:leaveId/:employeeId", cancelLeaveRequestHandler);
-router.get("/team-lead/:teamLeadId", getLeaveRequestsForTeamLeadHandler);
+// Public endpoints for leave types / employee operations
+router.get("/types", LeaveHandler.getLeaveTypesHandler);
+
+router.post("/employee/leave", LeaveHandler.submitLeaveRequestHandler);
+router.get("/employee/leave/:employeeId", LeaveHandler.getLeaveRequestsHandler);
+
+router.get("/admin/leave", LeaveHandler.getLeaveQueries);
+router.put("/admin/leave/:leaveId", LeaveHandler.updateLeaveRequest);
+
+router.put("/edit/:leaveId", LeaveHandler.editLeaveRequestHandler);
+router.delete(
+  "/cancel/:leaveId/:employeeId",
+  LeaveHandler.cancelLeaveRequestHandler
+);
+
+router.get(
+  "/team-lead/:teamLeadId",
+  LeaveHandler.getLeaveRequestsForTeamLeadHandler
+);
 
 module.exports = router;

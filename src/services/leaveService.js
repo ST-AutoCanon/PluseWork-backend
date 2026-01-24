@@ -1,3 +1,4 @@
+// services/leaveService.js
 const { getTenantPoolByOrgId } = require("../db/tenantPoolManager");
 const queries = require("../constants/leaveQueries");
 const LeavePolicyService = require("./leavePolicyService");
@@ -48,11 +49,161 @@ const getTenantPool = async (orgId) => {
   return getTenantPoolByOrgId(orgId);
 };
 
+const getEmployeeProfile = async (employeeId, orgId) => {
+  if (!orgId) throw new Error("orgId required");
+  if (!employeeId) return null;
+  const tenantPool = await getTenantPool(orgId);
+  try {
+    const sql = `
+      SELECT e.employee_id, e.dob, ep.gender
+      FROM employees e
+      LEFT JOIN employee_personal ep ON e.employee_id = ep.employee_id
+      WHERE e.employee_id = ?
+      LIMIT 1
+    `;
+    const [rows] = await tenantPool.execute(sql, [employeeId]);
+    if (!rows || rows.length === 0) return null;
+    const r = rows[0];
+    return { employee_id: r.employee_id, dob: r.dob, gender: r.gender };
+  } catch (err) {
+    console.error("[getEmployeeProfile] error:", err);
+    return null;
+  }
+};
+const getLeaveTypes = async (orgId) => {
+  if (!orgId) throw new Error("orgId required");
+  const tenantPool = await getTenantPool(orgId);
+  const [rows] = await tenantPool.execute(queries.GET_LEAVE_TYPES, [orgId]);
+  return (rows || []).map((r) => ({
+    id: r.id,
+    key: r.type_key ? String(r.type_key).trim().toLowerCase() : null,
+    label: r.display_name || r.type_key,
+    gender: r.gender || "All",
+    min_age: r.min_age == null ? null : Number(r.min_age),
+    max_age: r.max_age == null ? null : Number(r.max_age),
+    is_active: !!Number(r.is_active),
+  }));
+};
+
+const getLeaveTypeByKey = async (orgId, keyOrId) => {
+  if (!orgId) throw new Error("orgId required");
+  if (!keyOrId) return null;
+  const tenantPool = await getTenantPool(orgId);
+  try {
+    const [rows] = await tenantPool.execute(queries.GET_LEAVE_TYPE_BY_KEY, [
+      orgId,
+      keyOrId,
+      keyOrId,
+    ]);
+    if (!rows || rows.length === 0) return null;
+    const r = rows[0];
+    return {
+      id: r.id,
+      key: String(r.key || r.type_key || "").trim(),
+      label: r.label || r.display_name || r.key || "",
+      gender: r.gender || null,
+      min_age: r.min_age === null ? null : Number(r.min_age),
+      max_age: r.max_age === null ? null : Number(r.max_age),
+      is_active: Number(r.is_active) === 1,
+    };
+  } catch (err) {
+    console.error("[getLeaveTypeByKey] error:", err);
+    return null;
+  }
+};
+
+const getEmployeePersonal = async (employeeId, orgId) => {
+  if (!employeeId) return null;
+  const tenantPool = await getTenantPool(orgId);
+  const [rows] = await tenantPool.execute(queries.GET_EMPLOYEE_PERSONAL, [
+    employeeId,
+  ]);
+  if (!rows || rows.length === 0) return null;
+  const r = rows[0];
+  return {
+    employee_id: r.employee_id,
+    dob: r.employee_dob || null,
+    gender: r.personal_gender || r.gender || null,
+    spouse_dob: r.spouse_dob || null,
+    child1_dob: r.child1_dob || null,
+    child2_dob: r.child2_dob || null,
+    child3_dob: r.child3_dob || null,
+  };
+};
+
+const computeAgeYears = (dobStr) => {
+  if (!dobStr) return null;
+  const d = new Date(dobStr);
+  if (isNaN(d.getTime())) return null;
+  const now = new Date();
+  let age = now.getFullYear() - d.getFullYear();
+  const m = now.getMonth() - d.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age--;
+  return age;
+};
+
+/**
+ * Validate requested leave type for an employee (gender + age)
+ * Throws Error if not allowed.
+ */
+const validateLeaveTypeEligibility = async (employeeId, leaveKey, orgId) => {
+  if (!orgId) throw new Error("orgId required");
+  if (!employeeId) throw new Error("employeeId required");
+  if (!leaveKey) throw new Error("leave type is required");
+
+  const leaveType = await getLeaveTypeByKey(orgId, leaveKey);
+  if (!leaveType || !leaveType.is_active) {
+    const err = new Error("Selected leave type is not available.");
+    err.isBadRequest = true;
+    throw err;
+  }
+
+  const personal = await getEmployeePersonal(employeeId, orgId);
+  const gender =
+    personal && personal.gender ? String(personal.gender).toLowerCase() : null;
+  const dob = personal && personal.dob ? personal.dob : null;
+  const age = computeAgeYears(dob);
+
+  const reqGender = (leaveType.gender || "All").toString().toLowerCase();
+  if (reqGender !== "all" && reqGender !== "" && gender) {
+    if (reqGender !== gender) {
+      const err = new Error(
+        "You are not eligible for the selected leave type (gender restriction).",
+      );
+      err.isBadRequest = true;
+      throw err;
+    }
+  }
+
+  if (
+    leaveType.min_age !== null &&
+    age !== null &&
+    age < Number(leaveType.min_age)
+  ) {
+    const err = new Error(
+      `You must be at least ${leaveType.min_age} year(s) old for this leave type.`,
+    );
+    err.isBadRequest = true;
+    throw err;
+  }
+  if (
+    leaveType.max_age !== null &&
+    age !== null &&
+    age > Number(leaveType.max_age)
+  ) {
+    const err = new Error(
+      `This leave type is available up to ${leaveType.max_age} year(s) of age.`,
+    );
+    err.isBadRequest = true;
+    throw err;
+  }
+
+  return { ok: true, leaveType, age, gender };
+};
+
 const getLeaveQueries = async (filters = {}) => {
   const { status, search, from_date, to_date, org_id } = filters;
-
   if (!org_id) throw new Error("org_id is required in request headers");
-
   const tenantPool = await getTenantPool(org_id);
 
   try {
@@ -69,7 +220,7 @@ const getLeaveQueries = async (filters = {}) => {
     }
     if (search) {
       whereConditions.push(
-        `(lq.employee_id LIKE ? OR lq.reason LIKE ? OR CONCAT(e.first_name, ' ', e.last_name) LIKE ?)`
+        `(lq.employee_id LIKE ? OR lq.reason LIKE ? OR CONCAT(e.first_name, ' ', e.last_name) LIKE ?)`,
       );
       params.push(`%${search}%`, `%${search}%`, `%${search}%`);
     }
@@ -97,6 +248,9 @@ const getLeaveQueries = async (filters = {}) => {
   }
 };
 
+/**
+ * updateLeaveRequest(payload, orgId)
+ */
 const updateLeaveRequest = async (payload, orgId) => {
   const {
     leaveId,
@@ -133,7 +287,7 @@ const updateLeaveRequest = async (payload, orgId) => {
     const currentStatus = (leave.status || "").toLowerCase();
     if (currentStatus && currentStatus !== "pending") {
       const err = new Error(
-        "Leave request cannot be modified after it has been processed."
+        "Leave request cannot be modified after it has been processed.",
       );
       err.isBadRequest = true;
       throw err;
@@ -142,7 +296,7 @@ const updateLeaveRequest = async (payload, orgId) => {
     const computedTotalDays = computeInclusiveDays(
       leave.start_date,
       leave.end_date,
-      leave.H_F_day
+      leave.H_F_day,
     );
     const EPS = 1e-6;
     let totalDays;
@@ -154,7 +308,7 @@ const updateLeaveRequest = async (payload, orgId) => {
       totalDays = Number(total_days);
       if (Math.abs(totalDays - computedTotalDays) > EPS) {
         const err = new Error(
-          `Client total_days (${totalDays}) does not match server computed days (${computedTotalDays}).`
+          `Client total_days (${totalDays}) does not match server computed days (${computedTotalDays}).`,
         );
         err.isBadRequest = true;
         throw err;
@@ -167,7 +321,7 @@ const updateLeaveRequest = async (payload, orgId) => {
     try {
       const [balRows] = await tenantPool.execute(
         `SELECT remaining FROM employee_leave_balances WHERE employee_id = ? AND leave_type = ? LIMIT 1`,
-        [leave.employee_id, leave.leave_type]
+        [leave.employee_id, leave.leave_type],
       );
       remaining = (balRows && balRows[0] && Number(balRows[0].remaining)) || 0;
     } catch (err) {
@@ -186,7 +340,7 @@ const updateLeaveRequest = async (payload, orgId) => {
 
       if (Math.abs(c + d + l - totalDays) > EPS) {
         const err = new Error(
-          `Split values must add up to total requested days (${totalDays}). Received: compensated=${c}, deducted=${d}, loss_of_pay=${l}.`
+          `Split values must add up to total requested days (${totalDays}). Received: compensated=${c}, deducted=${d}, loss_of_pay=${l}.`,
         );
         err.isBadRequest = true;
         throw err;
@@ -226,7 +380,7 @@ const updateLeaveRequest = async (payload, orgId) => {
 
         await conn.execute(
           queries.UPDATE_LEAVE_STATUS_EXTENDED,
-          paramsUpdateLeave
+          paramsUpdateLeave,
         );
 
         if (d_write > EPS) {
@@ -239,7 +393,7 @@ const updateLeaveRequest = async (payload, orgId) => {
           } catch (err) {
             if (err && err.code === "ER_NO_SUCH_TABLE") {
               console.warn(
-                "employee_leave_balances missing — skipping adjust."
+                "employee_leave_balances missing — skipping adjust.",
               );
             } else {
               throw err;
@@ -278,7 +432,7 @@ const updateLeaveRequest = async (payload, orgId) => {
           } else {
             console.error(
               "[updateLeaveRequest] audit insert failed (fatal):",
-              auditErr && auditErr.message ? auditErr.message : auditErr
+              auditErr && auditErr.message ? auditErr.message : auditErr,
             );
             throw auditErr;
           }
@@ -304,11 +458,12 @@ const updateLeaveRequest = async (payload, orgId) => {
         } catch (releaseErr) {
           console.warn(
             "[updateLeaveRequest] conn.release() failed:",
-            releaseErr
+            releaseErr,
           );
         }
       }
 
+      // recompute monthly LOP for months spanned by leave
       try {
         const leaveStart = parseDateOnly(leave.start_date);
         const leaveEnd = parseDateOnly(leave.end_date);
@@ -316,12 +471,12 @@ const updateLeaveRequest = async (payload, orgId) => {
           const cursor = new Date(
             leaveStart.getFullYear(),
             leaveStart.getMonth(),
-            1
+            1,
           );
           const endCursor = new Date(
             leaveEnd.getFullYear(),
             leaveEnd.getMonth(),
-            1
+            1,
           );
           while (cursor <= endCursor) {
             const month = cursor.getMonth() + 1;
@@ -331,27 +486,27 @@ const updateLeaveRequest = async (payload, orgId) => {
                 leave.employee_id,
                 month,
                 year,
-                orgId
+                orgId,
               );
             } catch (recomputeErr) {
               console.warn(
                 `[updateLeaveRequest] Warning: failed to recompute monthly LOP for ${leave.employee_id} ${month}-${year}:`,
                 recomputeErr && recomputeErr.message
                   ? recomputeErr.message
-                  : recomputeErr
+                  : recomputeErr,
               );
             }
             cursor.setMonth(cursor.getMonth() + 1);
           }
         } else {
           console.warn(
-            "[updateLeaveRequest] Could not parse leave start/end for LOP recompute."
+            "[updateLeaveRequest] Could not parse leave start/end for LOP recompute.",
           );
         }
       } catch (err) {
         console.warn(
           "[updateLeaveRequest] Unexpected error when recomputing monthly LOP:",
-          err && err.message ? err.message : err
+          err && err.message ? err.message : err,
         );
       }
 
@@ -372,14 +527,14 @@ const updateLeaveRequest = async (payload, orgId) => {
 
       await tenantPool.execute(
         queries.UPDATE_LEAVE_STATUS_EXTENDED,
-        paramsReject
+        paramsReject,
       );
       return;
     }
   } catch (err) {
     console.error(
       "Error in LeaveService.updateLeaveRequest:",
-      err && err.message ? err.message : err
+      err && err.message ? err.message : err,
     );
     throw err;
   } finally {
@@ -410,6 +565,9 @@ const submitLeaveRequest = async ({
 }) => {
   if (!orgId) throw new Error("orgId required");
 
+  // Validate leave type eligibility before any DB write
+  await validateLeaveTypeEligibility(employeeId, leavetype, orgId);
+
   const tenantPool = await getTenantPool(orgId);
 
   try {
@@ -417,7 +575,7 @@ const submitLeaveRequest = async ({
       employeeId,
       null,
       null,
-      orgId
+      orgId,
     );
     const newStartStr = startDate;
     const newEndStr = endDate;
@@ -437,7 +595,7 @@ const submitLeaveRequest = async ({
     });
     if (hasOverlap)
       throw new Error(
-        "You already have a leave request on the selected date(s)."
+        "You already have a leave request on the selected date(s).",
       );
 
     const [result] = await tenantPool.execute(queries.INSERT_LEAVE_REQUEST, [
@@ -464,17 +622,20 @@ const submitLeaveRequest = async ({
   } catch (err) {
     console.error(
       "Error submitting leave request:",
-      err && err.message ? err.message : err
+      err && err.message ? err.message : err,
     );
     throw new Error("Failed to submit leave request.");
   }
 };
 
+/**
+ * getLeaveRequests
+ */
 const getLeaveRequests = async (
   employeeId,
   from_date = null,
   to_date = null,
-  orgId
+  orgId,
 ) => {
   if (!orgId) throw new Error("orgId required");
 
@@ -502,7 +663,7 @@ const getLeaveRequests = async (
       .replace(/;$/, "");
     const hasWhere = /\bwhere\b/i.test(baseQuery);
     const baseHasEmployeeCondition = /\b(lq\.)?employee_id\s*=\s*\?/i.test(
-      baseQuery
+      baseQuery,
     );
     const initialParams = [];
     if (baseHasEmployeeCondition && employeeId) initialParams.push(employeeId);
@@ -520,6 +681,7 @@ const getLeaveRequests = async (
       filterConditions.push("lq.end_date <= ?");
       filterParams.push(to_date);
     }
+    // Ensure tenant filter (org_id) if queries use leavequeries table
     if (!/\blq\.org_id\b/i.test(baseQuery)) {
       filterConditions.push("lq.org_id = ?");
       filterParams.push(orgId);
@@ -540,12 +702,15 @@ const getLeaveRequests = async (
   } catch (err) {
     console.error(
       "Error retrieving leave requests:",
-      err && err.message ? err.message : err
+      err && err.message ? err.message : err,
     );
     throw new Error("Failed to retrieve leave requests.");
   }
 };
 
+/**
+ * editLeaveRequest: validate leave type eligibility before updating
+ */
 const editLeaveRequest = async ({
   leaveId,
   employeeId,
@@ -569,18 +734,21 @@ const editLeaveRequest = async ({
     )
       throw new Error("All fields are required.");
 
+    // Validate leave type eligibility BEFORE update
+    await validateLeaveTypeEligibility(employeeId, leavetype, orgId);
+
     const tenantPool = await getTenantPool(orgId);
 
     const [existingLeaveRows] = await tenantPool.execute(
       queries.GET_LEAVE_BY_ID,
-      [leaveId, employeeId]
+      [leaveId, employeeId],
     );
     if (!existingLeaveRows || existingLeaveRows.length === 0)
       throw new Error("Leave request not found or not accessible.");
     const existingLeave = existingLeaveRows[0];
     if (existingLeave.status !== "pending")
       throw new Error(
-        "Leave request cannot be edited after approval or rejection."
+        "Leave request cannot be edited after approval or rejection.",
       );
 
     const [result] = await tenantPool.execute(queries.UPDATE_LEAVE_REQUEST, [
@@ -607,7 +775,7 @@ const editLeaveRequest = async ({
   } catch (err) {
     console.error(
       "Error updating leave request:",
-      err && err.message ? err.message : err
+      err && err.message ? err.message : err,
     );
     throw new Error("Failed to update leave request.");
   }
@@ -619,7 +787,7 @@ const cancelLeaveRequest = async (leaveId, employeeId, orgId) => {
     const tenantPool = await getTenantPool(orgId);
     const [existingLeaveRows] = await tenantPool.execute(
       queries.GET_LEAVE_BY_ID,
-      [leaveId, employeeId]
+      [leaveId, employeeId],
     );
     if (!existingLeaveRows || existingLeaveRows.length === 0)
       throw new Error("Leave request not found or not accessible.");
@@ -635,7 +803,7 @@ const cancelLeaveRequest = async (leaveId, employeeId, orgId) => {
   } catch (err) {
     console.error(
       "Error canceling leave request:",
-      err && err.message ? err.message : err
+      err && err.message ? err.message : err,
     );
     throw new Error("Failed to cancel leave request.");
   }
@@ -644,7 +812,7 @@ const cancelLeaveRequest = async (leaveId, employeeId, orgId) => {
 const constructWhereClause = (
   filters = {},
   employeeIds = [],
-  tableAlias = "lq"
+  tableAlias = "lq",
 ) => {
   const { status, search, from_date, to_date } = filters || {};
   const whereConditions = [];
@@ -655,7 +823,7 @@ const constructWhereClause = (
   }
   if (search) {
     whereConditions.push(
-      `(${tableAlias}.employee_id LIKE ? OR ${tableAlias}.reason LIKE ? OR CONCAT(e.first_name, ' ', e.last_name) LIKE ?)`
+      `(${tableAlias}.employee_id LIKE ? OR ${tableAlias}.reason LIKE ? OR CONCAT(e.first_name, ' ', e.last_name) LIKE ?)`,
     );
     params.push(`%${search}%`, `%${search}%`, `%${search}%`);
   }
@@ -670,9 +838,7 @@ const constructWhereClause = (
   if (Array.isArray(employeeIds)) {
     if (employeeIds.length > 0) {
       whereConditions.push(
-        `${tableAlias}.employee_id IN (${employeeIds
-          .map(() => "?")
-          .join(", ")})`
+        `${tableAlias}.employee_id IN (${employeeIds.map(() => "?").join(", ")})`,
       );
       params.push(...employeeIds);
     } else if (employeeIds.length === 0) whereConditions.push("1=0");
@@ -704,7 +870,7 @@ const getLeaveQueriesForTeamLead = async (filters = {}, teamLeadId, orgId) => {
     if (supervisorOrAbove.has(roleName)) {
       const [directRows] = await tenantPool.execute(
         queries.GET_EMPLOYEES_BY_SUPERVISOR,
-        [teamLeadId]
+        [teamLeadId],
       );
       (directRows || []).forEach((r) => {
         if (r && r.employee_id) employeeIdSet.add(r.employee_id);
@@ -714,7 +880,7 @@ const getLeaveQueriesForTeamLead = async (filters = {}, teamLeadId, orgId) => {
       try {
         const [deptRows] = await tenantPool.execute(
           queries.GET_EMPLOYEES_BY_DEPARTMENT,
-          [prof.department_id]
+          [prof.department_id],
         );
         (deptRows || []).forEach((r) => {
           if (r && r.employee_id) employeeIdSet.add(r.employee_id);
@@ -727,9 +893,10 @@ const getLeaveQueriesForTeamLead = async (filters = {}, teamLeadId, orgId) => {
     const { whereConditions, params } = constructWhereClause(
       filters,
       employeeIds,
-      "lq"
+      "lq",
     );
 
+    // ensure tenant filter
     let query = queries.GET_LEAVE_QUERIES_FOR_TEAM;
     const tenantFilter = " lq.org_id = ? ";
     const tenantIndexInsertPos = query.toUpperCase().indexOf("WHERE");
@@ -765,4 +932,10 @@ module.exports = {
   editLeaveRequest,
   cancelLeaveRequest,
   getLeaveQueriesForTeamLead,
+  getLeaveTypes,
+  getLeaveTypeByKey,
+  getEmployeePersonal,
+  validateLeaveTypeEligibility,
+  getEmployeeProfile,
 };
+

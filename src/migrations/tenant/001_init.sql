@@ -930,3 +930,18 @@ CREATE TABLE IF NOT EXISTS weekly_tasks (
   KEY fk_parent_task (parent_task_id),
   CONSTRAINT fk_parent_task FOREIGN KEY (parent_task_id) REFERENCES weekly_tasks (task_id)
 );
+CREATE TABLE leave_types (
+  id int NOT NULL AUTO_INCREMENT,
+  org_id int NOT NULL,
+  type_key varchar(50) COLLATE utf8mb4_general_ci NOT NULL,
+  display_name varchar(100) COLLATE utf8mb4_general_ci NOT NULL,
+  gender enum('Male','Female','Other','All') COLLATE utf8mb4_general_ci DEFAULT 'All',
+  min_age int DEFAULT NULL,
+  max_age int DEFAULT NULL,
+  is_active tinyint(1) DEFAULT '1',
+  created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uniq_leave_types_org_key (org_id,type_key),
+  KEY idx_leave_types_org (org_id)
+);

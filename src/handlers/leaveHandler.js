@@ -13,10 +13,10 @@ const parseBoolFlexible = (v) => {
 };
 
 const resolveOrgId = (req) =>
-  req.headers["x-org-id"] ||
-  req.headers["x_org_id"] ||
-  req.headers["org_id"] ||
-  req.headers["org-id"] ||
+  req.headers?.["x-org-id"] ||
+  req.headers?.["x_org_id"] ||
+  req.headers?.["org_id"] ||
+  req.headers?.["org-id"] ||
   req.query?.orgId ||
   req.query?.org_id ||
   req.body?.orgId ||
@@ -25,6 +25,51 @@ const resolveOrgId = (req) =>
   null;
 
 class LeaveHandler {
+  static async getLeaveTypesHandler(req, res) {
+    try {
+      const orgId =
+        req.headers?.["x-org-id"] ||
+        req.headers?.["x_org_id"] ||
+        req.query?.orgId ||
+        req.query?.org_id ||
+        req.body?.orgId ||
+        (req.user && (req.user.orgId || req.user.org_id)) ||
+        null;
+
+      if (!orgId) {
+        return res
+          .status(400)
+          .json(
+            ErrorHandler.generateErrorResponse(
+              400,
+              "Missing org_id in headers.",
+            ),
+          );
+      }
+
+      const types = await LeaveService.getLeaveTypes(orgId);
+      return res
+        .status(200)
+        .json(
+          ErrorHandler.generateSuccessResponse(
+            200,
+            "Leave types fetched.",
+            types,
+          ),
+        );
+    } catch (err) {
+      console.error("[LeaveHandler.getLeaveTypesHandler] error:", err);
+      return res
+        .status(500)
+        .json(
+          ErrorHandler.generateErrorResponse(
+            500,
+            "Failed to fetch leave types.",
+          ),
+        );
+    }
+  }
+
   static async getLeaveQueries(req, res) {
     try {
       const {
@@ -42,8 +87,8 @@ class LeaveHandler {
           .json(
             ErrorHandler.generateErrorResponse(
               400,
-              "Missing org_id in headers."
-            )
+              "Missing org_id in headers.",
+            ),
           );
       }
 
@@ -54,7 +99,7 @@ class LeaveHandler {
         return res
           .status(400)
           .json(
-            ErrorHandler.generateErrorResponse(400, "Invalid date format.")
+            ErrorHandler.generateErrorResponse(400, "Invalid date format."),
           );
       }
 
@@ -76,7 +121,7 @@ class LeaveHandler {
       return res
         .status(500)
         .json(
-          ErrorHandler.generateErrorResponse(500, "Internal server error.")
+          ErrorHandler.generateErrorResponse(500, "Internal server error."),
         );
     }
   }
@@ -99,8 +144,8 @@ class LeaveHandler {
           .json(
             ErrorHandler.generateErrorResponse(
               400,
-              "Invalid status. Status must be 'Approved' or 'Rejected'."
-            )
+              "Invalid status. Status must be 'Approved' or 'Rejected'.",
+            ),
           );
       }
 
@@ -110,8 +155,8 @@ class LeaveHandler {
           .json(
             ErrorHandler.generateErrorResponse(
               400,
-              "Rejection reason is required when rejecting a leave request."
-            )
+              "Rejection reason is required when rejecting a leave request.",
+            ),
           );
       }
 
@@ -160,7 +205,7 @@ class LeaveHandler {
       await LeaveService.updateLeaveRequest(payload, orgId);
 
       const message = `Leave request ${String(
-        status
+        status,
       ).toLowerCase()} successfully.`;
 
       return res
@@ -178,7 +223,7 @@ class LeaveHandler {
       return res
         .status(500)
         .json(
-          ErrorHandler.generateErrorResponse(500, "Internal server error.")
+          ErrorHandler.generateErrorResponse(500, "Internal server error."),
         );
     }
   }
@@ -200,7 +245,7 @@ class LeaveHandler {
         return res
           .status(400)
           .json(
-            ErrorHandler.generateErrorResponse(400, "All fields are required.")
+            ErrorHandler.generateErrorResponse(400, "All fields are required."),
           );
       }
 
@@ -212,8 +257,8 @@ class LeaveHandler {
           .json(
             ErrorHandler.generateErrorResponse(
               400,
-              "End date cannot be earlier than start date."
-            )
+              "End date cannot be earlier than start date.",
+            ),
           );
       }
 
@@ -227,8 +272,8 @@ class LeaveHandler {
             .json(
               ErrorHandler.generateErrorResponse(
                 400,
-                "Casual or Vacation leave must be applied at least 3 days in advance."
-              )
+                "Casual or Vacation leave must be applied at least 3 days in advance.",
+              ),
             );
         }
       }
@@ -237,7 +282,7 @@ class LeaveHandler {
         employeeId,
         null,
         null,
-        orgId
+        orgId,
       );
 
       const newStart = new Date(startDate);
@@ -270,8 +315,8 @@ class LeaveHandler {
           .json(
             ErrorHandler.generateErrorResponse(
               400,
-              "You already have a leave request on the selected date(s)."
-            )
+              "You already have a leave request on the selected date(s).",
+            ),
           );
       }
 
@@ -290,8 +335,8 @@ class LeaveHandler {
         .json(
           ErrorHandler.generateSuccessResponse(
             "Leave request submitted successfully.",
-            leaveRequest
-          )
+            leaveRequest,
+          ),
         );
     } catch (err) {
       console.error("Error in submitLeaveRequestHandler:", {
@@ -303,8 +348,8 @@ class LeaveHandler {
         .json(
           ErrorHandler.generateErrorResponse(
             500,
-            "Failed to submit leave request."
-          )
+            "Failed to submit leave request.",
+          ),
         );
     }
   }
@@ -319,7 +364,7 @@ class LeaveHandler {
         return res
           .status(400)
           .json(
-            ErrorHandler.generateErrorResponse(400, "Employee ID is required.")
+            ErrorHandler.generateErrorResponse(400, "Employee ID is required."),
           );
       }
 
@@ -327,7 +372,7 @@ class LeaveHandler {
         employeeId,
         from_date,
         to_date,
-        orgId
+        orgId,
       );
 
       return res
@@ -336,8 +381,8 @@ class LeaveHandler {
           ErrorHandler.generateSuccessResponse(
             200,
             "Leave requests fetched successfully.",
-            leaveRequests
-          )
+            leaveRequests,
+          ),
         );
     } catch (err) {
       console.error("Error in getLeaveRequestsHandler:", err);
@@ -346,8 +391,8 @@ class LeaveHandler {
         .json(
           ErrorHandler.generateErrorResponse(
             500,
-            "Error fetching leave requests."
-          )
+            "Error fetching leave requests.",
+          ),
         );
     }
   }
@@ -372,7 +417,7 @@ class LeaveHandler {
         return res
           .status(400)
           .json(
-            ErrorHandler.generateErrorResponse(400, "All fields are required.")
+            ErrorHandler.generateErrorResponse(400, "All fields are required."),
           );
       }
 
@@ -384,8 +429,8 @@ class LeaveHandler {
           .json(
             ErrorHandler.generateErrorResponse(
               400,
-              "End date cannot be earlier than start date."
-            )
+              "End date cannot be earlier than start date.",
+            ),
           );
       }
 
@@ -399,8 +444,8 @@ class LeaveHandler {
             .json(
               ErrorHandler.generateErrorResponse(
                 400,
-                "Casual or Vacation leave must be applied at least 3 days in advance."
-              )
+                "Casual or Vacation leave must be applied at least 3 days in advance.",
+              ),
             );
         }
       }
@@ -409,7 +454,7 @@ class LeaveHandler {
         employeeId,
         null,
         null,
-        orgId
+        orgId,
       );
       const newStart = new Date(startDate);
       const newEnd = new Date(endDate);
@@ -442,8 +487,8 @@ class LeaveHandler {
           .json(
             ErrorHandler.generateErrorResponse(
               400,
-              "The new dates conflict with an existing leave request."
-            )
+              "The new dates conflict with an existing leave request.",
+            ),
           );
       }
 
@@ -464,8 +509,8 @@ class LeaveHandler {
           ErrorHandler.generateSuccessResponse(
             200,
             "Leave request updated successfully.",
-            updatedLeaveRequest
-          )
+            updatedLeaveRequest,
+          ),
         );
     } catch (err) {
       console.error("Error in editLeaveRequestHandler:", err);
@@ -486,15 +531,15 @@ class LeaveHandler {
           .json(
             ErrorHandler.generateErrorResponse(
               400,
-              "Leave ID and Employee ID are required."
-            )
+              "Leave ID and Employee ID are required.",
+            ),
           );
       }
 
       const message = await LeaveService.cancelLeaveRequest(
         leaveId,
         employeeId,
-        orgId
+        orgId,
       );
 
       return res
@@ -523,17 +568,17 @@ class LeaveHandler {
       const leaveRequests = await LeaveService.getLeaveQueriesForTeamLead(
         filters,
         teamLeadId,
-        orgId
+        orgId,
       );
       return res
         .status(200)
         .json(
-          ErrorHandler.generateSuccessResponse(200, { data: leaveRequests })
+          ErrorHandler.generateSuccessResponse(200, { data: leaveRequests }),
         );
     } catch (err) {
       console.error(
         "Error fetching leave requests for team lead:",
-        err && err.message ? err.message : err
+        err && err.message ? err.message : err,
       );
       return res
         .status(500)
