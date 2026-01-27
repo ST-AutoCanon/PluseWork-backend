@@ -1,3 +1,4 @@
+// services/leavePolicyService.js
 const { getTenantPool, sanitizeDbName } = require("../db/tenantPoolManager");
 const queries = require("../constants/leavePolicyQueries");
 const dayjs = require("dayjs");
@@ -20,7 +21,7 @@ function parseLocalDate(dateInput) {
     return new Date(
       dateInput.getFullYear(),
       dateInput.getMonth(),
-      dateInput.getDate()
+      dateInput.getDate(),
     );
   }
   const s = String(dateInput).trim();
@@ -43,17 +44,19 @@ function parseLocalDate(dateInput) {
 
 async function getTenantPoolForOrgId(orgId) {
   if (!orgId) throw new Error("orgId required");
+  // derive database name tenant_<org id>, then sanitize and obtain pool
   const dbName = sanitizeDbName(`tenant_${orgId}`);
   return getTenantPool(dbName);
 }
 
+/* Replace previous getTenantPool usage with getTenantPoolForOrgId */
 async function getEmployeeCarryForwards(employeeId, year, orgId) {
   if (!employeeId) return {};
   try {
     const tenantPool = await getTenantPoolForOrgId(orgId);
     const [rows] = await tenantPool.execute(
       queries.GET_EMPLOYEE_CARRY_FORWARD,
-      [employeeId, year]
+      [employeeId, year],
     );
     const map = {};
     (rows || []).forEach((r) => {
@@ -65,6 +68,32 @@ async function getEmployeeCarryForwards(employeeId, year, orgId) {
     console.error("getEmployeeCarryForwards error:", err);
     return {};
   }
+}
+
+async function countOverlappingPolicies(
+  orgId,
+  newStartISO,
+  newEndISO,
+  ignoreId = null,
+) {
+  if (!orgId) throw new Error("orgId required for overlap check");
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  // Normalize dates to YYYY-MM-DD
+  const s = dayjs(newStartISO).format("YYYY-MM-DD");
+  const e = dayjs(newEndISO).format("YYYY-MM-DD");
+  let sql = `SELECT COUNT(*) AS cnt FROM leave_policy WHERE org_id = ? AND NOT (year_end < ? OR year_start > ?)`;
+  const params = [orgId, s, e];
+  if (ignoreId) {
+    sql += " AND id <> ?";
+    params.push(ignoreId);
+  }
+  const [rows] = await tenantPool.execute(sql, params);
+  const cnt =
+    (rows &&
+      rows[0] &&
+      (rows[0].cnt ?? rows[0].COUNT ?? Object.values(rows[0])[0])) ||
+    0;
+  return Number(cnt);
 }
 
 const getAllPolicies = async (orgId) => {
@@ -83,13 +112,28 @@ const createPolicy = async ({
   leave_settings,
   orgId,
 }) => {
+  if (!orgId) throw new Error("orgId required");
+  // Normalize dates
+  const ys = dayjs(year_start).format("YYYY-MM-DD");
+  const ye = dayjs(year_end).format("YYYY-MM-DD");
+
+  // overlap check
+  const overlap = await countOverlappingPolicies(orgId, ys, ye, null);
+  if (overlap > 0) {
+    const err = new Error(
+      "Policy period overlaps an existing policy for this organization.",
+    );
+    err.code = "OVERLAP";
+    throw err;
+  }
+
   const tenantPool = await getTenantPoolForOrgId(orgId);
   const [result] = await tenantPool.execute(queries.create, [
     orgId,
     period,
-    year_start,
-    year_end,
-    JSON.stringify(leave_settings),
+    ys,
+    ye,
+    JSON.stringify(leave_settings || []),
   ]);
   const [newRows] = await tenantPool.execute(queries.getById, [
     result.insertId,
@@ -102,17 +146,42 @@ const createPolicy = async ({
 const updatePolicy = async (
   id,
   orgId,
-  { period, year_start, year_end, leave_settings }
+  { period, year_start, year_end, leave_settings },
 ) => {
+  if (!orgId) throw new Error("orgId required");
+  if (!id) throw new Error("policy id required");
+
+  // Normalize dates
+  const ys = dayjs(year_start).format("YYYY-MM-DD");
+  const ye = dayjs(year_end).format("YYYY-MM-DD");
+
+  // overlap check excluding this id
+  const overlap = await countOverlappingPolicies(orgId, ys, ye, id);
+  if (overlap > 0) {
+    const err = new Error(
+      "Updated policy period overlaps another policy for this organization.",
+    );
+    err.code = "OVERLAP";
+    throw err;
+  }
+
   const tenantPool = await getTenantPoolForOrgId(orgId);
   await tenantPool.execute(queries.update, [
     period,
-    year_start,
-    year_end,
-    JSON.stringify(leave_settings),
+    ys,
+    ye,
+    JSON.stringify(leave_settings || []),
     id,
     orgId,
   ]);
+
+  // return updated row
+  const [rows] = await tenantPool.execute(queries.getById, [id]);
+  if (rows && rows[0]) {
+    rows[0].leave_settings = safeParseSettings(rows[0].leave_settings);
+    return rows[0];
+  }
+  return null;
 };
 
 const deletePolicy = async (id, orgId) => {
@@ -134,7 +203,7 @@ const getUsedLeavesInPeriod = async (
   employeeId,
   periodStart,
   periodEnd,
-  orgId
+  orgId,
 ) => {
   const tenantPool = await getTenantPoolForOrgId(orgId);
   const params = [
@@ -149,7 +218,7 @@ const getUsedLeavesInPeriod = async (
   try {
     const [rows] = await tenantPool.execute(
       queries.GET_USED_LEAVES_IN_PERIOD,
-      params
+      params,
     );
     const map = {};
     (rows || []).forEach(
@@ -158,7 +227,7 @@ const getUsedLeavesInPeriod = async (
           String(r.leave_type || "")
             .trim()
             .toLowerCase()
-        ] = Number(r.used || 0))
+        ] = Number(r.used || 0)),
     );
     return map;
   } catch (err) {
@@ -170,7 +239,7 @@ const getUsedLeavesInPeriod = async (
 function computeEarnedLeavesFromWorked(
   workedDays,
   workingDaysRequired,
-  earnedLeavesGrant
+  earnedLeavesGrant,
 ) {
   if (!workingDaysRequired || Number(workingDaysRequired) <= 0) return 0;
   if (!earnedLeavesGrant || Number(earnedLeavesGrant) <= 0) return 0;
@@ -191,12 +260,12 @@ async function computeAndStoreMonthlyLOP(employeeId, month, year, orgId) {
   const periodStart = `${y}-${String(m).padStart(2, "0")}-01`;
   const lastDay = new Date(y, m, 0).getDate();
   const periodEnd = `${y}-${String(m).padStart(2, "0")}-${String(
-    lastDay
+    lastDay,
   ).padStart(2, "0")}`;
 
   const [lopRows] = await tenantPool.execute(
     `SELECT SUM(loss_of_pay_days) AS total_lop_days FROM leavequeries WHERE employee_id = ? AND status = 'Approved' AND start_date <= ? AND end_date >= ?`,
-    [employeeId, periodEnd, periodStart]
+    [employeeId, periodEnd, periodStart],
   );
   const explicitLOP = Number(lopRows[0]?.total_lop_days || 0);
   if (explicitLOP > 0) {
@@ -218,7 +287,7 @@ async function computeAndStoreMonthlyLOP(employeeId, month, year, orgId) {
     active = policies.find(
       (p) =>
         new Date(p.year_start) <= new Date(periodEnd) &&
-        new Date(p.year_end) >= new Date(periodStart)
+        new Date(p.year_end) >= new Date(periodStart),
     );
     if (!active)
       active = policies
@@ -240,19 +309,19 @@ async function computeAndStoreMonthlyLOP(employeeId, month, year, orgId) {
     employeeId,
     periodStart,
     periodEnd,
-    orgId
+    orgId,
   ).catch(() => ({}));
   const workedUntilMonthEnd = await getWorkedDays(
     employeeId,
     active.year_start,
     periodEnd,
-    orgId
+    orgId,
   ).catch(() => 0);
   const policyYear = new Date(active.year_start).getFullYear();
   const employeeCFMap = await getEmployeeCarryForwards(
     employeeId,
     policyYear,
-    orgId
+    orgId,
   ).catch(() => ({}));
   const settings = Array.isArray(active.leave_settings)
     ? active.leave_settings
@@ -282,7 +351,7 @@ async function computeAndStoreMonthlyLOP(employeeId, month, year, orgId) {
         earnedUntilMonthEnd = computeEarnedLeavesFromWorked(
           workedUntilMonthEnd,
           Number(setting.working_days || 0),
-          Number(setting.earned_leaves || 0)
+          Number(setting.earned_leaves || 0),
         );
       }
 
@@ -326,10 +395,124 @@ const getMonthlyLOP = async (employeeId, month, year, orgId) => {
   return await computeAndStoreMonthlyLOP(employeeId, m, y, orgId);
 };
 
+/**
+ * Build default settings from tenant leave_types table.
+ * If your tenant leave_types table doesn't have org_id, this will still work.
+ * opts: { gender, age } — optional filters applied in JS.
+ */
+async function buildDefaultSettingsFromLeaveTypes(orgId = null, opts = {}) {
+  // orgId used only to get tenantPool — this service uses tenant DB per org
+  if (!orgId) throw new Error("orgId required");
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  // We don't assume there's an org_id column in leave_types (some tenants may not have it)
+  // Select common columns; tolerate missing columns by using aliasing in SQL where possible.
+  // Keep SQL simple: select likely column names. If a column is missing it will throw - catch and fallback.
+  try {
+    const [rows] = await tenantPool.execute(
+      `SELECT id, IFNULL(type_key, IFNULL(type, '')) AS type_key, IFNULL(display_name, IFNULL(name, IFNULL(label, type_key))) AS display_name, IFNULL(gender, '') AS gender, IFNULL(min_age, NULL) AS min_age, IFNULL(max_age, NULL) AS max_age, IFNULL(is_active, 1) AS is_active FROM leave_types WHERE IFNULL(is_active,1) = 1 ORDER BY display_name ASC`,
+    );
+    const list = (rows || []).map((r) => {
+      const key = (r.type_key || "").toString().trim();
+      const label = r.display_name || key || "";
+      return {
+        type: key,
+        label,
+        enabled: true,
+        value: 0,
+        carry_forward: 0,
+        advance_notice_days: 0,
+        meta: {
+          id: r.id,
+          gender: r.gender,
+          min_age: r.min_age,
+          max_age: r.max_age,
+        },
+      };
+    });
+
+    // filter by gender/age if provided
+    const gender = (opts.gender || "").toString().toLowerCase();
+    const age =
+      opts.age !== undefined && opts.age !== null ? Number(opts.age) : null;
+    const filtered = list.filter((it) => {
+      if (!it.meta) return true;
+      if (
+        gender &&
+        it.meta.gender &&
+        String(it.meta.gender).toLowerCase() !== "all"
+      ) {
+        if (String(it.meta.gender).toLowerCase() !== gender) return false;
+      }
+      if (age !== null && it.meta.min_age && Number(it.meta.min_age) > age)
+        return false;
+      if (age !== null && it.meta.max_age && Number(it.meta.max_age) < age)
+        return false;
+      return true;
+    });
+
+    return filtered;
+  } catch (err) {
+    console.warn(
+      "buildDefaultSettingsFromLeaveTypes: failed to read leave_types, fallback to small defaults",
+      err,
+    );
+    // Fallback small default list (keeps app functional)
+    return [
+      {
+        type: "casual",
+        label: "Casual Leave",
+        enabled: true,
+        value: 0,
+        carry_forward: 0,
+        advance_notice_days: 3,
+      },
+      {
+        type: "earned",
+        label: "Earned Leave",
+        enabled: true,
+        value: 0,
+        carry_forward: 0,
+        advance_notice_days: 0,
+      },
+      {
+        type: "sick",
+        label: "Sick Leave",
+        enabled: true,
+        value: 0,
+        carry_forward: 0,
+        advance_notice_days: 0,
+      },
+    ];
+  }
+}
+
 const getLeaveBalance = async (employeeId, orgId) => {
   if (!employeeId) throw new Error("employeeId required");
+  if (!orgId) throw new Error("orgId required");
   const policies = await getAllPolicies(orgId);
-  if (!policies || policies.length === 0) return [];
+  if (!policies || policies.length === 0) {
+    // No policies for tenant: return dynamic defaults built from leave_types table
+    const defaults = await buildDefaultSettingsFromLeaveTypes(orgId, {});
+    // Map defaults to same shape as getLeaveBalance returns for policy-based settings:
+    return defaults.map((setting) => {
+      const typeKey = String(setting.type || "").trim();
+      return {
+        type: typeKey,
+        enabled: !!setting.enabled,
+        annual_allowance: Number(setting.value || 0),
+        earned: 0,
+        carry_forward: Number(setting.carry_forward || 0),
+        allowance:
+          Number(setting.value || 0) + Number(setting.carry_forward || 0),
+        used: 0,
+        remaining: Math.max(
+          Number(setting.value || 0) + Number(setting.carry_forward || 0) - 0,
+          0,
+        ),
+        loss_of_pay: 0,
+      };
+    });
+  }
   const active = policies
     .slice()
     .sort((a, b) => new Date(b.year_start) - new Date(a.year_start))[0];
@@ -343,19 +526,19 @@ const getLeaveBalance = async (employeeId, orgId) => {
     employeeId,
     active.year_start,
     upToDate,
-    orgId
+    orgId,
   );
   const usedMap = await getUsedLeavesInPeriod(
     employeeId,
     active.year_start,
     active.year_end,
-    orgId
+    orgId,
   );
   const policyYear = new Date(active.year_start).getFullYear();
   const employeeCFMap = await getEmployeeCarryForwards(
     employeeId,
     policyYear,
-    orgId
+    orgId,
   );
   const settings = Array.isArray(active.leave_settings)
     ? active.leave_settings
@@ -378,7 +561,7 @@ const getLeaveBalance = async (employeeId, orgId) => {
         ? computeEarnedLeavesFromWorked(
             workedDays,
             Number(setting.working_days || 0),
-            Number(setting.earned_leaves || 0)
+            Number(setting.earned_leaves || 0),
           )
         : 0;
     const allowance =
@@ -402,7 +585,7 @@ const getLeaveBalance = async (employeeId, orgId) => {
 async function autoExtendRecentPolicies(
   extensionDays = 90,
   actorId = "system",
-  orgId
+  orgId,
 ) {
   if (!orgId) throw new Error("orgId required");
   const policies = await getAllPolicies(orgId);
@@ -421,7 +604,7 @@ async function autoExtendRecentPolicies(
     if (!end) {
       console.warn(
         "[autoExtendRecentPolicies] skipping policy with invalid year_end:",
-        p
+        p,
       );
       continue;
     }
@@ -452,12 +635,12 @@ async function autoExtendRecentPolicies(
       newEnd.setDate(newEnd.getDate() + Number(extensionDays || 90));
 
       const newEndStr = `${newEnd.getFullYear()}-${String(
-        newEnd.getMonth() + 1
+        newEnd.getMonth() + 1,
       ).padStart(2, "0")}-${String(newEnd.getDate()).padStart(2, "0")}`;
 
       await conn.execute(
         `UPDATE leave_policy SET year_end = ? WHERE id = ? AND org_id = ?`,
-        [newEndStr, p.id, orgId]
+        [newEndStr, p.id, orgId],
       );
 
       const detailsObj = {
@@ -465,7 +648,7 @@ async function autoExtendRecentPolicies(
         extensionDays: Number(extensionDays || 90),
         policyId: p.id,
         oldYearEnd: `${oldEnd.getFullYear()}-${String(
-          oldEnd.getMonth() + 1
+          oldEnd.getMonth() + 1,
         ).padStart(2, "0")}-${String(oldEnd.getDate()).padStart(2, "0")}`,
         newYearEnd: newEndStr,
       };
@@ -482,13 +665,13 @@ async function autoExtendRecentPolicies(
       } catch (auditErr) {
         console.warn(
           "[autoExtendRecentPolicies] failed to insert audit with leave_id=null:",
-          auditErr && auditErr.message ? auditErr.message : auditErr
+          auditErr && auditErr.message ? auditErr.message : auditErr,
         );
       }
 
       const [rows] = await conn.execute(
         `SELECT id, period, DATE_FORMAT(year_start, '%Y-%m-%d') AS year_start, DATE_FORMAT(year_end, '%Y-%m-%d') AS year_end, leave_settings FROM leave_policy WHERE id = ? AND org_id = ?`,
-        [p.id, orgId]
+        [p.id, orgId],
       );
       if (rows && rows[0]) {
         const row = rows[0];
@@ -526,4 +709,6 @@ module.exports = {
   computeEarnedLeavesFromWorked,
   getEmployeeCarryForwards,
   autoExtendRecentPolicies,
+  // export helper in case handlers want to use defaults directly
+  buildDefaultSettingsFromLeaveTypes,
 };
