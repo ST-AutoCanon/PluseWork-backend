@@ -1,33 +1,4 @@
-// const {
-//   getOvertimeSummaryService,
-// } = require("../services/overtimeSummaryService");
 
-// const getOvertimeSummaryHandler = async (req, res) => {
-//   try {
-//     const supervisorId = req.headers["x-employee-id"];
-
-//     if (!supervisorId) {
-//       return res
-//         .status(400)
-//         .json({ error: "Supervisor ID is required in x-employee-id header" });
-//     }
-
-//     const summary = await getOvertimeSummaryService(supervisorId);
-
-//     return res.status(200).json({
-//       success: true,
-//       data: summary,
-//     });
-//   } catch (error) {
-//     console.error("Error fetching overtime summary:", error);
-//     return res.status(500).json({
-//       success: false,
-//       error: "Internal Server Error",
-//     });
-//   }
-// };
-
-// module.exports = { getOvertimeSummaryHandler };
 const { getOvertimeSummaryService } = require("../services/overtimeSummaryService");
 
 const getOrgIdFromHeaders = (req) => {
@@ -42,9 +13,7 @@ const getOrgIdFromHeaders = (req) => {
 
 const getOvertimeSummaryHandler = async (req, res) => {
   try {
-    // ───────────────────────────────────────────────────────────────
-    // Add detailed incoming request log (helps 90% of these cases)
-    // ───────────────────────────────────────────────────────────────
+    
     console.log("[DEBUG-OVERTIME] Request received", {
       url: req.originalUrl,
       supervisorParam: req.params.supervisorId,        // will be "STS-000004"
@@ -56,7 +25,6 @@ const getOvertimeSummaryHandler = async (req, res) => {
       }
     });
 
-    // Accept supervisor id from header or URL param (header preferred)
     const supervisorId = req.headers["x-employee-id"] || req.params.supervisorId;
     const orgId = getOrgIdFromHeaders(req);
 
@@ -87,9 +55,7 @@ const getOvertimeSummaryHandler = async (req, res) => {
       data: summary,
     });
   } catch (error) {
-    // ───────────────────────────────────────────────────────────────
-    // Much better error visibility – this is the most important part
-    // ───────────────────────────────────────────────────────────────
+   
     console.error("[ERROR-OVERTIME] Handler caught exception:");
     console.error("Message:", error.message);
     console.error("Stack:", error.stack);
