@@ -514,7 +514,7 @@ module.exports = {
   addEmployeeAdvanceHandler,
   getEmployeeAdvanceDetailsHandler,
   fetchEmployeeExtraHours,
-  handleAddOvertimeDetailsBulk,
+  handleAddOvertimeDetailsBulk, getEmployeeExtraHoursService,
   handleApproveOvertimeRow,
   handleRejectOvertimeRow,
   getOvertimeDetailsHandler,
