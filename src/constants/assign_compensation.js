@@ -145,41 +145,95 @@ LIMIT 0, 1000;
   ORDER BY work_date DESC
 `,
 
-  GET_EMPLOYEE_EXTRA_HOURS: `
-  SELECT 
-    ea.punch_id,
+//   GET_EMPLOYEE_EXTRA_HOURS: `
+//   SELECT 
+//     ea.punch_id,
+//     ea.employee_id,
+//     CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
+//     ea.punchin_time,
+//     ea.punchout_time,
+
+//     COALESCE(od.status, 'Pending') AS status,
+//     COALESCE(od.rate, 0) AS rate,
+//     od.project,
+//     CONCAT(sup.first_name, ' ', sup.last_name) AS supervisor_name,
+//     od.comments,
+
+//     -- THIS IS THE KEY: assigned_projects
+//     COALESCE((
+//       SELECT GROUP_CONCAT(DISTINCT p.project_name SEPARATOR ', ')
+//       FROM sts_owners s
+//       JOIN add_project p ON s.project_id = p.id
+//       WHERE s.employee_list LIKE CONCAT('%', e.employee_id, '%')
+//     ), '') AS assigned_projects
+
+//   FROM emp_attendence ea
+//   LEFT JOIN overtime_details od ON ea.punch_id = od.punch_id
+//   LEFT JOIN employees e ON ea.employee_id = e.employee_id
+//   LEFT JOIN employee_professional ep ON e.employee_id = ep.employee_id
+//   LEFT JOIN employees sup ON ep.supervisor_id = sup.employee_id
+
+//   WHERE 
+//     ea.punchin_time IS NOT NULL
+//     AND ea.punchout_time IS NOT NULL
+//     AND ea.punchin_time >= ?
+//     AND ea.punchin_time < DATE_ADD(?, INTERVAL 1 DAY)
+
+//   ORDER BY ea.employee_id, ea.punchin_time;
+// `,
+GET_EMPLOYEE_EXTRA_HOURS: `
+SELECT
+  d.employee_id,
+  CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
+  d.work_date,
+  ROUND(SUM(d.hours_worked), 2) AS total_hours_worked
+FROM (
+  -- BEFORE MIDNIGHT (same day)
+  SELECT
     ea.employee_id,
-    CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
-    ea.punchin_time,
-    ea.punchout_time,
-
-    COALESCE(od.status, 'Pending') AS status,
-    COALESCE(od.rate, 0) AS rate,
-    od.project,
-    CONCAT(sup.first_name, ' ', sup.last_name) AS supervisor_name,
-    od.comments,
-
-    -- THIS IS THE KEY: assigned_projects
-    COALESCE((
-      SELECT GROUP_CONCAT(DISTINCT p.project_name SEPARATOR ', ')
-      FROM sts_owners s
-      JOIN add_project p ON s.project_id = p.id
-      WHERE s.employee_list LIKE CONCAT('%', e.employee_id, '%')
-    ), '') AS assigned_projects
-
+    DATE(ea.punchin_time) AS work_date,
+    TIMESTAMPDIFF(
+      MINUTE,
+      ea.punchin_time,
+      LEAST(
+        ea.punchout_time,
+        DATE_ADD(DATE(ea.punchin_time), INTERVAL 1 DAY)
+      )
+    ) / 60 AS hours_worked
   FROM emp_attendence ea
-  LEFT JOIN overtime_details od ON ea.punch_id = od.punch_id
-  LEFT JOIN employees e ON ea.employee_id = e.employee_id
-  LEFT JOIN employee_professional ep ON e.employee_id = ep.employee_id
-  LEFT JOIN employees sup ON ep.supervisor_id = sup.employee_id
-
-  WHERE 
+  WHERE
     ea.punchin_time IS NOT NULL
     AND ea.punchout_time IS NOT NULL
-    AND ea.punchin_time >= ?
-    AND ea.punchin_time < DATE_ADD(?, INTERVAL 1 DAY)
 
-  ORDER BY ea.employee_id, ea.punchin_time;
+  UNION ALL
+
+  -- AFTER MIDNIGHT (next day)
+  SELECT
+    ea.employee_id,
+    DATE(ea.punchout_time) AS work_date,
+    TIMESTAMPDIFF(
+      MINUTE,
+      GREATEST(
+        ea.punchin_time,
+        DATE(ea.punchout_time)
+      ),
+      ea.punchout_time
+    ) / 60 AS hours_worked
+  FROM emp_attendence ea
+  WHERE
+    ea.punchin_time IS NOT NULL
+    AND ea.punchout_time IS NOT NULL
+    AND DATE(ea.punchin_time) <> DATE(ea.punchout_time)
+) d
+LEFT JOIN employees e ON d.employee_id = e.employee_id
+WHERE
+  d.work_date BETWEEN ? AND ?
+GROUP BY
+  d.employee_id,
+  d.work_date
+ORDER BY
+  d.employee_id,
+  d.work_date;
 `,
 
   ADD_OVERTIME_DETAILS_BULK: `
@@ -193,6 +247,7 @@ LIMIT 0, 1000;
     supervisor,
     comments,
     status,
+    org_id,
     created_at,
     updated_at
   )
@@ -242,22 +297,30 @@ LIMIT 0, 1000;
 `,
   GET_ALL_OVERTIME_DETAILS: `
   SELECT 
-  punch_id,
-  work_date,
-  employee_id,
-  extra_hours,
-  rate,
-  project,
-  supervisor,
-  comments,
-  status,
-  created_at,
-  updated_at
-FROM overtime_details
-WHERE status = 'Approved'  
+  od.punch_id,
+  od.work_date,
+  od.employee_id,
+  od.extra_hours,
+  od.rate,
+  COALESCE(
+    GROUP_CONCAT(DISTINCT ap.project_name ORDER BY ap.project_name SEPARATOR ', '),
+    od.project
+  ) AS project,
+  od.supervisor,
+  od.comments,
+  od.status,
+  od.created_at,
+  od.updated_at
+FROM overtime_details od
+LEFT JOIN sts_owners so 
+  ON JSON_CONTAINS(so.employee_list, JSON_QUOTE(od.employee_id))
+LEFT JOIN add_project ap 
+  ON so.project_id = ap.id
+WHERE od.org_id = ?
+  AND (od.status = 'Approved' OR od.status = 'Rejected')
   AND (
     (
-      MONTH(work_date) = (
+      MONTH(od.work_date) = (
         SELECT 
           IF(DAY(CURDATE()) < cutoff_date, 
             IF(MONTH(CURDATE()) = 1, 12, MONTH(CURDATE()) - 1), 
@@ -266,7 +329,7 @@ WHERE status = 'Approved'
         FROM salary_calculation_period 
         WHERE id = 1
       )
-      AND YEAR(work_date) = (
+      AND YEAR(od.work_date) = (
         SELECT 
           IF(DAY(CURDATE()) < cutoff_date AND MONTH(CURDATE()) = 1, 
             YEAR(CURDATE()) - 1, 
@@ -279,7 +342,7 @@ WHERE status = 'Approved'
     OR 
     (
       (updated_at IS NOT NULL 
-       AND updated_at >= (
+       AND od.updated_at >= (
          SELECT STR_TO_DATE(
            CONCAT(
              IF(DAY(CURDATE()) < cutoff_date AND MONTH(CURDATE()) = 1, YEAR(CURDATE()) - 1, YEAR(CURDATE())),
@@ -299,7 +362,7 @@ WHERE status = 'Approved'
          FROM salary_calculation_period 
          WHERE id = 1
        )
-       AND updated_at < (
+       AND od.updated_at < (
          SELECT STR_TO_DATE(
            CONCAT(
              IF(MONTH(CURDATE()) = 12, YEAR(CURDATE()) + 1, YEAR(CURDATE())),
@@ -319,7 +382,7 @@ WHERE status = 'Approved'
       )
       OR 
       (updated_at IS NULL 
-       AND created_at >= (
+       AND od.created_at >= (
          SELECT STR_TO_DATE(
            CONCAT(
              IF(DAY(CURDATE()) < cutoff_date AND MONTH(CURDATE()) = 1, YEAR(CURDATE()) - 1, YEAR(CURDATE())),
@@ -339,7 +402,7 @@ WHERE status = 'Approved'
          FROM salary_calculation_period 
          WHERE id = 1
        )
-       AND created_at < (
+       AND od.created_at < (
          SELECT STR_TO_DATE(
            CONCAT(
              IF(MONTH(CURDATE()) = 12, YEAR(CURDATE()) + 1, YEAR(CURDATE())),
@@ -359,7 +422,8 @@ WHERE status = 'Approved'
       )
     )
   )
-ORDER BY work_date DESC, updated_at DESC;
+GROUP BY od.punch_id, od.employee_id, od.work_date
+ORDER BY od.work_date DESC, od.updated_at DESC;
 `,
   GET_EMPLOYEE_LOP_DAYS_FOR_CURRENT_PERIOD: `
   SELECT
@@ -367,7 +431,8 @@ ORDER BY work_date DESC, updated_at DESC;
     lop
   FROM sukalpadata.employee_monthly_lop
   WHERE
-    (
+    org_id = ?
+    AND (
       CASE
         WHEN DAY(CURDATE()) < (SELECT cutoff_date FROM salary_calculation_period WHERE id = 1)
           THEN month = MONTH(CURDATE() - INTERVAL 1 MONTH)

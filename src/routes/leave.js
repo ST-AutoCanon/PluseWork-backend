@@ -1,10 +1,10 @@
-// src/routes/leave.js
+
 const express = require("express");
 const LeaveHandler = require("../handlers/leaveHandler"); // <--- use this name
 
 const router = express.Router();
 
-// Public endpoints for leave types / employee operations
+
 router.get("/types", LeaveHandler.getLeaveTypesHandler);
 
 router.post("/employee/leave", LeaveHandler.submitLeaveRequestHandler);

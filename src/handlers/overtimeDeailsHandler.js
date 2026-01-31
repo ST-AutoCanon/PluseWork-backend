@@ -11,17 +11,16 @@ const bulkUpdateOvertime = async (req, res) => {
           error: "Invalid input: data must be a non-empty array",
         });
     }
-    const updateResults = await overtimeService.updateOvertimeRecords(
+    const updateResults = await overtimeService.upsertOvertimeRecords(
       data,
       req.employeeId
     );
-    const updatedCount = updateResults.filter(
-      (result) => result.affectedRows > 0
-    ).length;
+    const insertedCount = updateResults.filter((r) => r.insertId > 0).length;
+    const updatedCount = updateResults.filter((r) => r.affectedRows > 0 && !(r.insertId > 0)).length;
     res.status(200).json({
       success: true,
-      message: `Successfully updated ${updatedCount} overtime record(s)`,
-      data: { updatedCount },
+      message: `Successfully inserted ${insertedCount} and updated ${updatedCount} overtime record(s)`,
+      data: { insertedCount, updatedCount },
     });
   } catch (error) {
     console.error("Error in bulkUpdateOvertime:", error);

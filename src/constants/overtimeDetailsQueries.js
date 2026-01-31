@@ -1,5 +1,3 @@
-
-
 const FETCH_PUNCHES_BY_DATE_RANGE = `
   SELECT 
     p.punch_id,
@@ -48,7 +46,6 @@ const UPSERT_OVERTIME = `
     status = VALUES(status),
     updated_at = CURRENT_TIMESTAMP
 `;
-
 const UPDATE_OVERTIME = `
   UPDATE overtime_details 
   SET 
@@ -57,11 +54,14 @@ const UPDATE_OVERTIME = `
     project = COALESCE(?, project), 
     supervisor = COALESCE(?, supervisor), 
     comments = COALESCE(?, comments), 
+    approver_id = COALESCE(?, approver_id),
+    approver_name = COALESCE(?, approver_name),
     updated_at = CURRENT_TIMESTAMP 
   WHERE punch_id = ?
 `;
 module.exports = {
-  UPDATE_OVERTIME, 
+  UPDATE_OVERTIME,
   FETCH_PUNCHES_BY_DATE_RANGE,
-  FETCH_OVERTIME_DETAILS_BY_PUNCHES,UPSERT_OVERTIME,
+  FETCH_OVERTIME_DETAILS_BY_PUNCHES,
+  UPSERT_OVERTIME,
 };
