@@ -1,93 +1,20 @@
-const multer = require("multer");
-const XLSX = require("xlsx");
-const moment = require("moment");
-const pool = require("../config.js");
-const {
-  checkIfTableExists,
-  createTableQuery,
-  deleteExistingData,
-  insertSalaryData,
-} = require("../constants/salaryQueries");
-
-const storage = multer.memoryStorage();
-const upload = multer({ storage: storage });
-
-const tableExists = async (tableName) => {
-  const result = await pool.query(checkIfTableExists(tableName));
-  return result[0].count > 0;
-};
-
-const createTableIfNotExists = async (tableName, columns) => {
-  const query = createTableQuery(tableName, columns);
-  try {
-    await pool.query(query);
-  } catch (error) {
-    console.error("Error creating table:", error);
-    throw new Error("Failed to create table.");
-  }
-};
-
-const generateEmployeeId = () => {
-  return `EMP${Math.floor(10000 + Math.random() * 90000)}`;
-};
-
-const formatColumnName = (name) => {
-  return name
-    .toLowerCase()
-    .trim()
-    .replace(/\s+/g, "_")
-    .replace(/[^a-zA-Z0-9_]/g, "");
-};
-
-const generateTableName = (orgId, fileName) => {
-  if (!orgId) {
-    throw new Error(
-      "❌ Missing orgId header. Provide orgId in request headers."
-    );
-  }
-
-  const normalizedOrgId = String(orgId)
-    .toLowerCase()
-    .trim()
-    .replace(/\s+/g, "_")
-    .replace(/[^a-z0-9_]/g, "");
-
-  if (!normalizedOrgId) {
-    throw new Error(
-      "❌ Invalid orgId header. orgId must contain letters/numbers."
-    );
-  }
-
-  const dateMatch = fileName.match(
-    /(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[_-](\d{4})/i
-  );
-
-  if (!dateMatch) {
-    throw new Error(
-      "❌ Filename must contain month and year (e.g., salary_mar_2025.xlsx or mar-2025)."
-    );
-  }
-
-  const month = dateMatch[1].toLowerCase();
-  const year = dateMatch[2];
-
-  return `${normalizedOrgId}_${month}_${year}`;
-};
-
- // adjust if you're using callback style
-
-// ────────────────────────────────────────────────
-// Mapping Excel header → database column
-// ────────────────────────────────────────────────
-
-
-function normalizeHeader(header) {
-  return (header || '').toString().trim();
-}
+// src/services/salaryStatementService.js
 
 const xlsx = require('xlsx');
+const { getTenantPoolByOrgId } = require('../db/tenantPoolManager');
 
-const columnMapping = {
+/**
+ * Standardized table name format: `${orgId}_${month.toLowerCase()}_${year}`
+ * Example: 1_jan_2026, 1_feb_2025, etc.
+ */
+function getTableName(orgId, month, year) {
+  return `\`${orgId}_${month.toLowerCase()}_${year}\``;
+}
+
+// ────────────────────────────────────────────────
+// Mapping: Excel header → database column name
+// ────────────────────────────────────────────────
+const COLUMN_MAPPING = {
   "Employee ID":          "employee_id",
   "Full Name":            "full_name",
   "Annual CTC":           "annual_ctc",
@@ -117,15 +44,36 @@ function normalizeHeader(header) {
   return (header || '').toString().trim();
 }
 
+/**
+ * Uploads salary data from Excel file to the correct tenant database.
+ * Uses table format: orgId_month_year (e.g. 1_jan_2026)
+ * Creates the table automatically if it does not exist.
+ *
+ * @param {Object} req - Express request
+ * @param {Object} res - Express response
+ */
 async function uploadSalaryData(req, res) {
-  let connection;
+  let connection = null;
+
   try {
     const file = req.file;
     if (!file) {
       return res.status(400).json({ error: "No file uploaded" });
     }
 
-    // Get month & year from form data
+    const orgId = req.headers['x-org-id'];
+    if (!orgId) {
+      return res.status(400).json({ 
+        error: "Organization ID is required in headers (x-org-id)" 
+      });
+    }
+
+    // Get tenant-specific connection
+    console.info(`[Salary Upload] Fetching tenant pool for orgId: ${orgId}`);
+    const tenantPool = await getTenantPoolByOrgId(orgId);
+    connection = await tenantPool.getConnection();
+
+    // ─── Month & Year from frontend formData ───
     const month = (req.body.month || '').toLowerCase().trim();
     const year  = (req.body.year || '').trim();
 
@@ -135,20 +83,17 @@ async function uploadSalaryData(req, res) {
       });
     }
 
-    const tableName = `\`${month}_${year}\``;
+    const tableName = getTableName(orgId, month, year);
+    console.info(`[Salary Upload] Target table: ${tableName}`);
 
-    connection = await pool.getConnection();  // ← assuming you have global 'pool'
-
-    // ────────────────────────────────────────────────────────────────
-    //   Check if table exists → create if missing
-    // ────────────────────────────────────────────────────────────────
+    // ─── Check if table exists → create if missing ───
     const [tables] = await connection.query(
       `SHOW TABLES LIKE ?`,
-      [month + '_' + year]
+      [`${orgId}_${month}_${year}`]
     );
 
     if (tables.length === 0) {
-      console.log(`[Salary Upload] Creating new table: ${tableName}`);
+      console.info(`[Salary Upload] Creating new table: ${tableName}`);
 
       const createTableSql = `
         CREATE TABLE ${tableName} (
@@ -186,12 +131,10 @@ async function uploadSalaryData(req, res) {
       `;
 
       await connection.query(createTableSql);
-      console.log(`[Salary Upload] Table ${tableName} created successfully`);
+      console.info(`[Salary Upload] Table ${tableName} created successfully`);
     }
 
-    // ────────────────────────────────────────────────────────────────
-    //   Now process the Excel file
-    // ────────────────────────────────────────────────────────────────
+    // ─── Read and parse Excel ───
     const workbook = xlsx.read(file.buffer, { type: 'buffer' });
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
@@ -222,12 +165,10 @@ async function uploadSalaryData(req, res) {
 
       Object.keys(row).forEach(excelHeader => {
         const normHeader = normalizeHeader(excelHeader);
-        const dbCol = columnMapping[normHeader];
+        const dbCol = COLUMN_MAPPING[normHeader];
         if (dbCol) {
           let val = row[excelHeader];
-          if (typeof val === 'string') {
-            val = val.trim() || null;
-          }
+          if (typeof val === 'string') val = val.trim() || null;
           if (dbCol === 'lop_days') {
             val = val ? parseInt(val, 10) || 0 : 0;
           } else if (dbCol !== 'employee_id' && dbCol !== 'full_name') {
@@ -238,7 +179,7 @@ async function uploadSalaryData(req, res) {
       });
 
       if (!mappedRow.employee_id || !mappedRow.employee_id.trim()) {
-        errors.push(`Row ${i+2}: Missing or empty Employee ID`);
+        errors.push(`Row ${i + 2}: Missing or empty Employee ID`);
         continue;
       }
 
@@ -256,7 +197,7 @@ async function uploadSalaryData(req, res) {
       return res.status(400).json({ error: "No valid rows to insert" });
     }
 
-    // Build dynamic INSERT ... ON DUPLICATE KEY UPDATE
+    // ─── Prepare INSERT query ───
     const columns = Object.keys(values[0]);
     const placeholders = columns.map(() => '?').join(', ');
     const columnList = columns.map(c => `\`${c}\``).join(', ');
@@ -270,9 +211,7 @@ async function uploadSalaryData(req, res) {
 
     const flatValues = [];
     values.forEach(row => {
-      columns.forEach(col => {
-        flatValues.push(row[col]);
-      });
+      columns.forEach(col => flatValues.push(row[col]));
     });
 
     await connection.query(sql, flatValues);
@@ -283,7 +222,7 @@ async function uploadSalaryData(req, res) {
     });
 
   } catch (err) {
-    console.error("Upload error:", err);
+    console.error("[Salary Upload] Error:", err);
     return res.status(500).json({
       error: "Failed to upload salary data",
       details: err.message
@@ -293,7 +232,6 @@ async function uploadSalaryData(req, res) {
   }
 }
 
-
-
-
-module.exports = { uploadSalaryData, upload };
+module.exports = {
+  uploadSalaryData,
+};
