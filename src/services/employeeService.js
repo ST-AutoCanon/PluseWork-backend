@@ -116,7 +116,7 @@ function deleteFilesByUrlsMixed(val) {
       console.warn(
         "[file-delete] failed for",
         url,
-        e && e.message ? e.message : e
+        e && e.message ? e.message : e,
       );
     }
   }
@@ -152,7 +152,7 @@ async function addFullEmployeeUsingConnection(conn, data, options = {}) {
   if (options && options.skipOrgLookup) {
     if (!options.providedEmployeeId || options.providedSuffix == null) {
       throw new Error(
-        "skipOrgLookup requires providedEmployeeId and providedSuffix"
+        "skipOrgLookup requires providedEmployeeId and providedSuffix",
       );
     }
     employeeId = options.providedEmployeeId;
@@ -170,13 +170,13 @@ async function addFullEmployeeUsingConnection(conn, data, options = {}) {
     if (org.no_employees != null && !options.bypassOrgLimit) {
       const [countRows] = await conn.execute(
         queries.COUNT_ACTIVE_EMPLOYEES_BY_ORG,
-        [resolvedOrg]
+        [resolvedOrg],
       );
       const current = Number(countRows && countRows[0] ? countRows[0].cnt : 0);
       const allowed = Number(org.no_employees);
       if (!Number.isNaN(allowed) && current >= allowed) {
         throw new Error(
-          `Employee limit reached for organization (allowed: ${allowed}, current: ${current}).`
+          `Employee limit reached for organization (allowed: ${allowed}, current: ${current}).`,
         );
       }
     }
@@ -189,7 +189,7 @@ async function addFullEmployeeUsingConnection(conn, data, options = {}) {
     const prefix = (org.employee_prefix || "").toUpperCase();
     if (!prefix) {
       throw new Error(
-        "Organization employee_prefix missing; cannot generate employee_id"
+        "Organization employee_prefix missing; cannot generate employee_id",
       );
     }
     employeeId = `${prefix}-${suffixStr}`;
@@ -202,6 +202,7 @@ async function addFullEmployeeUsingConnection(conn, data, options = {}) {
     employeeId,
     suffix,
     data.first_name,
+    data.middle_name || null,
     data.last_name,
     data.email,
     hash,
@@ -285,14 +286,14 @@ async function addFullEmployeeUsingConnection(conn, data, options = {}) {
     data.tenth_board || null,
     data.tenth_score || null,
     arrayToJsonOrNull(
-      data.tenth_cert_url || data.tenth_cert || data.tenth_cert_urls
+      data.tenth_cert_url || data.tenth_cert || data.tenth_cert_urls,
     ),
     data.twelfth_institution || null,
     data.twelfth_year || null,
     data.twelfth_board || null,
     data.twelfth_score || null,
     arrayToJsonOrNull(
-      data.twelfth_cert_url || data.twelfth_cert || data.twelfth_cert_urls
+      data.twelfth_cert_url || data.twelfth_cert || data.twelfth_cert_urls,
     ),
     data.ug_institution || null,
     data.ug_year || null,
@@ -380,7 +381,7 @@ exports.addFullEmployee = async (data, options = {}) => {
   ];
 
   const missing = requiredFields.filter(
-    (f) => !data[f] || String(data[f]).trim() === ""
+    (f) => !data[f] || String(data[f]).trim() === "",
   );
 
   if (!data.org_id || String(data.org_id).trim() === "") {
@@ -409,7 +410,7 @@ exports.addFullEmployee = async (data, options = {}) => {
           orgName: res.orgName || null,
           platformName: "PULSEWORK",
           resetTtlHours: 72,
-        }
+        },
       );
 
       if (mailRes && mailRes.resetToken) {
@@ -430,7 +431,7 @@ exports.addFullEmployee = async (data, options = {}) => {
         } catch (tenantSaveErr) {
           console.warn(
             "[addFullEmployee] WARNING: failed to save reset token in tenant DB:",
-            tenantSaveErr && (tenantSaveErr.stack || tenantSaveErr)
+            tenantSaveErr && (tenantSaveErr.stack || tenantSaveErr),
           );
         }
 
@@ -442,7 +443,7 @@ exports.addFullEmployee = async (data, options = {}) => {
         } catch (masterSaveErr) {
           console.warn(
             "[addFullEmployee] WARNING: failed to save reset token in master DB:",
-            masterSaveErr && (masterSaveErr.stack || masterSaveErr)
+            masterSaveErr && (masterSaveErr.stack || masterSaveErr),
           );
         }
       }
@@ -547,14 +548,14 @@ exports.editFullEmployee = async (data) => {
         if (Array.isArray(oldAdditional) && oldAdditional.length) {
           for (const cert of oldAdditional) {
             deleteFilesByUrlsMixed(
-              cert && (cert.file_urls || cert.files || cert.file)
+              cert && (cert.file_urls || cert.files || cert.file),
             );
           }
         }
       } catch (e) {
         console.warn(
           "[editFullEmployee] could not parse existing.additional_certs",
-          e
+          e,
         );
       }
     }
@@ -570,13 +571,14 @@ exports.editFullEmployee = async (data) => {
       } catch (e) {
         console.warn(
           "[editFullEmployee] could not parse existing.experience",
-          e
+          e,
         );
       }
     }
 
     await conn.execute(queries.UPDATE_EMPLOYEE_CORE, [
       pick("first_name"),
+      pick("middle_name"),
       pick("last_name"),
       pick("email"),
       pick("phone_number"),
@@ -653,7 +655,7 @@ exports.editFullEmployee = async (data) => {
       pick("tenth_board") || null,
       pick("tenth_score") || null,
       arrayToJsonOrNull(
-        resolveCertValue("tenth_cert_url", ["tenth_cert", "tenth_cert_urls"])
+        resolveCertValue("tenth_cert_url", ["tenth_cert", "tenth_cert_urls"]),
       ),
       pick("twelfth_institution") || null,
       pick("twelfth_year") || null,
@@ -663,21 +665,21 @@ exports.editFullEmployee = async (data) => {
         resolveCertValue("twelfth_cert_url", [
           "twelfth_cert",
           "twelfth_cert_urls",
-        ])
+        ]),
       ),
       pick("ug_institution") || null,
       pick("ug_year") || null,
       pick("ug_board") || null,
       pick("ug_score") || null,
       arrayToJsonOrNull(
-        resolveCertValue("ug_cert_url", ["ug_cert", "ug_cert_urls"])
+        resolveCertValue("ug_cert_url", ["ug_cert", "ug_cert_urls"]),
       ),
       pick("pg_institution") || null,
       pick("pg_year") || null,
       pick("pg_board") || null,
       pick("pg_score") || null,
       arrayToJsonOrNull(
-        resolveCertValue("pg_cert_url", ["pg_cert", "pg_cert_urls"])
+        resolveCertValue("pg_cert_url", ["pg_cert", "pg_cert_urls"]),
       ),
       eid,
     ]);
@@ -729,8 +731,8 @@ exports.editFullEmployee = async (data) => {
       const otherDocsRaw = hasKey("other_docs_urls")
         ? data.other_docs_urls
         : hasKey("other_docs")
-        ? data.other_docs
-        : null;
+          ? data.other_docs
+          : null;
       const otherDocs = ensureArrayField(otherDocsRaw);
       if (otherDocs.length) {
         for (const url of otherDocs) {
@@ -760,7 +762,7 @@ exports.editFullEmployee = async (data) => {
       const expList = Array.isArray(data.experience) ? data.experience : [];
       for (const exp of expList) {
         const docUrls = normalizeToStringArray(
-          exp.doc_urls || exp.files || exp.doc || null
+          exp.doc_urls || exp.files || exp.doc || null,
         );
         const hasAny =
           (exp.company && String(exp.company).trim()) ||
@@ -993,7 +995,7 @@ exports.assignSupervisor = async (
   employeeId,
   supervisorId,
   startDate,
-  orgId
+  orgId,
 ) => {
   if (!orgId) throw new Error("orgId required");
 
@@ -1072,13 +1074,13 @@ async function sendResetEmailAndSave(email, name, opts = {}, saveConn = null) {
           }
         } else {
           console.warn(
-            "[sendResetEmailAndSave] orgId not provided and no saveConn - skipping tenant password_resets save"
+            "[sendResetEmailAndSave] orgId not provided and no saveConn - skipping tenant password_resets save",
           );
         }
       } catch (saveErr) {
         console.warn(
           "[sendResetEmailAndSave] WARNING: failed to save reset token in tenant DB:",
-          saveErr && (saveErr.stack || saveErr)
+          saveErr && (saveErr.stack || saveErr),
         );
       }
 
@@ -1090,13 +1092,13 @@ async function sendResetEmailAndSave(email, name, opts = {}, saveConn = null) {
       } catch (masterSaveErr) {
         console.warn(
           "[sendResetEmailAndSave] WARNING: failed to save reset token in master DB:",
-          masterSaveErr && (masterSaveErr.stack || masterSaveErr)
+          masterSaveErr && (masterSaveErr.stack || masterSaveErr),
         );
       }
     } else {
       console.warn(
         "[sendResetEmailAndSave] Warning: sendResetEmail did not return resetToken",
-        { email, mailRes }
+        { email, mailRes },
       );
     }
 

@@ -18,13 +18,13 @@ module.exports = {
 
   ADD_EMPLOYEE_CORE: `
     INSERT INTO employees (
-      employee_id, suffix, first_name, last_name, email, password, phone_number, dob, org_id, status, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Active', NOW(), NOW())
+      employee_id, suffix, first_name, middle_name, last_name, email, password, phone_number, dob, org_id, status, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Active', NOW(), NOW())
   `,
 
   UPDATE_EMPLOYEE_CORE: `
     UPDATE employees
-    SET first_name = ?, last_name = ?, email = ?, phone_number = ?, dob = ?
+    SET first_name = ?, middle_name = ?, last_name = ?, email = ?, phone_number = ?, dob = ?
     WHERE employee_id = ?
   `,
 
@@ -194,6 +194,7 @@ module.exports = {
 SELECT
   e.employee_id,
   e.first_name,
+  e.middle_name,
   e.last_name,
   e.email,
   DATE_FORMAT(e.dob,'%Y-%m-%d')       AS dob,
