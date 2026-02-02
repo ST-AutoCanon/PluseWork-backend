@@ -30,11 +30,12 @@ const INSERT_OLD_EMPLOYEE_DETAILS = `
 
 const GET_ALL_OLD_EMPLOYEE_DETAILS = `
   SELECT 
-    *,
-    DATE(date_of_joining) AS date_of_joining
-  FROM old_employee_details
-  WHERE org_id = ?
-  ORDER BY created_at DESC
+  *,
+  DATE_FORMAT(date_of_joining, '%Y-%m-%d') AS date_of_joining
+FROM old_employee_details
+WHERE org_id = ?
+ORDER BY created_at DESC
+
 `;
 
 const UPDATE_OLD_EMPLOYEE_DETAILS = `
