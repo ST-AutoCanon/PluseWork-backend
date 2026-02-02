@@ -87,7 +87,7 @@ async function runCheckForMissingProfiles({ dedupeDays = 7 } = {}) {
         const likeParam = `%${missing[0]}%`;
         const [existRows] = await db.execute(
           CHECK_RECENT_SIMILAR_NOTIFICATION,
-          [employeeId, likeParam, dedupeDays]
+          [employeeId, likeParam, dedupeDays],
         );
         if (existRows && existRows.length > 0) {
           continue;
@@ -103,7 +103,7 @@ async function runCheckForMissingProfiles({ dedupeDays = 7 } = {}) {
       } catch (innerErr) {
         console.error(
           `[profileMissingNotifier] failed for ${employeeId}:`,
-          innerErr && innerErr.message ? innerErr.message : innerErr
+          innerErr && innerErr.message ? innerErr.message : innerErr,
         );
       }
     }
@@ -121,7 +121,7 @@ function scheduleJob() {
     },
     {
       timezone: TZ,
-    }
+    },
   );
 }
 

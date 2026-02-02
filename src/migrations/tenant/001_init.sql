@@ -530,6 +530,7 @@ CREATE TABLE IF NOT EXISTS templates (
   grapes_json longtext,
   html longtext,
   css longtext,
+  layout longtext,
   thumbnail_url varchar(1024) DEFAULT NULL,
   meta longtext,
   version int DEFAULT '1',
