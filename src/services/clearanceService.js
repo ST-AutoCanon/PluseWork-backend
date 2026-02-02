@@ -4,39 +4,7 @@ const Q = require("../constants/clearanceQueries");
 const fs = require('fs');
 const path = require('path');
 
-// async function addItem(data, files = []) {  // Add files par
-// // am
-//   const pool = await getTenantPoolByOrgId(data.orgId);
-//   const attachedFilesUrls = [];
 
-//   // Create uploads dir if not exists
-//   const uploadDir = path.join(__dirname, '../../uploads');  // Adjust path as needed
-//   if (!fs.existsSync(uploadDir)) {
-//     fs.mkdirSync(uploadDir, { recursive: true });
-//   }
-
-//   // Process each file
-//   for (const file of files) {
-//     const fileName = `${Date.now()}-${file.originalname}`;  // Unique name to avoid conflicts
-//     const filePath = path.join(uploadDir, fileName);
-//     fs.writeFileSync(filePath, file.buffer);  // Save file
-//     const fileUrl = `${process.env.BACKEND_URL}/uploads/${fileName}`;  // e.g., http://localhost:3000/uploads/file.jpg
-//     attachedFilesUrls.push(fileUrl);
-//   }
-
-//   const [res] = await pool.execute(Q.ADD_ITEM, [
-//     data.orgId,
-//     data.exitId,
-//     data.itemType,
-//     data.title,
-//     data.description || null,
-//     data.plannedDate || null,
-//     'pending',
-//     attachedFilesUrls.length > 0 ? JSON.stringify(attachedFilesUrls) : null,
-//     data.createdBy
-//   ]);
-//   return res.insertId;
-// }
 async function getItems(orgId, exitId) {
   const pool = await getTenantPoolByOrgId(orgId);
   const [rows] = await pool.execute(Q.GET_ITEMS, [orgId, exitId]);
@@ -64,71 +32,6 @@ async function updateStatus(orgId, itemId, status) {
   await pool.execute(Q.UPDATE_STATUS, [status, status, itemId, orgId]);
 }
 
-
-// async function approveItem(orgId, itemId, approved, approverEmployeeId) {
-//   try {
-//     console.log("[DEBUG] approveItem called", {
-//       orgId,
-//       itemId,
-//       approved,
-//       approverEmployeeId,
-//       timestamp: new Date().toISOString()
-//     });
-
-//     if (!orgId || !itemId || approved === undefined || !approverEmployeeId) {
-//       throw new Error("Missing required parameters");
-//     }
-
-//     const approvedValue = approved ? 1 : 0;
-
-//     const pool = await getTenantPoolByOrgId(orgId);
-
-//     // Fetch current state
-//     const [[item]] = await pool.execute(
-//       `SELECT 
-//          supervisor_approved, 
-//          hr_approved
-//        FROM employee_exit_clearance_items 
-//        WHERE id = ? AND org_id = ?`,
-//       [itemId, orgId]
-//     );
-
-//     if (!item) {
-//       throw new Error("Item not found");
-//     }
-
-//     console.log("[DEBUG] Current clearance item state", {
-//       supervisor_approved: item.supervisor_approved,
-//       hr_approved: item.hr_approved,
-//       itemId,
-//       orgId
-//     });
-
-//     let query = '';
-//     let params = [approvedValue, itemId, orgId];
-
-//     // For supervisor: always allow updating supervisor_approved (unless already approved)
-//     // This ensures supervisor can approve from team tab independently
-//     query = 'UPDATE employee_exit_clearance_items SET supervisor_approved = ?, updated_at = NOW() WHERE id = ? AND org_id = ?';
-//     console.log("[DEBUG] Executing supervisor approval query:", query, "with params:", params);
-
-//     const [result] = await pool.execute(query, params);
-
-//     console.log("[DEBUG] Update result", {
-//       affectedRows: result.affectedRows,
-//       changedRows: result.changedRows || 0
-//     });
-
-//     if (result.affectedRows === 0) {
-//       throw new Error("Update failed - item not found or already approved");
-//     }
-
-//     return true;
-//   } catch (err) {
-//     console.error("[ERROR] approveItem failed:", err.message);
-//     throw err;
-//   }
-// }
 
 
 
@@ -230,17 +133,58 @@ async function approveItem(orgId, itemId, approved, approverEmployeeId, approval
     throw err;
   }
 }
+
+
 async function finalizeExit(orgId, exitId) {
   const pool = await getTenantPoolByOrgId(orgId);
 
-  // Temporarily skip pending check to test
-  // const [[check]] = await pool.execute(Q.COUNT_PENDING_APPROVALS, [exitId, orgId]);
-  // if (check.pending > 0) {
-  //   throw new Error("Clearance still pending");
-  // }
+  try {
+    // 1. Get the employee_id from the exit request (safety check)
+    const [[exit]] = await pool.execute(
+      `SELECT employee_id 
+       FROM employee_exit_requests1 
+       WHERE id = ? AND org_id = ?`,
+      [exitId, orgId]
+    );
 
-  await pool.execute(Q.FINALIZE_EXIT, [exitId, orgId]);
-  console.log("[FINALIZE] Completed for exitId:", exitId);
+    if (!exit || !exit.employee_id) {
+      throw new Error("Exit request not found or missing employee_id");
+    }
+
+    const employeeId = exit.employee_id;
+
+    // 2. Mark clearance as completed (your existing logic)
+    await pool.execute(
+      `UPDATE employee_exit_requests1
+       SET clearance_completed_at = NOW()
+       WHERE id = ? AND org_id = ?
+         AND clearance_completed_at IS NULL
+         AND final_outcome = 'RESIGNED'`,
+      [exitId, orgId]
+    );
+
+    // ───────────────────────────────────────────────────────────────
+    // 3. NEW: Mark employee as Inactive
+    // ───────────────────────────────────────────────────────────────
+    await pool.execute(
+      `UPDATE employees
+       SET 
+         status = 'Inactive',
+         updated_at = NOW()
+       WHERE employee_id = ? 
+         AND org_id = ?`,
+      [employeeId, orgId]
+    );
+
+    console.log(`[FINALIZE SUCCESS] Employee ${employeeId} marked Inactive for exit ${exitId}`);
+
+    // Optional: Add audit log entry (recommended for compliance)
+   
+
+  } catch (err) {
+    console.error("[FINALIZE EXIT ERROR]", err);
+    throw err; // Let the handler catch and return 500
+  }
 }
 
 async function updateItem(orgId, itemId, data) {
