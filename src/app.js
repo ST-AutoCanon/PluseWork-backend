@@ -94,7 +94,11 @@ const salaryPreferenceRoutes = require("./routes/salaryPreferenceRoutes");
 const payrollTemplateRoutes = require("./routes/payrollTemplateRoutes");
 const app = express();
 const server = http.createServer(app);
-
+const exitRoutes = require("./routes/exitRoutes");
+const teamRouter = require('./routes/team');
+const clearanceRoutes = require("./routes/clearance");
+const exitFilesRoutes = require('./routes/exitFilesRoutes');
+const downloadRoutes = require("./routes/downloadRoutes");
 app.use(express.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
@@ -172,7 +176,14 @@ app.use((req, res, next) => {
       "/letterheadfiles",
       express.static(path.join(__dirname, "letterheadfiles"))
     );
-
+app.use("/api/exit/download", downloadRoutes); 
+    app.use(apiKeyMiddleware);
+app.use(
+  "/exitflowuploads",
+  express.static(
+    path.join("D:/Pulse-11/PluseWork-backend/exitflowuploads")
+  )
+);
     app.use(apiKeyMiddleware);
 
     app.use("/", contact);
@@ -339,7 +350,9 @@ app.use((req, res, next) => {
     app.use("/api/employeelogin", employeeloginRoutes);
     app.use("/api", empExcelRoutes);
     app.use("/api/employee", employeeBirthdayRoutes);
-
+app.use("/api/exit", exitRoutes);
+app.use("/api/clearance", clearanceRoutes);
+app.use('/api/team', teamRouter);
     app.use("/", orgRoutes);
     app.use("/api", payrollRoutes);
 

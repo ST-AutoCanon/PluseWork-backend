@@ -1,0 +1,800 @@
+// // // handlers/exitHandler.js
+// // const exitService = require("../services/exitService");
+
+// // module.exports = {
+// //   // ────────────── Employee ──────────────
+// //   applyResignation: async (req, res) => {
+// //     try {
+// //       const orgId = req.headers["x-org-id"];
+// //       const employeeId = req.headers["x-employee-id"];
+// //       const { reason, otherReason, proposedLwd, comment } = req.body;
+
+// //       const result = await exitService.applyResignation({
+// //         orgId,
+// //         employeeId,
+// //         reason,
+// //         otherReason,
+// //         proposedLwd,
+// //         comment,
+// //       });
+
+// //       res.status(201).json(result);
+// //     } catch (err) {
+// //       res.status(400).json({ success: false, error: err.message });
+// //     }
+// //   },
+
+// //   requestWithdrawal: async (req, res) => {
+// //     try {
+// //       const orgId = req.headers["x-org-id"];
+// //       const employeeId = req.headers["x-employee-id"];
+// //       const { exitId, reason } = req.body;
+
+// //       const result = await exitService.requestWithdrawal({
+// //         orgId,
+// //         employeeId,
+// //         exitId,
+// //         reason,
+// //       });
+
+// //       res.json(result);
+// //     } catch (err) {
+// //       res.status(400).json({ success: false, error: err.message });
+// //     }
+// //   },
+
+// //   // ────────────── Supervisor ──────────────
+// //   getSupervisorPending: async (req, res) => {
+// //     try {
+// //       const orgId = req.headers["x-org-id"];
+// //       const normal = await exitService.getSupervisorPending(orgId);
+// //       const withdraw = await exitService.getSupervisorWithdrawPending(orgId);
+// //       res.json({ success: true, normal, withdraw });
+// //     } catch (err) {
+// //       res.status(500).json({ success: false, error: err.message });
+// //     }
+// //   },
+
+// //   supervisorNormalAction: async (req, res) => {
+// //     try {
+// //       const orgId = req.headers["x-org-id"];
+// //       const actionBy = req.headers["x-employee-id"]; // supervisor's own employee_id
+// //       const { exitId, status, recommendedLwd, comment } = req.body;
+
+// //       await exitService.supervisorNormalAction({
+// //         orgId,
+// //         exitId,
+// //         status,
+// //         recommendedLwd,
+// //         comment,
+// //         actionBy,
+// //       });
+
+// //       res.json({ success: true, message: "Action processed" });
+// //     } catch (err) {
+// //       res.status(400).json({ success: false, error: err.message });
+// //     }
+// //   },
+
+  
+// //   supervisorWithdrawalAction: async (req, res) => {
+// //     try {
+// //       const orgId = req.headers["x-org-id"];
+// //       const { exitId, status, comment } = req.body;
+
+// //       await exitService.supervisorWithdrawalAction({ orgId, exitId, status, comment });
+
+// //       res.json({ success: true, message: "Withdrawal decision saved" });
+// //     } catch (err) {
+// //       res.status(400).json({ success: false, error: err.message });
+// //     }
+// //   },
+
+// //   // ────────────── HR ──────────────
+// //  // handlers/exitHandler.js - getHrPending
+// // getHrPending: async (req, res) => {
+// //   try {
+// //     const orgId = req.headers["x-org-id"];
+// //     const normal = await exitService.getHrPending(orgId);
+// //     const withdraw = await exitService.getHrWithdrawPending(orgId);
+    
+// //     res.json({ 
+// //       success: true, 
+// //       normal, 
+// //       withdraw 
+// //     });
+// //   } catch (err) {
+// //     res.status(500).json({ success: false, error: err.message });
+// //   }
+// // },
+
+// //   hrNormalAction: async (req, res) => {
+// //     try {
+// //       const orgId = req.headers["x-org-id"];
+// //       const actionBy = req.headers["x-employee-id"];
+// //       const { exitId, status, finalLwd, comment } = req.body;
+
+// //       await exitService.hrNormalAction({
+// //         orgId,
+// //         exitId,
+// //         status,
+// //         finalLwd,
+// //         comment,
+// //         actionBy,
+// //       });
+
+// //       res.json({ success: true, message: "Action processed" });
+// //     } catch (err) {
+// //       res.status(400).json({ success: false, error: err.message });
+// //     }
+// //   },
+
+// //   hrFinalApproveResign: async (req, res) => {
+// //     try {
+// //       const orgId = req.headers["x-org-id"];
+// //       const actionBy = req.headers["x-employee-id"];
+// //       const { exitId, finalLwd, comment } = req.body;
+
+// //       await exitService.hrApproveResignation({
+// //         orgId,
+// //         exitId,
+// //         finalLwd,
+// //         comment,
+// //         actionBy,
+// //       });
+
+// //       res.json({ success: true, message: "Resignation fully approved" });
+// //     } catch (err) {
+// //       res.status(400).json({ success: false, error: err.message });
+// //     }
+// //   },
+// // // handlers/exitHandler.js
+// // // ... existing code ...
+
+// //   getMyActive: async (req, res) => {
+// //     try {
+// //       const orgId = req.headers["x-org-id"];
+// //       const employeeId = req.headers["x-employee-id"];
+
+// //       if (!orgId || !employeeId) {
+// //         return res.status(400).json({ success: false, error: "Missing orgId or employeeId" });
+// //       }
+
+// //       const activeRequest = await exitService.getMyActiveRequest(orgId, employeeId);
+
+// //       res.json({ success: true, data: activeRequest });
+// //     } catch (err) {
+// //       console.error("Error fetching my active request:", err);
+// //       res.status(500).json({ success: false, error: "Could not fetch active request" });
+// //     }
+// //   },employeeProposeClearanceDates: async (req, res) => {
+// //     try {
+// //       const orgId = req.headers["x-org-id"];
+// //       const employeeId = req.headers["x-employee-id"];
+
+// //       if (!employeeId) {
+// //         return res.status(400).json({ success: false, error: "Missing x-employee-id header" });
+// //       }
+// //       if (!orgId) {
+// //         return res.status(400).json({ success: false, error: "Missing x-org-id header" });
+// //       }
+
+// //       const { exitId, ktProposedDate, assetsProposedDate } = req.body;
+
+// //       await exitService.employeeProposeClearanceDates({
+// //         orgId,
+// //         employeeId,
+// //         exitId,
+// //         ktProposedDate,
+// //         assetsProposedDate,
+// //       });
+
+// //       res.json({ success: true, message: "Proposed dates submitted" });
+// //     } catch (err) {
+// //       console.error("employeeProposeClearanceDates error:", err);
+// //       res.status(400).json({ success: false, error: err.message });
+// //     }
+// //   },
+// //   hrUpdateClearance: async (req, res) => {
+// //     try {
+// //       const orgId = req.headers["x-org-id"];
+// //       const { exitId, ktCompleted, assetsReturned } = req.body;
+
+// //       await exitService.hrUpdateClearanceStatus({
+// //         orgId,
+// //         exitId,
+// //         ktCompleted: !!ktCompleted,
+// //         assetsReturned: !!assetsReturned
+// //       });
+
+// //       res.json({ success: true, message: "Clearance status updated" });
+// //     } catch (err) {
+// //       res.status(400).json({ success: false, error: err.message });
+// //     }
+// //   },
+// //   // ────────────── Clearance ──────────────
+
+  
+// //   employeeProposeClearanceDates: async (req, res) => {
+// //     try {
+// //       const orgId = req.headers["x-org-id"];
+// //       const employeeId = req.headers["x-employee-id"];
+// //       const { exitId, ktProposedDate, assetsProposedDate } = req.body;
+
+// //       await exitService.employeeProposeClearanceDates({
+// //         orgId, employeeId, exitId, ktProposedDate, assetsProposedDate
+// //       });
+
+// //       res.json({ success: true, message: "Proposed dates submitted" });
+// //     } catch (err) {
+// //       res.status(400).json({ success: false, error: err.message });
+// //     }
+// //   },
+
+// //   getHrResignedClearance: async (req, res) => {
+// //     try {
+// //       const orgId = req.headers["x-org-id"];
+// //       const resigned = await exitService.getHrResignedClearance(orgId);
+// //       res.json({ success: true, resigned });
+// //     } catch (err) {
+// //       res.status(500).json({ success: false, error: err.message });
+// //     }
+// //   },
+
+// //   hrUpdateClearance: async (req, res) => {
+// //     try {
+// //       const orgId = req.headers["x-org-id"];
+// //       const { exitId, ktCompleted, assetsReturned } = req.body;
+
+// //       await exitService.hrUpdateClearanceStatus({
+// //         orgId,
+// //         exitId,
+// //         ktCompleted: !!ktCompleted,
+// //         assetsReturned: !!assetsReturned
+// //       });
+
+// //       res.json({ success: true, message: "Clearance status updated" });
+// //     } catch (err) {
+// //       res.status(400).json({ success: false, error: err.message });
+// //     }
+// //   },
+  
+  
+// // // ... rest of your handlers ...
+// //   hrFinalApproveWithdraw: async (req, res) => {
+// //     try {
+// //       const orgId = req.headers["x-org-id"];
+// //       const actionBy = req.headers["x-employee-id"];
+// //       const { exitId, comment } = req.body;
+
+// //       await exitService.hrApproveWithdrawal({
+// //         orgId,
+// //         exitId,
+// //         comment,
+// //         actionBy,
+// //       });
+
+// //       res.json({ success: true, message: "Withdrawal fully approved" });
+// //     } catch (err) {
+// //       res.status(400).json({ success: false, error: err.message });
+// //     }
+// //   },
+
+  
+// // };
+
+// // handlers/exitHandler.js
+
+
+// const exitService = require("../services/exitService");
+
+// module.exports = {
+//   // ────────────── Employee ──────────────
+//   applyResignation: async (req, res) => {
+//     try {
+//       const orgId = req.headers["x-org-id"];
+//       const employeeId = req.headers["x-employee-id"];
+//       const { reason, otherReason, proposedLwd, comment } = req.body;
+
+//       const result = await exitService.applyResignation({
+//         orgId,
+//         employeeId,
+//         reason,
+//         otherReason,
+//         proposedLwd,
+//         comment,
+//       });
+
+//       res.status(201).json(result);
+//     } catch (err) {
+//       res.status(400).json({ success: false, error: err.message });
+//     }
+//   },
+
+//   requestWithdrawal: async (req, res) => {
+//     try {
+//       const orgId = req.headers["x-org-id"];
+//       const employeeId = req.headers["x-employee-id"];
+//       const { exitId, reason } = req.body;
+
+//       const result = await exitService.requestWithdrawal({
+//         orgId,
+//         employeeId,
+//         exitId,
+//         reason,
+//       });
+
+//       res.json(result);
+//     } catch (err) {
+//       res.status(400).json({ success: false, error: err.message });
+//     }
+//   },
+
+//   // ────────────── Supervisor ──────────────
+//   getSupervisorPending: async (req, res) => {
+//     try {
+//       const orgId = req.headers["x-org-id"];
+//       const normal = await exitService.getSupervisorPending(orgId);
+//       const withdraw = await exitService.getSupervisorWithdrawPending(orgId);
+//       res.json({ success: true, normal, withdraw });
+//     } catch (err) {
+//       res.status(500).json({ success: false, error: err.message });
+//     }
+//   },
+
+//   supervisorNormalAction: async (req, res) => {
+//     try {
+//       const orgId = req.headers["x-org-id"];
+//       const actionBy = req.headers["x-employee-id"];
+//       const { exitId, status, recommendedLwd, comment } = req.body;
+
+//       await exitService.supervisorNormalAction({
+//         orgId,
+//         exitId,
+//         status,
+//         recommendedLwd,
+//         comment,
+//         actionBy,
+//       });
+
+//       res.json({ success: true, message: "Action processed" });
+//     } catch (err) {
+//       res.status(400).json({ success: false, error: err.message });
+//     }
+//   },
+
+//   supervisorWithdrawalAction: async (req, res) => {
+//     try {
+//       const orgId = req.headers["x-org-id"];
+//       const { exitId, status, comment } = req.body;
+
+//       await exitService.supervisorWithdrawalAction({ orgId, exitId, status, comment });
+
+//       res.json({ success: true, message: "Withdrawal decision saved" });
+//     } catch (err) {
+//       res.status(400).json({ success: false, error: err.message });
+//     }
+//   },
+
+//   // ────────────── HR ──────────────
+//   getHrPending: async (req, res) => {
+//     try {
+//       const orgId = req.headers["x-org-id"];
+//       const normal = await exitService.getHrPending(orgId);
+//       const withdraw = await exitService.getHrWithdrawPending(orgId);
+      
+//       res.json({ 
+//         success: true, 
+//         normal, 
+//         withdraw 
+//       });
+//     } catch (err) {
+//       res.status(500).json({ success: false, error: err.message });
+//     }
+//   },
+
+//   hrNormalAction: async (req, res) => {
+//     try {
+//       const orgId = req.headers["x-org-id"];
+//       const actionBy = req.headers["x-employee-id"];
+//       const { exitId, status, finalLwd, comment } = req.body;
+
+//       await exitService.hrNormalAction({
+//         orgId,
+//         exitId,
+//         status,
+//         finalLwd,
+//         comment,
+//         actionBy,
+//       });
+
+//       res.json({ success: true, message: "Action processed" });
+//     } catch (err) {
+//       res.status(400).json({ success: false, error: err.message });
+//     }
+//   },
+
+//   hrFinalApproveResign: async (req, res) => {
+//     try {
+//       const orgId = req.headers["x-org-id"];
+//       const actionBy = req.headers["x-employee-id"];
+//       const { exitId, finalLwd, comment } = req.body;
+
+//       await exitService.hrApproveResignation({
+//         orgId,
+//         exitId,
+//         finalLwd,
+//         comment,
+//         actionBy,
+//       });
+
+//       res.json({ success: true, message: "Resignation fully approved" });
+//     } catch (err) {
+//       res.status(400).json({ success: false, error: err.message });
+//     }
+//   },
+
+//   getMyActive: async (req, res) => {
+//     try {
+//       const orgId = req.headers["x-org-id"];
+//       const employeeId = req.headers["x-employee-id"];
+
+//       if (!orgId || !employeeId) {
+//         return res.status(400).json({ success: false, error: "Missing orgId or employeeId" });
+//       }
+
+//       const activeRequest = await exitService.getMyActiveRequest(orgId, employeeId);
+
+//       res.json({ success: true, data: activeRequest });
+//     } catch (err) {
+//       console.error("Error fetching my active request:", err);
+//       res.status(500).json({ success: false, error: "Could not fetch active request" });
+//     }
+//   },
+
+//   // ────────────── Clearance Handlers (only ONE version of each) ──────────────
+//   employeeProposeClearanceDates: async (req, res) => {
+//     try {
+//       const orgId = req.headers["x-org-id"];
+//       const employeeId = req.headers["x-employee-id"];
+
+//       if (!employeeId) {
+//         console.log("Missing x-employee-id header in request");
+//         return res.status(400).json({ success: false, error: "Missing x-employee-id header" });
+//       }
+//       if (!orgId) {
+//         return res.status(400).json({ success: false, error: "Missing x-org-id header" });
+//       }
+
+//       const { exitId, ktProposedDate, assetsProposedDate } = req.body;
+
+//       await exitService.employeeProposeClearanceDates({
+//         orgId,
+//         employeeId,
+//         exitId,
+//         ktProposedDate,
+//         assetsProposedDate,
+//       });
+
+//       res.json({ success: true, message: "Proposed dates submitted" });
+//     } catch (err) {
+//       console.error("employeeProposeClearanceDates error:", err);
+//       res.status(400).json({ success: false, error: err.message });
+//     }
+//   },
+
+//   getHrResignedClearance: async (req, res) => {
+//     try {
+//       const orgId = req.headers["x-org-id"];
+//       const resigned = await exitService.getHrResignedClearance(orgId);
+//       res.json({ success: true, resigned });
+//     } catch (err) {
+//       res.status(500).json({ success: false, error: err.message });
+//     }
+//   },
+
+//   hrUpdateClearance: async (req, res) => {
+//     try {
+//       const orgId = req.headers["x-org-id"];
+//       const { exitId, ktCompleted, assetsReturned } = req.body;
+
+//       await exitService.hrUpdateClearanceStatus({
+//         orgId,
+//         exitId,
+//         ktCompleted: !!ktCompleted,
+//         assetsReturned: !!assetsReturned,
+//       });
+
+//       res.json({ success: true, message: "Clearance status updated" });
+//     } catch (err) {
+//       res.status(400).json({ success: false, error: err.message });
+//     }
+//   },
+
+  
+//   hrFinalApproveWithdraw: async (req, res) => {
+//     try {
+//       const orgId = req.headers["x-org-id"];
+//       const actionBy = req.headers["x-employee-id"];
+//       const { exitId, comment } = req.body;
+
+//       await exitService.hrApproveWithdrawal({
+//         orgId,
+//         exitId,
+//         comment,
+//         actionBy,
+//       });
+
+//       res.json({ success: true, message: "Withdrawal fully approved" });
+//     } catch (err) {
+//       res.status(400).json({ success: false, error: err.message });
+//     }
+//   },
+// };
+
+const exitService = require("../services/exitService");
+
+module.exports = {
+  // Employee
+  applyResignation,
+  requestWithdrawal,
+  getMyActive,
+
+  // Supervisor
+  getSupervisorPending,
+  supervisorNormalAction,
+  supervisorWithdrawalAction,
+getMyTeamAllRequests,
+  getAllOrgExitRequests,
+  // HR
+  getHrPending,
+  hrNormalAction,
+  hrFinalApproveResign: hrApproveResignation,
+  hrFinalApproveWithdraw: hrApproveWithdrawal,
+
+  // Clearance
+  employeeProposeClearanceDates,
+  getHrResignedClearance,
+  hrUpdateClearance,
+  hrSetFinalPlannedDates,          // ← added here
+};
+
+// ───────────────────────────────────────────────
+//  Handlers implementations
+// ───────────────────────────────────────────────
+
+async function applyResignation(req, res) {
+  try {
+    const orgId = req.headers["x-org-id"];
+    const employeeId = req.headers["x-employee-id"];
+    const { reason, otherReason, proposedLwd, comment } = req.body;
+
+    const result = await exitService.applyResignation({
+      orgId, employeeId, reason, otherReason, proposedLwd, comment,
+    });
+    res.status(201).json(result);
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+}
+
+async function getMyTeamAllRequests(req, res) {
+  try {
+    const orgId = req.headers["x-org-id"];
+    const currentEmployeeId = req.headers["x-employee-id"];
+
+    if (!orgId || !currentEmployeeId) {
+      return res.status(400).json({ success: false, error: "Missing orgId or employeeId" });
+    }
+
+    const requests = await exitService.getMyTeamAllRequests(orgId, currentEmployeeId);
+    
+    res.json({ success: true, data: requests });
+  } catch (err) {
+    console.error("getMyTeamAllRequests error:", err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+async function getAllOrgExitRequests(req, res) {
+  try {
+    const orgId = req.headers["x-org-id"];
+
+    if (!orgId) {
+      return res.status(400).json({ success: false, error: "Missing orgId" });
+    }
+
+    const requests = await exitService.getAllOrgExitRequests(orgId);
+    
+    res.json({ success: true, data: requests });
+  } catch (err) {
+    console.error("getAllOrgExitRequests error:", err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+async function requestWithdrawal(req, res) {
+  try {
+    const orgId = req.headers["x-org-id"];
+    const employeeId = req.headers["x-employee-id"];
+    const { exitId, reason } = req.body;
+
+    const result = await exitService.requestWithdrawal({ orgId, employeeId, exitId, reason });
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+}
+
+async function getMyActive(req, res) {
+  try {
+    const orgId = req.headers["x-org-id"];
+    const employeeId = req.headers["x-employee-id"];
+    if (!orgId || !employeeId) {
+      return res.status(400).json({ success: false, error: "Missing orgId or employeeId" });
+    }
+    const activeRequest = await exitService.getMyActiveRequest(orgId, employeeId);
+    res.json({ success: true, data: activeRequest });
+  } catch (err) {
+    console.error("Error fetching my active request:", err);
+    res.status(500).json({ success: false, error: "Could not fetch active request" });
+  }
+}
+
+// Supervisor ──────────────────────────────────────
+async function getSupervisorPending(req, res) {
+  try {
+    const orgId = req.headers["x-org-id"];
+    const normal = await exitService.getSupervisorPending(orgId);
+    const withdraw = await exitService.getSupervisorWithdrawPending(orgId);
+    res.json({ success: true, normal, withdraw });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+async function supervisorNormalAction(req, res) {
+  try {
+    const orgId = req.headers["x-org-id"];
+    const actionBy = req.headers["x-employee-id"];
+    const { exitId, status, recommendedLwd, comment } = req.body;
+
+    await exitService.supervisorNormalAction({
+      orgId, exitId, status, recommendedLwd, comment, actionBy,
+    });
+    res.json({ success: true, message: "Action processed" });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+}
+
+async function supervisorWithdrawalAction(req, res) {
+  try {
+    const orgId = req.headers["x-org-id"];
+    const { exitId, status, comment } = req.body;
+    await exitService.supervisorWithdrawalAction({ orgId, exitId, status, comment });
+    res.json({ success: true, message: "Withdrawal decision saved" });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+}
+
+// HR ──────────────────────────────────────────────
+async function getHrPending(req, res) {
+  try {
+    const orgId = req.headers["x-org-id"];
+    const normal = await exitService.getHrPending(orgId);
+    const withdraw = await exitService.getHrWithdrawPending(orgId);
+    res.json({ success: true, normal, withdraw });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+async function hrNormalAction(req, res) {
+  try {
+    const orgId = req.headers["x-org-id"];
+    const actionBy = req.headers["x-employee-id"];
+    const { exitId, status, finalLwd, comment } = req.body;
+
+    await exitService.hrNormalAction({
+      orgId, exitId, status, finalLwd, comment, actionBy,
+    });
+    res.json({ success: true, message: "Action processed" });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+}
+
+async function hrApproveResignation(req, res) {
+  try {
+    const orgId = req.headers["x-org-id"];
+    const actionBy = req.headers["x-employee-id"];
+    const { exitId, finalLwd, comment } = req.body;
+
+    await exitService.hrApproveResignation({
+      orgId, exitId, finalLwd, comment, actionBy,
+    });
+    res.json({ success: true, message: "Resignation fully approved" });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+}
+
+async function hrApproveWithdrawal(req, res) {
+  try {
+    const orgId = req.headers["x-org-id"];
+    const actionBy = req.headers["x-employee-id"];
+    const { exitId, comment } = req.body;
+
+    await exitService.hrApproveWithdrawal({ orgId, exitId, comment, actionBy });
+    res.json({ success: true, message: "Withdrawal fully approved" });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+}
+
+// Clearance ───────────────────────────────────────
+async function employeeProposeClearanceDates(req, res) {
+  try {
+    const orgId = req.headers["x-org-id"];
+    const employeeId = req.headers["x-employee-id"];
+    const { exitId, ktProposedDate, assetsProposedDate } = req.body;
+
+    await exitService.employeeProposeClearanceDates({
+      orgId, employeeId, exitId, ktProposedDate, assetsProposedDate,
+    });
+
+    res.json({ success: true, message: "Proposed dates submitted" });
+  } catch (err) {
+    console.error("employeeProposeClearanceDates error:", err);
+    res.status(400).json({ success: false, error: err.message });
+  }
+}
+
+async function getHrResignedClearance(req, res) {
+  try {
+    const orgId = req.headers["x-org-id"];
+    const resigned = await exitService.getHrResignedClearance(orgId);
+    res.json({ success: true, resigned });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+async function hrUpdateClearance(req, res) {
+  try {
+    const orgId = req.headers["x-org-id"];
+    const { exitId, ktCompleted, assetsReturned } = req.body;
+
+    await exitService.hrUpdateClearanceStatus({
+      orgId,
+      exitId,
+      ktCompleted: !!ktCompleted,
+      assetsReturned: !!assetsReturned,
+    });
+
+    res.json({ success: true, message: "Clearance status updated" });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+}
+
+async function hrSetFinalPlannedDates(req, res) {
+  try {
+    const orgId = req.headers["x-org-id"];
+    const { exitId, ktPlannedDate, assetsPlannedDate } = req.body;
+
+    await exitService.hrSetFinalPlannedDates({
+      orgId,
+      exitId,
+      ktPlannedDate: ktPlannedDate || null,
+      assetsPlannedDate: assetsPlannedDate || null,
+    });
+
+    res.json({ success: true, message: "Final planned dates updated" });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+
+  
+}

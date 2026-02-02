@@ -15,6 +15,8 @@ exports.saveOldEmployeeDetails = async (req, res) => {
 
     const pool = await getTenantPoolByOrgId(orgId);
     const data = req.body;
+    console.log("BACKEND RECEIVED date_of_joining:", data.date_of_joining, typeof data.date_of_joining);
+
 
     const values = [
       orgId,
