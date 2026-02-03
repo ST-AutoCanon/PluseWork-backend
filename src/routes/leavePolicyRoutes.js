@@ -11,17 +11,17 @@ router.delete("/:id", LeavePolicyHandler.deletePolicy);
 
 router.get(
   "/employee/:employeeId/leave-balance",
-  LeavePolicyHandler.getLeaveBalanceHandler
+  LeavePolicyHandler.getLeaveBalanceHandler,
 );
 
 router.get(
   "/employee/:employeeId/monthly-lop",
-  LeavePolicyHandler.getMonthlyLOPHandler
+  LeavePolicyHandler.getMonthlyLOPHandler,
 );
 
 router.post(
   "/employee/:employeeId/compute-monthly-lop",
-  LeavePolicyHandler.computeMonthlyLOPHandler
+  LeavePolicyHandler.computeMonthlyLOPHandler,
 );
 
 router.post("/auto-extend", LeavePolicyHandler.autoExtendHandler);

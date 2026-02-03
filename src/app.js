@@ -95,9 +95,9 @@ const payrollTemplateRoutes = require("./routes/payrollTemplateRoutes");
 const app = express();
 const server = http.createServer(app);
 const exitRoutes = require("./routes/exitRoutes");
-const teamRouter = require('./routes/team');
+const teamRouter = require("./routes/team");
 const clearanceRoutes = require("./routes/clearance");
-const exitFilesRoutes = require('./routes/exitFilesRoutes');
+const exitFilesRoutes = require("./routes/exitFilesRoutes");
 const downloadRoutes = require("./routes/downloadRoutes");
 app.use(express.json());
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -127,15 +127,15 @@ app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Credentials", "true");
   res.setHeader(
     "Access-Control-Allow-Methods",
-    "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+    "GET, POST, PUT, DELETE, OPTIONS, PATCH",
   );
   res.setHeader(
     "Access-Control-Allow-Headers",
-    "Content-Type, Authorization, x-api-key, x-employee-id, x-org-id, X-Requested-With,x-role, Accept, Origin, Access-Control-Request-Method, Access-Control-Request-Headers"
+    "Content-Type, Authorization, x-api-key, x-employee-id, x-org-id, X-Requested-With,x-role, Accept, Origin, Access-Control-Request-Method, Access-Control-Request-Headers",
   );
   res.setHeader(
     "Access-Control-Expose-Headers",
-    "Content-Length, Content-Range"
+    "Content-Length, Content-Range",
   );
   res.setHeader("Access-Control-Max-Age", "86400");
 
@@ -169,21 +169,21 @@ app.use((req, res, next) => {
 
     app.use(
       "/uploads",
-      express.static(path.join(__dirname, "../../AssetUploads"))
+      express.static(path.join(__dirname, "../../AssetUploads")),
     );
     app.use("/assets", express.static(path.join(__dirname, "assets")));
     app.use(
       "/letterheadfiles",
-      express.static(path.join(__dirname, "letterheadfiles"))
+      express.static(path.join(__dirname, "letterheadfiles")),
     );
-app.use("/api/exit/download", downloadRoutes); 
+    app.use("/api/exit/download", downloadRoutes);
     app.use(apiKeyMiddleware);
-app.use(
-  "/exitflowuploads",
-  express.static(
-    path.join("D:/Pulse-11/PluseWork-backend/exitflowuploads")
-  )
-);
+    app.use(
+      "/exitflowuploads",
+      express.static(
+        path.join("D:/Pulse-11/PluseWork-backend/exitflowuploads"),
+      ),
+    );
     app.use(apiKeyMiddleware);
 
     app.use("/", contact);
@@ -195,7 +195,7 @@ app.use(
     webpush.setVapidDetails(
       "mailto:your-email@example.com",
       process.env.VAPID_PUBLIC_KEY,
-      process.env.VAPID_PRIVATE_KEY
+      process.env.VAPID_PRIVATE_KEY,
     );
 
     const subscriptions = [];
@@ -235,7 +235,7 @@ app.use(
           console.error("[cron] policy alert error:", err);
         }
       },
-      { timezone: "Asia/Kolkata" }
+      { timezone: "Asia/Kolkata" },
     );
 
     cron.schedule(
@@ -248,7 +248,7 @@ app.use(
           console.error("[cron] policy alert error:", err);
         }
       },
-      { timezone: "Asia/Kolkata" }
+      { timezone: "Asia/Kolkata" },
     );
 
     cron.schedule("0 20 * * *", async () => {
@@ -283,13 +283,13 @@ app.use(
         } catch (err) {
           console.warn(
             `[startup] profileMissingNotifier DB ping failed (attempt ${attempt}/${maxAttempts})`,
-            err && err.message ? err.message : err
+            err && err.message ? err.message : err,
           );
           await new Promise((r) => setTimeout(r, 5000));
         }
       }
       console.error(
-        "[startup] profileMissingNotifier: DB did not become ready — job not scheduled"
+        "[startup] profileMissingNotifier: DB did not become ready — job not scheduled",
       );
     })();
 
@@ -314,6 +314,19 @@ app.use(
     app.use("/", loginRoutes);
     app.use("/", meRoute);
     app.use("/", leaveRoutes);
+    app.use("/api/leave-policies", leavePolicy);
+    app.use("/", leavePolicy);
+    const LeavePolicyHandler = require("./handlers/leavePolicyHandler");
+    app.get("/api/leave-policies", (req, res, next) => {
+      console.log("[ROUTE WRAPPER] /api/leave-policies hit, headers:", {
+        "x-org-id": req.headers["x-org-id"] || req.headers["x_org_id"],
+        "x-employee-id":
+          req.headers["x-employee-id"] || req.headers["x_employee_id"],
+        path: req.path,
+        query: req.query,
+      });
+      return LeavePolicyHandler.getAllPolicies(req, res).catch(next);
+    });
     app.use("/", projects);
     app.use("/", invoices);
     app.use("/", employeeRoutes);
@@ -350,9 +363,9 @@ app.use(
     app.use("/api/employeelogin", employeeloginRoutes);
     app.use("/api", empExcelRoutes);
     app.use("/api/employee", employeeBirthdayRoutes);
-app.use("/api/exit", exitRoutes);
-app.use("/api/clearance", clearanceRoutes);
-app.use('/api/team', teamRouter);
+    app.use("/api/exit", exitRoutes);
+    app.use("/api/clearance", clearanceRoutes);
+    app.use("/api/team", teamRouter);
     app.use("/", orgRoutes);
     app.use("/api", payrollRoutes);
 
@@ -385,7 +398,6 @@ app.use('/api/team', teamRouter);
     app.use("/api/overtime-summary", overtimeSummaryRoutes);
     app.use("/api", employeeProjectsRoute);
     app.use("/api/lop", lossofPayCalculationRoutes);
-    app.use("/api/leave-policies", leavePolicy);
 
     app.use("/api/compensations", compensationRoutes);
 
@@ -472,7 +484,7 @@ app.use('/api/team', teamRouter);
     io.on("connection", (socket) => {
       const socketOrgId = resolveOrgIdFromSocket(socket);
       console.log(
-        `[socket] connected ${socket.id} userId=${socket.userId} via=${socket.authenticatedBy} orgId=${socketOrgId}`
+        `[socket] connected ${socket.id} userId=${socket.userId} via=${socket.authenticatedBy} orgId=${socketOrgId}`,
       );
 
       if (socket.userId && socketOrgId) {
@@ -480,7 +492,7 @@ app.use('/api/team', teamRouter);
           try {
             const rooms = await chatService.getUserRooms(
               socketOrgId,
-              socket.userId
+              socket.userId,
             );
             (rooms || []).forEach((r) => {
               try {
@@ -493,7 +505,7 @@ app.use('/api/team', teamRouter);
         })();
       } else if (socket.userId && !socketOrgId) {
         console.warn(
-          `[socket:${socket.id}] orgId not provided in handshake — skipping tenant chat room joins for user ${socket.userId}`
+          `[socket:${socket.id}] orgId not provided in handshake — skipping tenant chat room joins for user ${socket.userId}`,
         );
       }
 
@@ -503,7 +515,7 @@ app.use('/api/team', teamRouter);
             threads.forEach((t) => socket.join(`query_${String(t.id)}`));
           })
           .catch((err) =>
-            console.error("[socket] getThreadsByEmployee error:", err)
+            console.error("[socket] getThreadsByEmployee error:", err),
           );
       }
 
@@ -541,7 +553,7 @@ app.use('/api/team', teamRouter);
             payload.message,
             payload.recipient_id,
             null,
-            payload.attachmentBase64
+            payload.attachmentBase64,
           );
 
           const newMsg = {
@@ -560,7 +572,7 @@ app.use('/api/team', teamRouter);
 
           io.to(`query_${String(payload.thread_id)}`).emit(
             "newMessage",
-            newMsg
+            newMsg,
           );
           if (typeof callback === "function")
             callback({ success: true, message: newMsg });
@@ -568,7 +580,7 @@ app.use('/api/team', teamRouter);
         } catch (err) {
           console.error(
             "[socket] sendQueryMessage error:",
-            err && err.message ? err.message : err
+            err && err.message ? err.message : err,
           );
           if (typeof callback === "function")
             callback({ success: false, error: err.message || "Unknown error" });
@@ -623,7 +635,7 @@ app.use('/api/team', teamRouter);
             fileUrl,
             lat,
             lng,
-            address
+            address,
           );
 
           const emitted = {
@@ -646,7 +658,7 @@ app.use('/api/team', teamRouter);
         } catch (err) {
           console.error(
             "[socket] send_message error:",
-            err && err.message ? err.message : err
+            err && err.message ? err.message : err,
           );
           if (typeof ack === "function")
             ack({
@@ -674,7 +686,7 @@ app.use('/api/team', teamRouter);
               name,
               isGroup,
               socket.userId,
-              members
+              members,
             );
             socket.join(String(roomId));
 
@@ -694,12 +706,12 @@ app.use('/api/team', teamRouter);
                 error: err.message || "create_room failed",
               });
           }
-        }
+        },
       );
 
       socket.on("disconnect", (reason) => {
         console.log(
-          `[socket] ${socket.id} disconnected (${reason}) userId=${socket.userId}`
+          `[socket] ${socket.id} disconnected (${reason}) userId=${socket.userId}`,
         );
       });
     });
@@ -711,7 +723,7 @@ app.use('/api/team', teamRouter);
   } catch (err) {
     console.error(
       "Failed to initialize session store or start server. Aborting.",
-      err
+      err,
     );
     process.exit(1);
   }

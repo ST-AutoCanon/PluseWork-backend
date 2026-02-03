@@ -1,4 +1,6 @@
 // services/leaveService.js
+const fs = require("fs");
+const path = require("path");
 const { getTenantPoolByOrgId } = require("../db/tenantPoolManager");
 const queries = require("../constants/leaveQueries");
 const LeavePolicyService = require("./leavePolicyService");
@@ -70,6 +72,7 @@ const getEmployeeProfile = async (employeeId, orgId) => {
     return null;
   }
 };
+
 const getLeaveTypes = async (orgId) => {
   if (!orgId) throw new Error("orgId required");
   const tenantPool = await getTenantPool(orgId);
@@ -924,6 +927,304 @@ const getLeaveQueriesForTeamLead = async (filters = {}, teamLeadId, orgId) => {
   }
 };
 
+/**
+ * Insert attachment rows for a leave (append).
+ * files: array of multer file objects (each has originalname, filename, path, mimetype, size)
+ * Returns array of inserted metadata objects.
+ */
+async function saveLeaveAttachments(leaveId, files = [], orgId) {
+  if (!leaveId) throw new Error("leaveId required");
+  if (!Array.isArray(files) || files.length === 0) return [];
+  if (!orgId) throw new Error("orgId required");
+
+  const tenantPool = await getTenantPool(orgId);
+  const inserted = [];
+
+  for (const file of files) {
+    try {
+      // multer provides: file.originalname, file.filename, file.path, file.mimetype, file.size
+      const fileName = file.originalname || file.filename || "file";
+      const filePath = file.path || file.filename || "";
+      const mime = file.mimetype || null;
+      const size = Number(file.size || 0);
+
+      const [result] = await tenantPool.execute(
+        queries.INSERT_LEAVE_ATTACHMENT,
+        [leaveId, fileName, filePath, mime, size, orgId],
+      );
+
+      inserted.push({
+        id: result && result.insertId ? Number(result.insertId) : null,
+        file_name: fileName,
+        file_path: filePath,
+        mime_type: mime,
+        size,
+      });
+    } catch (err) {
+      console.warn(
+        "[saveLeaveAttachments] failed to insert attachment record for file:",
+        file && file.originalname,
+        err && err.message ? err.message : err,
+      );
+      // continue with other files
+    }
+  }
+
+  return inserted;
+}
+
+/**
+ * Get attachments for a leave
+ */
+async function getAttachmentsForLeave(leaveId, orgId) {
+  if (!leaveId) throw new Error("leaveId required");
+  if (!orgId) throw new Error("orgId required");
+  const tenantPool = await getTenantPool(orgId);
+  const [rows] = await tenantPool.execute(queries.GET_ATTACHMENTS_BY_LEAVE, [
+    leaveId,
+    orgId,
+  ]);
+  // map to usable shape
+  return (rows || []).map((r) => ({
+    id: Number(r.id),
+    leave_id: r.leave_id,
+    file_name: r.file_name,
+    file_path: r.file_path,
+    mime_type: r.mime_type,
+    size: Number(r.size || 0),
+    created_at: r.created_at,
+  }));
+}
+
+/**
+ * Get single attachment by id
+ */
+async function getAttachmentById(attachmentId, orgId) {
+  if (!attachmentId) throw new Error("attachmentId required");
+  if (!orgId) throw new Error("orgId required");
+  const tenantPool = await getTenantPool(orgId);
+  const [rows] = await tenantPool.execute(queries.GET_ATTACHMENT_BY_ID, [
+    attachmentId,
+    orgId,
+  ]);
+  if (!rows || rows.length === 0) return null;
+  const r = rows[0];
+  return {
+    id: Number(r.id),
+    leave_id: r.leave_id,
+    file_name: r.file_name,
+    file_path: r.file_path,
+    mime_type: r.mime_type,
+    size: Number(r.size || 0),
+    created_at: r.created_at,
+  };
+}
+
+/**
+ * Delete an attachment row + unlink the physical file (best-effort).
+ * Returns true if DB deletion succeeded (even if unlink failed).
+ */
+async function deleteAttachmentById(attachmentId, orgId) {
+  if (!attachmentId) throw new Error("attachmentId required");
+  if (!orgId) throw new Error("orgId required");
+
+  const tenantPool = await getTenantPool(orgId);
+
+  // fetch record first (to get path)
+  const [rows] = await tenantPool.execute(queries.GET_ATTACHMENT_BY_ID, [
+    attachmentId,
+    orgId,
+  ]);
+  if (!rows || rows.length === 0) {
+    // nothing to delete
+    return false;
+  }
+  const rec = rows[0];
+  const filePath = rec.file_path;
+
+  // delete db record
+  await tenantPool.execute(queries.DELETE_ATTACHMENT_BY_ID, [
+    attachmentId,
+    orgId,
+  ]);
+
+  // unlink filesystem - be safe: only unlink if path contains uploads/leave_attachments/<orgId> to avoid accidental deletes
+  try {
+    if (typeof filePath === "string" && filePath.length > 0) {
+      const safeSegment = path.join(
+        "uploads",
+        "leave_attachments",
+        String(orgId),
+      );
+      const abs = path.isAbsolute(filePath)
+        ? filePath
+        : path.join(process.cwd(), filePath);
+
+      // allow unlink only if the abs path contains the expected safeSegment
+      const normalizedAbs = path.normalize(abs);
+      if (normalizedAbs.includes(path.normalize(safeSegment))) {
+        try {
+          if (fs.existsSync(normalizedAbs)) {
+            fs.unlinkSync(normalizedAbs);
+          }
+        } catch (unlinkErr) {
+          console.warn(
+            "[deleteAttachmentById] failed to unlink file:",
+            normalizedAbs,
+            unlinkErr && unlinkErr.message ? unlinkErr.message : unlinkErr,
+          );
+        }
+      } else {
+        console.warn(
+          "[deleteAttachmentById] refusing to unlink file outside uploads folder:",
+          normalizedAbs,
+        );
+      }
+    }
+  } catch (err) {
+    console.warn(
+      "[deleteAttachmentById] unlink safety check failed:",
+      err && err.message ? err.message : err,
+    );
+  }
+
+  return true;
+}
+
+/**
+ * Replace attachments for a leave:
+ * - delete existing attachment rows (and attempt to unlink files)
+ * - insert new files (saved by multer) as new rows
+ *
+ * Behavior: wrapped with DB transaction for DB changes. Files are unlinked best-effort.
+ *
+ * Returns: { deleted: [ids], inserted: [insertedMeta] }
+ */
+async function replaceAttachmentsForLeave(leaveId, files = [], orgId) {
+  if (!leaveId) throw new Error("leaveId required");
+  if (!orgId) throw new Error("orgId required");
+  const tenantPool = await getTenantPool(orgId);
+
+  // fetch existing attachments (to unlink later)
+  const [existingRows] = await tenantPool.execute(
+    queries.GET_ATTACHMENTS_BY_LEAVE,
+    [leaveId, orgId],
+  );
+  const existing = existingRows || [];
+
+  // start transaction
+  const conn = await tenantPool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    // delete records for this leave
+    const idsToDelete = existing.map((r) => Number(r.id)).filter(Boolean);
+    if (idsToDelete.length > 0) {
+      // build placeholders
+      const placeholders = idsToDelete.map(() => "?").join(",");
+      // we use a safe delete that includes org_id in WHERE to avoid cross-tenant issues
+      const deleteSql = `DELETE FROM leave_attachments WHERE id IN (${placeholders}) AND org_id = ?`;
+      await conn.execute(deleteSql, [...idsToDelete, orgId]);
+    }
+
+    // insert new files
+    const inserted = [];
+    for (const file of files) {
+      try {
+        const fileName = file.originalname || file.filename || "file";
+        const filePath = file.path || file.filename || "";
+        const mime = file.mimetype || null;
+        const size = Number(file.size || 0);
+
+        const [res] = await conn.execute(queries.INSERT_LEAVE_ATTACHMENT, [
+          leaveId,
+          fileName,
+          filePath,
+          mime,
+          size,
+          orgId,
+        ]);
+        inserted.push({
+          id: res && res.insertId ? Number(res.insertId) : null,
+          file_name: fileName,
+          file_path: filePath,
+          mime_type: mime,
+          size,
+        });
+      } catch (insErr) {
+        console.warn(
+          "[replaceAttachmentsForLeave] failed to insert a new attachment:",
+          insErr && insErr.message ? insErr.message : insErr,
+        );
+        // bubble to outer catch to rollback
+        throw insErr;
+      }
+    }
+
+    await conn.commit();
+    try {
+      conn.release();
+    } catch (e) {}
+
+    // best-effort unlink of old files (after commit)
+    for (const r of existing) {
+      try {
+        const filePath = r.file_path;
+        if (!filePath) continue;
+        const abs = path.isAbsolute(filePath)
+          ? filePath
+          : path.join(process.cwd(), filePath);
+        const safeSegment = path.join(
+          "uploads",
+          "leave_attachments",
+          String(orgId),
+        );
+        const normalizedAbs = path.normalize(abs);
+        if (normalizedAbs.includes(path.normalize(safeSegment))) {
+          if (fs.existsSync(normalizedAbs)) {
+            try {
+              fs.unlinkSync(normalizedAbs);
+            } catch (uErr) {
+              console.warn(
+                "[replaceAttachmentsForLeave] unlink old file failed:",
+                normalizedAbs,
+                uErr && uErr.message ? uErr.message : uErr,
+              );
+            }
+          }
+        } else {
+          console.warn(
+            "[replaceAttachmentsForLeave] skipping unlink, path not in safe folder:",
+            abs,
+          );
+        }
+      } catch (innerErr) {
+        console.warn(
+          "[replaceAttachmentsForLeave] unlink loop error:",
+          innerErr && innerErr.message ? innerErr.message : innerErr,
+        );
+      }
+    }
+
+    return { deleted: existing.map((r) => Number(r.id)), inserted };
+  } catch (err) {
+    // rollback DB changes on error
+    try {
+      await conn.rollback();
+    } catch (rbErr) {
+      console.error(
+        "[replaceAttachmentsForLeave] rollback failed:",
+        rbErr && rbErr.message ? rbErr.message : rbErr,
+      );
+    } finally {
+      try {
+        conn.release();
+      } catch (e) {}
+    }
+    throw err;
+  }
+}
+
 module.exports = {
   getLeaveQueries,
   updateLeaveRequest,
@@ -934,8 +1235,12 @@ module.exports = {
   getLeaveQueriesForTeamLead,
   getLeaveTypes,
   getLeaveTypeByKey,
+  saveLeaveAttachments,
+  getAttachmentsForLeave,
+  getAttachmentById,
+  deleteAttachmentById,
+  replaceAttachmentsForLeave,
   getEmployeePersonal,
   validateLeaveTypeEligibility,
   getEmployeeProfile,
 };
-

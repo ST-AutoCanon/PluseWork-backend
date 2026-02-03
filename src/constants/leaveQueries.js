@@ -5,6 +5,7 @@ module.exports = {
       period,
       DATE_FORMAT(year_start, '%Y-%m-%d') AS year_start,
       DATE_FORMAT(year_end,   '%Y-%m-%d') AS year_end,
+      
       leave_settings
     FROM leave_policy
     WHERE org_id =?
@@ -22,9 +23,42 @@ module.exports = {
     WHERE id = ?
   `,
 
+  /* ---------- Attachments queries ---------- */
+  INSERT_LEAVE_ATTACHMENT: `
+    INSERT INTO leave_attachments (
+      leave_id,
+      file_name,
+      file_path,
+      mime_type,
+      size,
+      org_id,
+      created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, NOW())
+  `,
+
+  GET_ATTACHMENTS_BY_LEAVE: `
+    SELECT id, leave_id, file_name, file_path, mime_type, size, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at
+    FROM leave_attachments
+    WHERE leave_id = ? AND org_id = ?
+    ORDER BY created_at ASC
+  `,
+
+  GET_ATTACHMENT_BY_ID: `
+    SELECT id, leave_id, file_name, file_path, mime_type, size, org_id, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at
+    FROM leave_attachments
+    WHERE id = ? AND org_id = ?
+    LIMIT 1
+  `,
+
+  DELETE_ATTACHMENT_BY_ID: `
+    DELETE FROM leave_attachments
+    WHERE id = ? AND org_id = ?
+  `,
+
+  /* ---------- existing leave policy queries ---------- */
   create: `
     INSERT INTO leave_policy
-      (org_id, period, year_start, year_end, leave_settings)
+      (org_id, period, year_start, year_end,  leave_settings)
     VALUES (?, ?, ?, ?, ?)
   `,
 
@@ -366,4 +400,3 @@ GROUP BY leave_type;
     WHERE pr.supervisor_id = ?
   `,
 };
-
