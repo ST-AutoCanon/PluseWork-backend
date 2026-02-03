@@ -1,5 +1,5 @@
 // services/leavePolicyService.js
-const { getTenantPool, sanitizeDbName } = require("../db/tenantPoolManager");
+const { getTenantPoolByOrgId } = require("../db/tenantPoolManager");
 const queries = require("../constants/leavePolicyQueries");
 const dayjs = require("dayjs");
 
@@ -42,11 +42,16 @@ function parseLocalDate(dateInput) {
   return null;
 }
 
+/**
+ * Wrapper to obtain tenant pool for the given orgId.
+ * Uses tenantPoolManager.getTenantPoolByOrgId which should handle db name sanitization internally.
+ */
 async function getTenantPoolForOrgId(orgId) {
   if (!orgId) throw new Error("orgId required");
-  // derive database name tenant_<org id>, then sanitize and obtain pool
-  const dbName = sanitizeDbName(`tenant_${orgId}`);
-  return getTenantPool(dbName);
+  if (typeof getTenantPoolByOrgId === "function") {
+    return await getTenantPoolByOrgId(orgId);
+  }
+  throw new Error("getTenantPoolByOrgId not available from tenantPoolManager");
 }
 
 /* Replace previous getTenantPool usage with getTenantPoolForOrgId */
@@ -97,11 +102,57 @@ async function countOverlappingPolicies(
 }
 
 const getAllPolicies = async (orgId) => {
+  console.log("Fetching policies for orgId:", orgId);
+
+  if (!orgId) {
+    throw new Error("orgId is required in getAllPolicies");
+  }
+
   const tenantPool = await getTenantPoolForOrgId(orgId);
-  const [rows] = await tenantPool.execute(queries.getAll, [orgId]);
+
+  let useOrgFilter = false;
+
+  try {
+    const [cols] = await tenantPool.execute(
+      "SHOW COLUMNS FROM leave_policy LIKE 'org_id'",
+    );
+    useOrgFilter = Array.isArray(cols) && cols.length > 0;
+  } catch (e) {
+    console.warn("[leavePolicyService] org_id column check failed:", e.message);
+  }
+
+  let sql;
+  let params = [];
+
+  if (useOrgFilter) {
+    if (!queries?.getAll) {
+      throw new Error("leavePolicyQueries.getAll is undefined");
+    }
+    sql = queries.getAll;
+    params = [orgId];
+  } else {
+    sql = `
+      SELECT 
+        id,
+        period,
+        DATE_FORMAT(year_start, '%Y-%m-%d') AS year_start,
+        DATE_FORMAT(year_end, '%Y-%m-%d') AS year_end,
+        leave_settings
+      FROM leave_policy
+      ORDER BY year_start DESC, period
+    `;
+  }
+
+  console.log("[getAllPolicies] executing SQL:", sql);
+
+  const [rows] = await tenantPool.execute(sql, params);
+
   return (rows || []).map((r) => ({
     ...r,
-    leave_settings: safeParseSettings(r.leave_settings),
+    leave_settings:
+      typeof r.leave_settings === "string"
+        ? safeParseSettings(r.leave_settings)
+        : r.leave_settings,
   }));
 };
 

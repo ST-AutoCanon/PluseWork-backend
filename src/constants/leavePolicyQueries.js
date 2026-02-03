@@ -1,16 +1,15 @@
 module.exports = {
   getAll: `
-    SELECT
+    SELECT 
       id,
       period,
       DATE_FORMAT(year_start, '%Y-%m-%d') AS year_start,
-      DATE_FORMAT(year_end,   '%Y-%m-%d') AS year_end,
+      DATE_FORMAT(year_end, '%Y-%m-%d') AS year_end,
       leave_settings
     FROM leave_policy
-    WHERE org_id =?
+    WHERE org_id = ?
     ORDER BY year_start DESC, period
   `,
-
   getById: `
     SELECT
       id,
