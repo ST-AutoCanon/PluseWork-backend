@@ -126,11 +126,16 @@ async function supervisorNormalAction(req, res) {
     const actionBy = req.headers["x-employee-id"];
     const { exitId, status, recommendedLwd, comment } = req.body;
 
-    await exitService.supervisorNormalAction({
+    console.log("[SUPERVISOR ACTION] Processing:", { exitId, orgId, status, actionBy });
+
+    const result = await exitService.supervisorNormalAction({
       orgId, exitId, status, recommendedLwd, comment, actionBy,
     });
-    res.json({ success: true, message: "Action processed" });
+    
+    console.log("[SUPERVISOR ACTION] Success:", result);
+    res.json({ success: true, message: "Action processed", data: result });
   } catch (err) {
+    console.error("[SUPERVISOR ACTION] Error:", err.message);
     res.status(400).json({ success: false, error: err.message });
   }
 }

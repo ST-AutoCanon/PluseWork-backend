@@ -26,7 +26,8 @@ const GET_COMPENSATION_WORKING_DAYS_BY_PLAN_ID = `
 const UPDATE_COMPENSATION_PLAN = `
   UPDATE compensation_plans
   SET compensation_plan_name = ?,
-      plan_data = ?
+      plan_data = ?,
+      created_at = CURRENT_TIMESTAMP
   WHERE id = ?;
 `;
 

@@ -115,10 +115,12 @@ async function supervisorNormalAction(data) {
 
   if (status === "REJECTED") {
     await pool.execute(Q.SUPERVISOR_REJECT_FULL, [comment || null, actionBy, exitId, orgId]);
-  } else {
+  } else if (status === "APPROVED") {
     await pool.execute(Q.SUPERVISOR_UPDATE_NORMAL, [
-      status, recommendedLwd || null, comment || null, actionBy, exitId, orgId
+      status, recommendedLwd || null, comment || null, actionBy, status, exitId, orgId
     ]);
+  } else {
+    throw new Error("Invalid supervisor action status. Must be APPROVED or REJECTED");
   }
   return { success: true };
 }

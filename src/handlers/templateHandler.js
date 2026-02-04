@@ -3,7 +3,11 @@ const path = require("path");
 const fs = require("fs-extra");
 
 async function moveFileToUploads(tmpPath, originalName) {
-  if (!tmpPath) return null;
+  if (!tmpPath) {
+    console.warn("moveFileToUploads: No tmpPath provided");
+    return null;
+  }
+  
   const publicUploads = path.join(
     __dirname,
     "..",
@@ -12,17 +16,44 @@ async function moveFileToUploads(tmpPath, originalName) {
     "public",
     "uploads"
   );
-  await fs.ensureDir(publicUploads);
+  
+  console.log(`📁 Moving file from temp: ${tmpPath}`);
+  console.log(`📁 Target directory: ${publicUploads}`);
+  
+  try {
+    await fs.ensureDir(publicUploads);
+    console.log(`✅ Upload directory ready: ${publicUploads}`);
+  } catch (err) {
+    console.error(`❌ Failed to create uploads directory: ${err.message}`);
+    throw err;
+  }
 
   const destName = `${Date.now()}_${path
     .basename(originalName || tmpPath)
     .replace(/\s/g, "_")}`;
   const destPath = path.join(publicUploads, destName);
 
-  await fs.ensureDir(path.dirname(destPath));
-  await fs.move(tmpPath, destPath, { overwrite: true });
+  console.log(`📝 Destination filename: ${destName}`);
+  console.log(`📝 Full destination path: ${destPath}`);
 
-  return destName;
+  try {
+    await fs.ensureDir(path.dirname(destPath));
+    await fs.move(tmpPath, destPath, { overwrite: true });
+    console.log(`✅ File moved successfully: ${destName}`);
+    
+    // Verify file exists
+    const fileExists = await fs.pathExists(destPath);
+    if (fileExists) {
+      console.log(`✅ File verified at: ${destPath}`);
+    } else {
+      console.error(`❌ File move reported success but file not found at: ${destPath}`);
+    }
+    
+    return destName;
+  } catch (err) {
+    console.error(`❌ Failed to move file: ${err.message}`);
+    throw err;
+  }
 }
 
 function buildSimpleTemplateHtml(
@@ -489,23 +520,44 @@ async function listTemplatesHandler(req, res) {
 async function serveUploadedFileHandler(req, res) {
   try {
     const { orgId, filename } = req.params;
-    const uploadsDir = path.join(
-      __dirname,
-      "..",
-      "..",
-      "..",
-      "public",
-      "uploads"
-    );
-    const filePath = path.join(uploadsDir, filename);
+    
+    if (!filename) {
+      return res.status(400).json({ error: "Filename required" });
+    }
 
-    const exists = await fs.pathExists(filePath);
-    if (!exists) return res.status(404).json({ error: "Not found" });
+    // Try multiple possible locations
+    const possiblePaths = [
+      path.join(__dirname, "..", "..", "..", "public", "uploads", filename),
+      path.join(__dirname, "..", "..", "public", "uploads", filename),
+      path.join(__dirname, "..", "public", "uploads", filename),
+      path.join("D:/Pulse-12/public/uploads", filename),
+      path.join(process.cwd(), "public", "uploads", filename),
+    ];
 
+    let filePath = null;
+    for (const p of possiblePaths) {
+      const exists = await fs.pathExists(p);
+      if (exists) {
+        filePath = p;
+        console.log(`✅ Found file at: ${p}`);
+        break;
+      }
+    }
+
+    if (!filePath) {
+      console.error(`❌ File not found in any location:`, possiblePaths);
+      return res.status(404).json({ 
+        error: "File not found",
+        attempted_paths: possiblePaths,
+        filename: filename 
+      });
+    }
+
+    res.setHeader("Cache-Control", "public, max-age=3600");
     return res.sendFile(filePath);
   } catch (err) {
     console.error("serveUploadedFileHandler", err);
-    return res.status(500).json({ error: "Failed to serve file" });
+    return res.status(500).json({ error: "Failed to serve file", details: err.message });
   }
 }
 
