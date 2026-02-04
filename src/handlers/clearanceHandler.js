@@ -1,14 +1,31 @@
 
 
-
 // src/handlers/clearanceHandler.js (correct version after fix)
 const service = require("../services/clearanceService");
 
 exports.getItems = async (req, res) => {
   const orgId = req.headers["x-org-id"];
   const { exitId } = req.params;
-  const data = await service.getItems(orgId, exitId);
-  res.json({ success: true, data });
+  console.log("\n=== GET ITEMS START ===");
+  console.log("[getItems] orgId:", orgId, "exitId:", exitId);
+  try {
+    const data = await service.getItems(orgId, exitId);
+    console.log("[getItems] Found items:", data.length);
+    if (data.length > 0) {
+      console.log("[getItems] First item sample:", {
+        id: data[0].id,
+        title: data[0].title,
+        item_type: data[0].item_type,
+        attached_files: data[0].attached_files
+      });
+    }
+    console.log("=== GET ITEMS END (SUCCESS) ===\n");
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error("[getItems] ERROR:", err);
+    console.log("=== GET ITEMS END (ERROR) ===\n");
+    res.status(500).json({ error: err.message });
+  }
 };
 
 exports.addItem = async (req, res) => {

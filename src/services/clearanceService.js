@@ -8,7 +8,33 @@ const path = require('path');
 async function getItems(orgId, exitId) {
   const pool = await getTenantPoolByOrgId(orgId);
   const [rows] = await pool.execute(Q.GET_ITEMS, [orgId, exitId]);
-  return rows;
+  
+  console.log("[getItems SERVICE] Raw rows from DB:", rows.length, "rows");
+  if (rows.length > 0) {
+    console.log("[getItems SERVICE] First row - attached_files type:", typeof rows[0].attached_files, "value:", rows[0].attached_files);
+  }
+  
+  // Parse attached_files JSON for each item
+  const processedRows = rows.map((row, idx) => {
+    console.log(`[getItems SERVICE] Processing row ${idx}: attached_files type = ${typeof row.attached_files}, value = ${JSON.stringify(row.attached_files)}`);
+    
+    if (row.attached_files && typeof row.attached_files === 'string') {
+      try {
+        row.attached_files = JSON.parse(row.attached_files);
+        console.log(`[getItems SERVICE] Parsed row ${idx} attached_files to array:`, row.attached_files);
+      } catch (err) {
+        console.error("[getItems] Failed to parse attached_files for item", row.id, err);
+        row.attached_files = [];
+      }
+    } else if (!row.attached_files) {
+      console.log(`[getItems SERVICE] Row ${idx} has no attached_files`);
+      row.attached_files = [];
+    }
+    return row;
+  });
+  
+  console.log("[getItems SERVICE] Returning", processedRows.length, "processed rows");
+  return processedRows;
 }
 
 async function addItem(data) {
@@ -31,6 +57,7 @@ async function updateStatus(orgId, itemId, status) {
   const pool = await getTenantPoolByOrgId(orgId);
   await pool.execute(Q.UPDATE_STATUS, [status, status, itemId, orgId]);
 }
+
 
 
 

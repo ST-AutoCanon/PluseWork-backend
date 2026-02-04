@@ -1,5 +1,6 @@
 
 
+
 const EXIT_QUERIES = {
 
   // ────────────── Employee ──────────────
@@ -56,7 +57,11 @@ const EXIT_QUERIES = {
       supervisor_recommended_lwd = ?,
       supervisor_comment = ?,
       supervisor_action_at = NOW(),
-      supervisor_action_by = ?
+      supervisor_action_by = ?,
+      hr_status = CASE 
+        WHEN ? = 'APPROVED' THEN 'PENDING'
+        ELSE hr_status
+      END
     WHERE id = ? AND org_id = ?
   `,
 
