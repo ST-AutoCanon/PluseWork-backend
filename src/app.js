@@ -32,6 +32,7 @@ const employeeBankReportRoutes = require("./routes/employeebankreportroute");
 const salaryStatementRouter = require("./routes/salaryRoutes");
 const salaryDetailsRouter = require("./routes/salaryDetailsRouter");
 const salaryPeriodRoutes = require("./routes/salaryCalculationPeriodRoutes");
+const orgWorkHoursRoutes = require("./routes/orgWorkHours.routes");
 
 const { createSessionStore, _initPromise } = require("./lib/sessionStore");
 const EmployeeQueries = require("./services/employeeQueries");
@@ -184,7 +185,6 @@ app.use((req, res, next) => {
         path.join("D:/Pulse-11/PluseWork-backend/exitflowuploads"),
       ),
     );
-    app.use(apiKeyMiddleware);
 
     app.use("/", contact);
     app.use(idleTimeout);
@@ -380,6 +380,7 @@ app.use((req, res, next) => {
     app.use("/api/lop", lossofPayCalculationRoutes);
     app.use("/api/salaryCalculationperiods", salaryCalculationPeriodRoutes);
     app.use("api/compensation", salaryRoutes2);
+    app.use("/api/org", orgWorkHoursRoutes);
 
     app.use("/api/compensation", assignCompensationRoutes);
     app.use("/api/overtime", overtimeRoutes);
@@ -398,7 +399,7 @@ app.use((req, res, next) => {
     app.use("/api/overtime-summary", overtimeSummaryRoutes);
     app.use("/api", employeeProjectsRoute);
     app.use("/api/lop", lossofPayCalculationRoutes);
-
+app.use("/api/org", orgWorkHoursRoutes);
     app.use("/api/compensations", compensationRoutes);
 
     app.get("/", (req, res) => res.send("Employee Face Recognition API"));

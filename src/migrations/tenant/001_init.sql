@@ -991,3 +991,12 @@ CREATE TABLE leave_types (
   UNIQUE KEY uniq_leave_types_org_key (org_id,type_key),
   KEY idx_leave_types_org (org_id)
 );
+
+CREATE TABLE IF NOT EXISTS org_work_hours (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  org_id INT NOT NULL UNIQUE,
+  work_hours INT NOT NULL DEFAULT 8,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_org_id (org_id)
+);
