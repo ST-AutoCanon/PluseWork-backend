@@ -5,6 +5,8 @@ const { getTenantPoolByOrgId } = require("../db/tenantPoolManager");
 const queries = require("../constants/leaveQueries");
 const LeavePolicyService = require("./leavePolicyService");
 
+const FILE_BASE_URL = process.env.FILE_BASE_URL || ""; // optional
+
 const toLocalDateString = (dateInput) => {
   if (!dateInput) return "";
   const d = new Date(dateInput);
@@ -975,25 +977,109 @@ async function saveLeaveAttachments(leaveId, files = [], orgId) {
 
 /**
  * Get attachments for a leave
+ *
+ * Behavior:
+ * - Attempts to fetch by leave_id + org_id first.
+ * - If that returns nothing, performs a fallback fetch by leave_id only (covers rows with NULL/missing org_id).
+ * - Returns metadata objects including `url` (if FILE_BASE_URL provided) and `exists` (best-effort check).
  */
 async function getAttachmentsForLeave(leaveId, orgId) {
   if (!leaveId) throw new Error("leaveId required");
-  if (!orgId) throw new Error("orgId required");
+  if (!orgId) throw new Error("orgId required"); // handler should pass this; keep strict but tolerant in query
+
   const tenantPool = await getTenantPool(orgId);
-  const [rows] = await tenantPool.execute(queries.GET_ATTACHMENTS_BY_LEAVE, [
-    leaveId,
-    orgId,
-  ]);
-  // map to usable shape
-  return (rows || []).map((r) => ({
-    id: Number(r.id),
-    leave_id: r.leave_id,
-    file_name: r.file_name,
-    file_path: r.file_path,
-    mime_type: r.mime_type,
-    size: Number(r.size || 0),
-    created_at: r.created_at,
-  }));
+
+  let rows = [];
+  try {
+    const [r] = await tenantPool.execute(queries.GET_ATTACHMENTS_BY_LEAVE, [
+      leaveId,
+      orgId,
+    ]);
+    rows = r || [];
+  } catch (err) {
+    console.warn(
+      "[getAttachmentsForLeave] primary query failed, will attempt fallback. Error:",
+      err && err.message ? err.message : err,
+    );
+    rows = [];
+  }
+
+  // fallback: if no rows returned, try fetching by leave_id only (covers org_id NULL or mismatched metadata)
+  if (!rows || rows.length === 0) {
+    try {
+      const fallbackSql = `
+        SELECT id, leave_id, file_name, file_path, mime_type, size,
+               DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at, org_id
+        FROM leave_attachments
+        WHERE leave_id = ?
+        ORDER BY created_at ASC
+      `;
+      const [fb] = await tenantPool.execute(fallbackSql, [leaveId]);
+      rows = fb || [];
+      if (rows && rows.length > 0) {
+        console.info(
+          `[getAttachmentsForLeave] fallback returned ${rows.length} rows for leaveId=${leaveId} (orgId=${orgId})`,
+        );
+      }
+    } catch (fbErr) {
+      console.warn(
+        "[getAttachmentsForLeave] fallback query failed:",
+        fbErr && fbErr.message ? fbErr.message : fbErr,
+      );
+    }
+  }
+
+  // Map rows: normalize fields and build url/exists flags (best-effort)
+  const mapped = (rows || []).map((r) => {
+    const filePath = r.file_path || "";
+    // Build a public URL if configured. Prefer r.url if present.
+    let url = r.url || null;
+    if (!url && filePath) {
+      if (/^https?:\/\//i.test(filePath)) {
+        url = filePath;
+      } else if (FILE_BASE_URL) {
+        // ensure no double slashes
+        url = `${FILE_BASE_URL.replace(/\/+$/, "")}/${String(filePath).replace(/^\/+/, "")}`;
+      } else {
+        url = null;
+      }
+    }
+
+    // best-effort exists: only check when path plausibly points to local filesystem
+    let exists = false;
+    try {
+      // consider it local if it contains uploads/leave_attachments or is absolute path
+      const looksLocal =
+        path.isAbsolute(filePath) ||
+        String(filePath).includes(path.join("uploads", "leave_attachments")) ||
+        String(filePath).startsWith(".");
+      if (looksLocal && filePath) {
+        const abs = path.isAbsolute(filePath)
+          ? filePath
+          : path.join(process.cwd(), filePath);
+        exists = fs.existsSync(abs);
+      } else {
+        exists = false;
+      }
+    } catch (e) {
+      exists = false;
+    }
+
+    return {
+      id: Number(r.id),
+      leave_id: r.leave_id,
+      file_name: r.file_name,
+      file_path: r.file_path,
+      mime_type: r.mime_type,
+      size: Number(r.size || 0),
+      created_at: r.created_at,
+      org_id: r.org_id,
+      url,
+      exists,
+    };
+  });
+
+  return mapped;
 }
 
 /**
@@ -1106,11 +1192,8 @@ async function replaceAttachmentsForLeave(leaveId, files = [], orgId) {
   const tenantPool = await getTenantPool(orgId);
 
   // fetch existing attachments (to unlink later)
-  const [existingRows] = await tenantPool.execute(
-    queries.GET_ATTACHMENTS_BY_LEAVE,
-    [leaveId, orgId],
-  );
-  const existing = existingRows || [];
+  // Use the service function (with fallback) rather than a direct query to ensure we pick up rows with NULL org_id too
+  const existing = await getAttachmentsForLeave(leaveId, orgId);
 
   // start transaction
   const conn = await tenantPool.getConnection();

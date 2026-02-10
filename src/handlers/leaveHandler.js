@@ -7,7 +7,6 @@ try {
   tenantPoolManager = require("../db/tenantPoolManager");
 } catch (e) {
   tenantPoolManager = null;
-  // not fatal; fallback will be skipped if unavailable
 }
 
 const parseBoolFlexible = (v) => {
@@ -32,7 +31,6 @@ const resolveOrgId = (req) =>
   null;
 
 class LeaveHandler {
-  // existing getLeaveTypesHandler (kept unchanged, but uses resolveOrgId)
   static async getLeaveTypesHandler(req, res) {
     try {
       const orgId =
@@ -248,13 +246,11 @@ class LeaveHandler {
     }
   }
 
-  // in handlers/leaveHandler.js — replace updateLeaveRequest with this
   static async updateLeaveRequest(req, res) {
     try {
       const { leaveId } = req.params;
       const raw = req.body || {};
 
-      // normalize status: accept 'approved','Approved','APPROVED' etc.
       const statusRaw = (raw.status || "").toString().trim();
       const statusNorm =
         statusRaw.toLowerCase() === "approved"
@@ -285,7 +281,6 @@ class LeaveHandler {
           );
       }
 
-      // Determine actorId from body/user/header
       const actorId =
         raw.actorId ??
         raw.actor ??
@@ -294,7 +289,6 @@ class LeaveHandler {
         req.headers?.["x-actor-id"] ??
         null;
 
-      // coerce numeric fields explicitly
       const compensated_days =
         Number(
           raw.compensated_days ?? raw.compensatedDays ?? raw.compensated ?? 0,
@@ -343,7 +337,6 @@ class LeaveHandler {
         is_defaulted,
       };
 
-      // call service with try/catch so we can log the cause
       let result;
       try {
         result = await LeaveService.updateLeaveRequest(payload, orgId);
@@ -352,12 +345,10 @@ class LeaveHandler {
           `[LeaveHandler.updateLeaveRequest] LeaveService.updateLeaveRequest threw:`,
           svcErr && svcErr.stack ? svcErr.stack : svcErr,
         );
-        // If service includes a known message, surface it; otherwise generic 500
         const msg =
           svcErr && svcErr.message
             ? svcErr.message
             : "Internal error updating leave";
-        // if service indicates bad input, return 400
         if (svcErr && svcErr.isBadRequest) {
           return res
             .status(400)
@@ -389,7 +380,6 @@ class LeaveHandler {
   static async submitLeaveRequestHandler(req, res) {
     try {
       const orgId = resolveOrgId(req);
-      // If multipart/form-data, fields are in req.body and files in req.files
       const { employeeId, reason, leavetype, h_f_day, startDate, endDate } =
         req.body || {};
 
@@ -437,7 +427,6 @@ class LeaveHandler {
         }
       }
 
-      // check overlap
       const existingLeaves = await LeaveService.getLeaveRequests(
         employeeId,
         null,
@@ -479,7 +468,6 @@ class LeaveHandler {
           );
       }
 
-      // Insert leave request first
       const leaveRequest = await LeaveService.submitLeaveRequest({
         employeeId,
         startDate,
@@ -490,7 +478,6 @@ class LeaveHandler {
         orgId,
       });
 
-      // If files were uploaded via multipart/form-data, multer put them in req.files
       const files = Array.isArray(req.files) ? req.files : [];
       let inserted = [];
       if (files.length > 0) {
@@ -501,7 +488,6 @@ class LeaveHandler {
             orgId,
           );
         } catch (attachErr) {
-          // attachments failing shouldn't break leave creation — log and continue
           console.warn(
             "[submitLeaveRequestHandler] failed to save attachments:",
             attachErr && attachErr.message ? attachErr.message : attachErr,
@@ -509,7 +495,6 @@ class LeaveHandler {
         }
       }
 
-      // return leave + attachments meta
       const responseData = Object.assign({}, leaveRequest, {
         attachments: inserted,
       });
@@ -552,7 +537,6 @@ class LeaveHandler {
           );
       }
 
-      // fetch leaves (existing)
       const leaveRequests = await LeaveService.getLeaveRequests(
         employeeId,
         from_date,
@@ -560,7 +544,6 @@ class LeaveHandler {
         orgId,
       );
 
-      // if nothing, respond early
       if (!Array.isArray(leaveRequests) || leaveRequests.length === 0) {
         return res
           .status(200)
@@ -573,17 +556,13 @@ class LeaveHandler {
           );
       }
 
-      // Enrich each leave row with attachments. Use Promise.all to parallelize.
       const enriched = await Promise.all(
         leaveRequests.map(async (leave) => {
           try {
-            // support both id and leave_id naming
             const id = leave.id || leave.leave_id || leave.leaveId || null;
             if (!id) return { ...leave, attachments: [] };
 
-            // LeaveService.getAttachmentsForLeave should return an array (or [])
             const atts = await LeaveService.getAttachmentsForLeave(id, orgId);
-            // ensure array shape and map minimal properties for client
             const attachments = Array.isArray(atts)
               ? atts.map((a) => ({
                   id: a.id || a.attachment_id || null,
@@ -824,9 +803,6 @@ class LeaveHandler {
     }
   }
 
-  /* ---------------------- Attachments handlers ---------------------- */
-
-  // GET /employee/leave/:id/attachments
   static async getAttachmentsHandler(req, res) {
     try {
       const orgId = resolveOrgId(req);
@@ -866,12 +842,10 @@ class LeaveHandler {
         );
     }
   }
-  // inside LeaveHandler class (replace existing addAttachmentsHandler)
   static async addAttachmentsHandler(req, res) {
     try {
       const orgId = resolveOrgId(req);
       const leaveId = req.params?.id || req.body?.leaveId;
-      // allow employeeId from header or body if server wants to validate/record path
       const employeeId =
         req.headers?.["x-employee-id"] ||
         req.headers?.["x_employee_id"] ||
@@ -938,8 +912,6 @@ class LeaveHandler {
     }
   }
 
-  // PUT /employee/leave/:id/attachments  (replace all attachments for this leave)
-  // Expects files via multer under field name "attachments" -> req.files
   static async replaceAttachmentsHandler(req, res) {
     try {
       const orgId = resolveOrgId(req);
@@ -955,7 +927,6 @@ class LeaveHandler {
           );
       }
       const files = Array.isArray(req.files) ? req.files : [];
-      // files may be empty array — that means delete all attachments (allowed)
       const result = await LeaveService.replaceAttachmentsForLeave(
         leaveId,
         files,
@@ -983,7 +954,6 @@ class LeaveHandler {
     }
   }
 
-  // DELETE /employee/leave/:id/attachments/:attachmentId
   static async deleteAttachmentHandler(req, res) {
     try {
       const orgId = resolveOrgId(req);
@@ -1023,8 +993,6 @@ class LeaveHandler {
     }
   }
 
-  // GET /attachments/:attachmentId (serve or inline display)
-  // Use query param orgId or header x-org-id for tenant validation
   static async serveAttachmentHandler(req, res) {
     try {
       const orgId = resolveOrgId(req) || req.query?.orgId;
@@ -1043,7 +1011,6 @@ class LeaveHandler {
       if (!path.isAbsolute(abs)) {
         abs = path.join(process.cwd(), abs);
       }
-      // Safety: ensure file path contains uploads/leave_attachments/<orgId>
       const safeSegment = path.join(
         "uploads",
         "leave_attachments",

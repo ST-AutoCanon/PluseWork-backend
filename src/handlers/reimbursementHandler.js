@@ -7,7 +7,6 @@ const { convertDocxToPdf } = require("../services/pdfService");
 const queries = require("../constants/reimbursementQueries");
 const XLSX = require("xlsx");
 
-// tenant pool manager
 const { sanitizeDbName, getTenantPool } = require("../db/tenantPoolManager");
 
 const forbiddenExts = new Set([
@@ -22,9 +21,6 @@ const forbiddenExts = new Set([
   ".xltm",
 ]);
 
-/**
- * Resolve orgId from request (header, body, query, or req.user)
- */
 const resolveOrgIdFromReq = (req) => {
   const header =
     req.headers && (req.headers["x-org-id"] || req.headers["x_org_id"]);
@@ -45,16 +41,11 @@ async function getTenantPoolForOrgId(orgId) {
   return getTenantPool(dbName);
 }
 
-/**
- * Resolve filename-only attachment entries to DB rows (tenant-aware).
- * Returns an array of resolved attachment objects (file_name, file_path, employee_id, reimbursement_id, line_index, _resolved)
- */
 async function resolveExistingAttachmentEntries(
   entries = [],
   orgId,
   options = {},
 ) {
-  // options: { claimId, employeeId, tenantPoolGetter }
   if (!Array.isArray(entries) || entries.length === 0) return [];
 
   const claimId = options.claimId || null;
@@ -62,7 +53,6 @@ async function resolveExistingAttachmentEntries(
   const getPool = options.tenantPoolGetter || getTenantPoolForOrgId;
 
   if (!orgId) {
-    // can't resolve without org - return entries annotated as unresolved
     return entries.map((e) => ({
       file_name: e?.file_name || e?.filename || e?.name || String(e || ""),
       file_path: e?.file_path || null,
@@ -87,11 +77,9 @@ async function resolveExistingAttachmentEntries(
             : "",
         ).trim();
         if (!file_name) {
-          // skip empty entry
           continue;
         }
 
-        // 1) Try to find exact match within the same reimbursement (if claimId provided)
         if (claimId) {
           const [rows] = await tenantPool.query(
             "SELECT * FROM reimbursement_attachments WHERE reimbursement_id = ? AND file_name = ? LIMIT 1",
@@ -114,7 +102,6 @@ async function resolveExistingAttachmentEntries(
           }
         }
 
-        // 2) Try find by employee (if provided)
         if (employeeId) {
           const [rows] = await tenantPool.query(
             "SELECT * FROM reimbursement_attachments WHERE employee_id = ? AND file_name = ? LIMIT 1",
@@ -137,7 +124,6 @@ async function resolveExistingAttachmentEntries(
           }
         }
 
-        // 3) Global org-wide lookup (last resort)
         const [rowsGlobal] = await tenantPool.query(
           "SELECT * FROM reimbursement_attachments WHERE file_name = ? LIMIT 1",
           [String(file_name)],
@@ -158,7 +144,6 @@ async function resolveExistingAttachmentEntries(
           continue;
         }
 
-        // not found -> return unresolved entry
         resolved.push({
           file_name,
           file_path: ent.file_path || null,
@@ -204,8 +189,6 @@ async function resolveExistingAttachmentEntries(
     }));
   }
 }
-
-/* ---------- multer storage + upload + validation (tenant-aware) ---------- */
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -484,7 +467,6 @@ exports.generateReimbursementPDF = async (req, res) => {
       ? attachmentsRows
       : attachmentsRows || [];
 
-    // adapt file_path if older records didn't include orgId: prefer tenant path, but keep what's stored
     const attachmentsWithFiles = attachments.filter(
       (att) => att && att.file_path,
     );
@@ -495,9 +477,7 @@ exports.generateReimbursementPDF = async (req, res) => {
     }
 
     attachmentsWithFiles.forEach((att) => {
-      // if stored file_path is relative and missing orgId prefix, try to resolve tenant location
       if (att.file_path && !path.isAbsolute(att.file_path)) {
-        // if path doesn't contain orgId, try to reconstruct tenant path
         const maybeTenantPath = path.join(
           __dirname,
           "..",
@@ -505,13 +485,11 @@ exports.generateReimbursementPDF = async (req, res) => {
           "..",
           "reimbursement",
           String(orgId),
-          // unknown year/month/employee - if file_path contains year segments, it will still work
           att.file_path,
         );
         if (fs.existsSync(maybeTenantPath)) {
           att.file_path = maybeTenantPath;
         } else {
-          // leave as-is (maybe absolute already or legacy)
         }
       }
       if (!fs.existsSync(att.file_path)) {
@@ -654,7 +632,6 @@ exports.serveAttachmentCanonical = async (req, res) => {
         .status(400)
         .json({ error: "claimId and filename are required" });
 
-    // fetch attachments from DB (tenant)
     const attachments =
       await reimbursementService.getAttachmentsByReimbursementIds(
         [claimId],
@@ -665,7 +642,6 @@ exports.serveAttachmentCanonical = async (req, res) => {
       return res.status(404).json({ error: "No attachments found for claim" });
     }
 
-    // try exact match by filename first
     let att =
       attachments.find(
         (a) =>
@@ -674,12 +650,9 @@ exports.serveAttachmentCanonical = async (req, res) => {
             .trim() === String(filename).toLowerCase().trim(),
       ) || attachments[0];
 
-    // if attachment row has file_path, try it
     if (att && att.file_path) {
       let candidate = att.file_path;
-      // If path appears relative (not absolute), resolve from project root
       if (!path.isAbsolute(candidate)) {
-        // project-root resolution (assumes this file is in src/handlers)
         candidate = path.join(__dirname, "..", "..", candidate);
       }
 
@@ -702,13 +675,11 @@ exports.serveAttachmentCanonical = async (req, res) => {
       }
     }
 
-    // fallback: attempt to reconstruct from file_name / metadata, or do a shallow search
     const m = String(filename).match(/^(\d{4})-(\d{2})-/);
     if (m) {
       const year = m[1];
       const month = m[2];
 
-      // candidateDirectory is reimbursement/<orgId>/<year>/<month>
       const candidateDir = path.join(
         __dirname,
         "..",
@@ -748,7 +719,6 @@ exports.serveAttachmentCanonical = async (req, res) => {
       }
     }
 
-    // Nothing found — return useful diagnostics to help debug
     return res.status(404).json({
       error: "Attachment file not found on disk",
       checked: {
@@ -840,7 +810,7 @@ exports.getAllReimbursements = async (req, res) => {
 
     const reimbursements = await reimbursementService.getAllReimbursements(
       submittedFrom,
-      submittedFrom, // duplicate on purpose — service expects fromForBetween as 2nd param
+      submittedFrom,
       submittedTo,
       orgId,
     );
@@ -996,7 +966,6 @@ exports.createReimbursement = async (req, res) => {
       }
     }
 
-    // Resolve attachmentsFromBody (filename-only) using tenant DB (optional but helpful)
     if (attachmentsFromBody && attachmentsFromBody.length > 0) {
       try {
         const resolved = await resolveExistingAttachmentEntries(
@@ -1119,7 +1088,6 @@ exports.updateReimbursement = async (req, res) => {
         attachmentsMeta = {};
     }
 
-    // --- parse attachments provided in `attachments` body (full objects)
     let attachmentsFromBody = [];
     if (req.body.attachments && typeof req.body.attachments !== "undefined") {
       const parsed = safeParseJSON(req.body.attachments, null);
@@ -1135,7 +1103,6 @@ exports.updateReimbursement = async (req, res) => {
       }
     }
 
-    // Support legacy/aux field `existingAttachments` — client may send array of filenames or objects
     let attachmentsFromExisting = [];
     if (req.body.existingAttachments) {
       const parsedExisting = safeParseJSON(req.body.existingAttachments, null);
@@ -1159,7 +1126,6 @@ exports.updateReimbursement = async (req, res) => {
       }
     }
 
-    // Resolve filename-only existing attachments (tenant-aware)
     if (attachmentsFromExisting && attachmentsFromExisting.length > 0) {
       try {
         const resolved = await resolveExistingAttachmentEntries(
@@ -1183,7 +1149,6 @@ exports.updateReimbursement = async (req, res) => {
           "Attachment resolution failed in updateReimbursement:",
           e?.message || e,
         );
-        // continue with original attachmentsFromExisting if resolution fails
       }
     }
 
@@ -1327,7 +1292,6 @@ exports.uploadReimbursementAttachment = async (req, res) => {
   }
 };
 
-// diagnostic getAttachments (dev)
 exports.getAttachments = async (req, res) => {
   try {
     const orgId = resolveOrgIdFromReq(req);
@@ -1373,7 +1337,6 @@ exports.getAttachments = async (req, res) => {
 
     const triedPaths = [tenantPath, legacyPath];
 
-    // check existence
     const existing = triedPaths.filter((p) => fs.existsSync(p));
 
     console.info("getAttachments: attempted paths:", triedPaths);
@@ -1394,7 +1357,6 @@ exports.getAttachments = async (req, res) => {
       return fs.createReadStream(finalPath).pipe(res);
     }
 
-    // diagnostic dir listings
     const triedDirs = Array.from(
       new Set(triedPaths.map((p) => path.dirname(p))),
     );
