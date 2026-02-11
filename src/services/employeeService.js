@@ -949,24 +949,20 @@ exports.getUserRoles = async (orgId) => {
   return rows;
 };
 
-exports.getPositions = async (role, orgId) => {
-  const executor = await getTenantPoolForOrgId(orgId);
-  const [rows] = (await executor.execute)
-    ? await executor.execute(queries.GET_POSITIONS_BY_ROLE_AND_DEPT, [
-        role,
-        role,
-        role,
-        role,
-        role,
-      ])
-    : await executor.query(queries.GET_POSITIONS_BY_ROLE_AND_DEPT, [
-        role,
-        role,
-        role,
-        role,
-        role,
-      ]);
-  return rows.map((r) => r.name);
+exports.getPositions = async (role) => {
+  if (!role) return [];
+
+  try {
+    const params = [role, role, role, role, role];
+    const [rows] = await db.execute(
+      queries.GET_POSITIONS_BY_ROLE_AND_DEPT,
+      params,
+    );
+    return rows.map((r) => r.name);
+  } catch (err) {
+    console.error("[getPositions] error:", err && (err.stack || err));
+    throw err;
+  }
 };
 
 exports.getSupervisorsByPosition = async (position, department_id, orgId) => {

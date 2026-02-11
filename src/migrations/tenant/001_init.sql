@@ -1,6 +1,7 @@
  CREATE TABLE IF NOT EXISTS employees (
   employee_id VARCHAR(20) PRIMARY KEY,
   first_name VARCHAR(50),
+  middle_name VARCHAR(50),
   last_name VARCHAR(50),
   email VARCHAR(100),
   password VARCHAR(255),
@@ -168,7 +169,7 @@ CREATE TABLE IF NOT EXISTS sts_owners (
   project_id INT,
   sts_owner VARCHAR(255),
   sts_contact VARCHAR(50),
-  employee_list VARCHAR(255),
+  employee_list TEXT,
   key_considerations TEXT,
   sts_owner_id VARCHAR(10)
 );
@@ -313,17 +314,6 @@ CREATE TABLE IF NOT EXISTS emp_attendence (
   KEY employee_id (employee_id),
   CONSTRAINT emp_attendence_ibfk_1 FOREIGN KEY (employee_id) REFERENCES employees (employee_id) ON DELETE CASCADE ON UPDATE CASCADE
 );
-CREATE TABLE lop_record (
-  id bigint unsigned NOT NULL AUTO_INCREMENT,
-  employee_id varchar(64) NOT NULL,
-  leave_id bigint unsigned NOT NULL,
-  lop_days decimal(8,2) NOT NULL DEFAULT '0.00',
-  reason text,
-  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  KEY `employee_id` (`employee_id`),
-  KEY `leave_id` (`leave_id`)
-) 
 
 CREATE TABLE IF NOT EXISTS leavequeries (
   id int NOT NULL AUTO_INCREMENT,
@@ -349,40 +339,6 @@ CREATE TABLE IF NOT EXISTS leavequeries (
   KEY idx_leavequeries_start_date (start_date),
   KEY idx_leavequeries_end_date (end_date)
 );
-CREATE TABLE employee_lop_records (
-  id int NOT NULL AUTO_INCREMENT,
-  employee_id varchar(64) COLLATE utf8mb4_general_ci NOT NULL,
-  leave_id bigint DEFAULT NULL,
-  lop_days int NOT NULL DEFAULT '0',
-  created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`)
-)
-CREATE TABLE leave_attachments (
-  id bigint unsigned NOT NULL AUTO_INCREMENT,
-  leave_id bigint NOT NULL,
-  file_name varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL,
-  file_path varchar(1024) COLLATE utf8mb4_general_ci DEFAULT NULL,
-  mime_type varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL,
-  size bigint DEFAULT '0',
-  org_id varchar(64) COLLATE utf8mb4_general_ci NOT NULL,
-  created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  KEY `leave_id` (`leave_id`),
-  KEY `org_id` (`org_id`)
-) 
-CREATE TABLE employee_leave_carry_forward (
-  id bigint unsigned NOT NULL AUTO_INCREMENT,
-  employee_id varchar(64) NOT NULL,
-  year int NOT NULL,
-  leave_type varchar(64) NOT NULL,
-  amount decimal(8,2) NOT NULL DEFAULT '0.00',
-  created_at datetime DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `ux_emp_year_type` (`employee_id`,`year`,`leave_type`),
-  KEY `employee_id` (`employee_id`),
-  KEY `year` (`year`)
-)
-
 
 CREATE TABLE IF NOT EXISTS reimbursement (
   id int NOT NULL AUTO_INCREMENT,
@@ -608,16 +564,6 @@ CREATE TABLE IF NOT EXISTS holidays (
   type enum('Optional','Company') DEFAULT NULL,
   PRIMARY KEY (id)
   );
-
-  CREATE TABLE IF NOT EXISTS positions (
-  id int NOT NULL AUTO_INCREMENT,
-  name varchar(255) DEFAULT NULL,
-  department_id int DEFAULT NULL,
-  `rank` tinyint DEFAULT NULL,
-  PRIMARY KEY (id),
-  KEY department_id (department_id),
-  CONSTRAINT positions_ibfk_1 FOREIGN KEY (department_id) REFERENCES departments (id)
-);
 
 CREATE TABLE IF NOT EXISTS supervisor_assignments (
   id int NOT NULL AUTO_INCREMENT,
@@ -990,13 +936,4 @@ CREATE TABLE leave_types (
   PRIMARY KEY (id),
   UNIQUE KEY uniq_leave_types_org_key (org_id,type_key),
   KEY idx_leave_types_org (org_id)
-);
-
-CREATE TABLE IF NOT EXISTS org_work_hours (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  org_id INT NOT NULL UNIQUE,
-  work_hours INT NOT NULL DEFAULT 8,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  UNIQUE KEY uq_org_id (org_id)
 );
