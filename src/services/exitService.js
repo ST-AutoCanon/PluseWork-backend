@@ -149,13 +149,27 @@ async function hrNormalAction(data) {
   return { success: true };
 }
 
+async function getMyActiveRequest(orgId, employeeId) {
+  const pool = await getTenantPoolByOrgId(orgId);
+  const [rows] = await pool.execute(`
+    SELECT 
+      *,
+      leave_policy           -- ← make sure this is included
+    FROM employee_exit_requests1
+    WHERE org_id = ? AND employee_id = ?
+    ORDER BY applied_at DESC
+    LIMIT 1
+  `, [orgId, employeeId]);
+  return rows[0] || null;
+}
+
 // HR ────────────── final approve resignation
 async function hrApproveResignation(data) {
-  const { orgId, exitId, finalLwd, comment, actionBy } = data;
+  const { orgId, exitId, finalLwd, comment,leavePolicy, actionBy } = data;
   const pool = await getTenantPoolByOrgId(orgId);
 
   await pool.execute(Q.HR_FINAL_APPROVE_RESIGN, [
-    finalLwd, comment || null, actionBy, finalLwd, exitId, orgId
+    finalLwd, comment || null,leavePolicy || null, actionBy, finalLwd, exitId, orgId
   ]);
 
   return { success: true, message: "Resignation approved" };

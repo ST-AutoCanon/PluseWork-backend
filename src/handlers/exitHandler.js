@@ -177,21 +177,61 @@ async function hrNormalAction(req, res) {
     res.status(400).json({ success: false, error: err.message });
   }
 }
-
 async function hrApproveResignation(req, res) {
   try {
     const orgId = req.headers["x-org-id"];
     const actionBy = req.headers["x-employee-id"];
-    const { exitId, finalLwd, comment } = req.body;
+    
+    // Extract ALL expected fields from req.body
+    const { exitId, finalLwd, comment, leavePolicy } = req.body;
+
+    // Basic validation
+    if (!exitId || !finalLwd) {
+      return res.status(400).json({ 
+        success: false, 
+        error: "exitId and finalLwd are required" 
+      });
+    }
+
+    // Optional: validate leavePolicy if provided
+    const validPolicies = ['all', 'sick_only', 'none'];
+    if (leavePolicy && !validPolicies.includes(leavePolicy)) {
+      return res.status(400).json({ 
+        success: false, 
+        error: "Invalid leave policy value. Must be 'all', 'sick_only' or 'none'" 
+      });
+    }
 
     await exitService.hrApproveResignation({
-      orgId, exitId, finalLwd, comment, actionBy,
+      orgId,
+      exitId,
+      finalLwd,
+      comment: comment || null,
+      leavePolicy: leavePolicy || null,     // ← pass it (null if not sent)
+      actionBy,
     });
+
     res.json({ success: true, message: "Resignation fully approved" });
   } catch (err) {
+    console.error("[hrApproveResignation] Error:", err.message);
     res.status(400).json({ success: false, error: err.message });
   }
 }
+
+// async function hrApproveResignation(req, res) {
+//   try {
+//     const orgId = req.headers["x-org-id"];
+//     const actionBy = req.headers["x-employee-id"];
+//     const { exitId, finalLwd, comment } = req.body;
+
+//     await exitService.hrApproveResignation({
+//       orgId, exitId, finalLwd, comment, actionBy,
+//     });
+//     res.json({ success: true, message: "Resignation fully approved" });
+//   } catch (err) {
+//     res.status(400).json({ success: false, error: err.message });
+//   }
+// }
 
 async function hrApproveWithdrawal(req, res) {
   try {

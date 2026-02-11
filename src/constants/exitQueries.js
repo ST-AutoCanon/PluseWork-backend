@@ -123,6 +123,7 @@ GET_HR_WITHDRAW_PENDING: `
       hr_status = 'APPROVED',
       hr_final_lwd = ?,
       hr_comment = ?,
+      leave_policy = ?,
       hr_action_at = NOW(),
       hr_action_by = ?,
       is_active = 0,
