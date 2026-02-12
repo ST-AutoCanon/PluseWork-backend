@@ -179,10 +179,10 @@ app.use((req, res, next) => {
     );
     app.use("/api/exit/download", downloadRoutes);
     app.use(apiKeyMiddleware);
-    app.use(
+   app.use(
       "/exitflowuploads",
       express.static(
-        path.join("D:/Pulse-11/PluseWork-backend/exitflowuploads"),
+        path.resolve(__dirname, "../exitflowuploads"),
       ),
     );
 

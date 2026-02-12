@@ -134,7 +134,7 @@ router.put("/item/:itemId", upload.array('files', 5), async (req, res) => {
       description: description !== undefined ? description : currentItem.description,
       planned_date: plannedDate || currentItem.planned_date,
       status: status || currentItem.status,
-      actual_completed_date: completedDate || (status === "completed" ? new Date().toISOString().split('T')[0] : currentItem.actual_completed_date),
+      actual_completed_date: completedDate ? new Date(completedDate).toISOString().split('T')[0] : (status === "completed" ? new Date().toISOString().split('T')[0] : currentItem.actual_completed_date),
       attached_files: currentFiles.length > 0 ? JSON.stringify(currentFiles) : null
     };
 
