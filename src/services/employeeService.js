@@ -953,7 +953,7 @@ exports.getPositions = async (role) => {
   if (!role) return [];
 
   try {
-    const params = [role, role, role, role, role];
+    const params = [role, role, role, role, role, role];
     const [rows] = await db.execute(
       queries.GET_POSITIONS_BY_ROLE_AND_DEPT,
       params,
@@ -966,24 +966,38 @@ exports.getPositions = async (role) => {
 };
 
 exports.getSupervisorsByPosition = async (position, department_id, orgId) => {
+  if (!orgId) throw new Error("orgId required");
+
   const tenantPool = await getTenantPoolForOrgId(orgId);
-  const [rankRows] = await tenantPool.execute(queries.GET_POSITION_RANK, [
-    position,
-  ]);
-  const currentRank = rankRows[0]?.rank;
+
+  const [rankRows] = await db.execute(queries.GET_POSITION_RANK, [position]);
+
+  const currentRank = rankRows?.[0]?.rank;
   if (!currentRank) return [];
 
   const minRank = Math.max(1, currentRank - 3);
   const maxRank = currentRank - 1;
   if (minRank > maxRank) return [];
 
-  const [rows] = await tenantPool.execute(queries.GET_SUPERVISORS_BY_POSITION, [
-    department_id || null,
-    minRank,
-    maxRank,
-    orgId,
-  ]);
+  const [posRows] = await db.execute(
+    queries.GET_MASTER_POSITIONS_BY_RANK_RANGE,
+    [minRank, maxRank, department_id || null],
+  );
 
+  if (!posRows?.length) return [];
+
+  const positionNames = posRows.map((r) => r.name);
+
+  const placeholders = positionNames.map(() => "?").join(",");
+
+  const finalQuery = queries.GET_SUPERVISORS_BY_POSITION_FILTERED.replace(
+    /%POSITION_LIST%/g,
+    placeholders,
+  );
+
+  const params = [...positionNames, orgId, ...positionNames];
+
+  const [rows] = await tenantPool.execute(finalQuery, params);
   return rows;
 };
 

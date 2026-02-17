@@ -101,58 +101,12 @@ async function getTenantPoolForOrgId(orgId) {
   return getTenantPool(dbName);
 }
 
-const buildAttachmentUrl = (filePath, fileName, employeeIdHint = null) => {
+const buildAttachmentUrl = (fileName, employeeIdHint = null) => {
   try {
     const fname = String(fileName || "").trim();
-    if (filePath) {
-      const p = String(filePath).replace(/\\/g, "/");
-      let m = p.match(
-        /\/reimbursement\/([^/]+)\/(\d{4})\/(\d{2})\/([^/]+)\/([^/]+)$/
-      );
-      if (m) {
-        const org = m[1],
-          year = m[2],
-          month = m[3],
-          emp = m[4],
-          file = m[5];
-        return `/reimbursement/${encodeURIComponent(year)}/${encodeURIComponent(
-          month
-        )}/${encodeURIComponent(emp)}/${encodeURIComponent(file)}`;
-      }
-      m = p.match(/\/reimbursement\/(\d{4})\/(\d{2})\/([^/]+)\/([^/]+)$/);
-      if (m) {
-        const year = m[1],
-          month = m[2],
-          emp = m[3],
-          file = m[4];
-        return `/reimbursement/${encodeURIComponent(year)}/${encodeURIComponent(
-          month
-        )}/${encodeURIComponent(emp)}/${encodeURIComponent(file)}`;
-      }
-    }
-
-    if (fname) {
-      const m2 = fname.match(/^(\d{4})[-_](\d{2})/);
-      if (m2 && employeeIdHint) {
-        return `/reimbursement/${encodeURIComponent(
-          m2[1]
-        )}/${encodeURIComponent(m2[2])}/${encodeURIComponent(
-          employeeIdHint
-        )}/${encodeURIComponent(fname)}`;
-      }
-    }
-
-    if (employeeIdHint) {
-      return `/reimbursement/${encodeURIComponent(
-        employeeIdHint
-      )}/${encodeURIComponent(fname)}`;
-    }
-
-    return `/reimbursement/${encodeURIComponent(fname)}`;
+    return fname;
   } catch (e) {
-    return fileName
-      ? `/reimbursement/${encodeURIComponent(String(fileName))}`
-      : null;
+    return null;
   }
 };
 
@@ -201,7 +155,6 @@ const saveAttachmentsBulk = async (reimbursementId, files = [], orgId) => {
     reimbursementId,
     f.line_id !== undefined ? f.line_id : null,
     f.file_name,
-    f.file_path || "",
   ]);
   await tenantPool.query(queries.SAVE_ATTACHMENTS, [attachmentValues]);
 };
@@ -210,7 +163,7 @@ exports.processUploadedFiles = async (
   files,
   reimbursementId,
   attachmentsMeta = {},
-  orgId
+  orgId,
 ) => {
   if (!files || !files.length) return [];
   try {
@@ -266,12 +219,12 @@ exports.getReimbursementsByEmployee = async (
   employeeId,
   fromDate = null,
   toDate = null,
-  orgId
+  orgId,
 ) => {
   const tenantPool = await getTenantPoolForOrgId(orgId);
   const [rows] = await tenantPool.query(
     queries.GET_REIMBURSEMENTS_BY_EMPLOYEE,
-    [employeeId]
+    [employeeId],
   );
   if (!rows || rows.length === 0) return [];
 
@@ -285,11 +238,11 @@ exports.getReimbursementsByEmployee = async (
 
   const [linesRows] = await tenantPool.query(
     queries.GET_LINES_BY_REIMBURSEMENT_IDS,
-    [safeIds]
+    [safeIds],
   );
   const [attachRows] = await tenantPool.query(
     queries.GET_ATTACHMENTS_BY_REIMBURSEMENT_IDS,
-    [safeIds]
+    [safeIds],
   );
 
   const linesByReim = {};
@@ -345,8 +298,8 @@ exports.getReimbursementsByEmployee = async (
       attachments: Array.isArray(parsedMeta.attachments)
         ? parsedMeta.attachments
         : parsedMeta.attachments
-        ? [parsedMeta.attachments]
-        : [],
+          ? [parsedMeta.attachments]
+          : [],
     };
 
     if (!linesByReim[l.reimbursement_id]) linesByReim[l.reimbursement_id] = [];
@@ -392,7 +345,7 @@ exports.getAllReimbursements = async (
   submittedFrom = null,
   submittedFromForBetween = null,
   submittedTo = null,
-  orgId
+  orgId,
 ) => {
   const tenantPool = await getTenantPoolForOrgId(orgId);
   try {
@@ -403,7 +356,7 @@ exports.getAllReimbursements = async (
     ];
     const [rawRows] = await tenantPool.query(
       queries.GET_ALL_REIMBURSEMENTS,
-      params
+      params,
     );
 
     if (!rawRows || rawRows.length === 0) return [];
@@ -427,11 +380,11 @@ exports.getAllReimbursements = async (
 
     const [linesRows] = await tenantPool.query(
       queries.GET_LINES_BY_REIMBURSEMENT_IDS,
-      [safeIds]
+      [safeIds],
     );
     const [attachRows] = await tenantPool.query(
       queries.GET_ATTACHMENTS_BY_REIMBURSEMENT_IDS,
-      [safeIds]
+      [safeIds],
     );
 
     const linesByReim = {};
@@ -488,8 +441,8 @@ exports.getAllReimbursements = async (
         attachments: Array.isArray(parsedMeta.attachments)
           ? parsedMeta.attachments
           : parsedMeta.attachments
-          ? [parsedMeta.attachments]
-          : [],
+            ? [parsedMeta.attachments]
+            : [],
       };
 
       if (!linesByReim[l.reimbursement_id])
@@ -509,7 +462,7 @@ exports.getAllReimbursements = async (
       const url = buildAttachmentUrl(
         a.file_path,
         a.file_name,
-        a.employee_id || null
+        a.employee_id || null,
       );
       attByReim[a.reimbursement_id].push({
         id: a.id,
@@ -522,7 +475,7 @@ exports.getAllReimbursements = async (
 
     const finalReims = reimbursements.map((r) => {
       const lines = (linesByReim[r.id] || []).sort(
-        (x, y) => (x.line_index || 0) - (y.line_index || 0)
+        (x, y) => (x.line_index || 0) - (y.line_index || 0),
       );
       const attList = attByReim[r.id] || [];
 
@@ -592,7 +545,7 @@ exports.getEmployees = async (
   q = null,
   departmentId = null,
   limit = 200,
-  orgId
+  orgId,
 ) => {
   const tenantPool = await getTenantPoolForOrgId(orgId);
   try {
@@ -663,7 +616,7 @@ exports.createReimbursement = async (reimbursementData, orgId) => {
 
     const aggregated_total = lines.reduce(
       (s, l) => s + (parseFloat(l.total_amount) || 0),
-      0
+      0,
     );
 
     const [res] = await conn.query(queries.CREATE_REIMBURSEMENT, [
@@ -690,10 +643,10 @@ exports.createReimbursement = async (reimbursementData, orgId) => {
         const travel_from = payload.travel_from || payload.travelFrom || null;
         const travel_to = payload.travel_to || payload.travelTo || null;
         const transport_amount = coerceNullableNumber(
-          payload.transport_amount ?? payload.transportAmount ?? null
+          payload.transport_amount ?? payload.transportAmount ?? null,
         );
         const accommodation_fees = coerceNullableNumber(
-          payload.accommodation_fees ?? payload.accommodationFees ?? null
+          payload.accommodation_fees ?? payload.accommodationFees ?? null,
         );
         const da = coerceNullableNumber(payload.da ?? null);
         const total_amount = (
@@ -744,7 +697,7 @@ exports.createReimbursement = async (reimbursementData, orgId) => {
     ) {
       const [insertedLines] = await conn.query(
         `SELECT id, line_index FROM reimbursement_lines WHERE reimbursement_id = ?`,
-        [reimbursementId]
+        [reimbursementId],
       );
       const lineIndexToId = {};
       insertedLines.forEach((l) => (lineIndexToId[l.line_index] = l.id));
@@ -756,13 +709,12 @@ exports.createReimbursement = async (reimbursementData, orgId) => {
           a.filename ||
           a.originalname ||
           (a.path ? path.basename(String(a.path)) : "") ||
-          (a.file_path ? path.basename(String(a.file_path)) : "");
-        const filePath = a.file_path || a.path || "";
+          "";
         const li =
           a.line_index !== undefined && a.line_index !== null
             ? lineIndexToId[Number(a.line_index)] || null
             : null;
-        return [reimbursementId, li, String(fileName || "").trim(), filePath];
+        return [reimbursementId, li, String(fileName || "").trim()];
       });
       if (attValues.length)
         await conn.query(queries.SAVE_ATTACHMENTS, [attValues]);
@@ -787,7 +739,7 @@ exports.updateReimbursement = async (reimbursementId, updateData, orgId) => {
 
     const [reimRows] = await conn.query(
       `SELECT employee_id FROM reimbursement WHERE id = ?`,
-      [reimbursementId]
+      [reimbursementId],
     );
     const employeeIdRef =
       reimRows && reimRows[0] ? reimRows[0].employee_id : null;
@@ -798,7 +750,7 @@ exports.updateReimbursement = async (reimbursementId, updateData, orgId) => {
     const lines = Array.isArray(updateData.lines) ? updateData.lines : [];
     const aggregated_total = lines.reduce(
       (s, l) => s + (parseFloat(l.total_amount) || 0),
-      0
+      0,
     );
 
     await conn.query(queries.UPDATE_REIMBURSEMENT, [
@@ -827,10 +779,10 @@ exports.updateReimbursement = async (reimbursementId, updateData, orgId) => {
         const travel_from = payload.travel_from || payload.travelFrom || null;
         const travel_to = payload.travel_to || payload.travelTo || null;
         const transport_amount = coerceNullableNumber(
-          payload.transport_amount ?? payload.transportAmount ?? null
+          payload.transport_amount ?? payload.transportAmount ?? null,
         );
         const accommodation_fees = coerceNullableNumber(
-          payload.accommodation_fees ?? payload.accommodationFees ?? null
+          payload.accommodation_fees ?? payload.accommodationFees ?? null,
         );
         const da = coerceNullableNumber(payload.da ?? null);
         const total_amount = (
@@ -880,12 +832,12 @@ exports.updateReimbursement = async (reimbursementId, updateData, orgId) => {
       updateData.attachments.length
     ) {
       const [existingAttachRows] = await conn.query(
-        `SELECT file_name, file_path FROM reimbursement_attachments WHERE reimbursement_id = ?`,
-        [reimbursementId]
+        `SELECT file_name FROM reimbursement_attachments WHERE reimbursement_id = ?`,
+        [reimbursementId],
       );
       const existingMap = {};
       (existingAttachRows || []).forEach((r) => {
-        if (r && r.file_name) existingMap[String(r.file_name)] = r.file_path;
+        if (r && r.file_name) existingMap[String(r.file_name)] = true;
       });
 
       await conn.query(queries.DELETE_ATTACHMENTS_BY_REIMBURSEMENT_ID, [
@@ -894,7 +846,7 @@ exports.updateReimbursement = async (reimbursementId, updateData, orgId) => {
 
       const [insertedLines] = await conn.query(
         `SELECT id, line_index FROM reimbursement_lines WHERE reimbursement_id = ?`,
-        [reimbursementId]
+        [reimbursementId],
       );
       const lineIndexToId = {};
       insertedLines.forEach((l) => (lineIndexToId[l.line_index] = l.id));
@@ -906,8 +858,8 @@ exports.updateReimbursement = async (reimbursementId, updateData, orgId) => {
         const atts = Array.isArray(payload.attachments)
           ? payload.attachments
           : payload.attachments
-          ? [payload.attachments]
-          : [];
+            ? [payload.attachments]
+            : [];
         for (const rawName of atts) {
           if (!rawName) continue;
           const fbase = path.basename(String(rawName));
@@ -925,78 +877,20 @@ exports.updateReimbursement = async (reimbursementId, updateData, orgId) => {
           a.filename ||
           a.originalname ||
           (a.path ? path.basename(String(a.path)) : "") ||
-          (a.file_path ? path.basename(String(a.file_path)) : "");
-        let filePath = a.file_path || a.path || null;
-        let providedLineIndex =
-          a.line_index !== undefined && a.line_index !== null
-            ? Number(a.line_index)
-            : undefined;
+          "";
 
-        if (
-          (providedLineIndex === undefined || providedLineIndex === null) &&
-          fileName
-        ) {
-          const base = path.basename(String(fileName));
-          if (filenameToLineIndex.hasOwnProperty(base)) {
-            providedLineIndex = Number(filenameToLineIndex[base]);
-          } else {
-            const trimmed = String(fileName).trim();
-            if (filenameToLineIndex.hasOwnProperty(trimmed)) {
-              providedLineIndex = Number(filenameToLineIndex[trimmed]);
-            }
-          }
-        }
+        const lineId =
+          a.line_id !== undefined && a.line_id !== null ? a.line_id : null; // Ensure line_id is included
 
-        if (!filePath && fileName && existingMap[fileName]) {
-          filePath = existingMap[fileName];
-        }
-
-        if (!filePath && fileName) {
-          const m = String(fileName).match(/^(\d{4})[-_](\d{2})/);
-          if (m && employeeIdRef) {
-            const year = m[1];
-            const month = m[2];
-            const candidate = path.join(
-              __dirname,
-              "..",
-              "..",
-              "reimbursement",
-              year,
-              month,
-              String(employeeIdRef),
-              fileName
-            );
-            try {
-              await fs.access(candidate);
-              filePath = candidate;
-            } catch {
-              filePath = candidate;
-            }
-          }
-        }
-
-        if (filePath === null || typeof filePath === "undefined") filePath = "";
-
-        const li =
-          providedLineIndex !== undefined && providedLineIndex !== null
-            ? lineIndexToId[providedLineIndex] || null
-            : null;
-
-        attValues.push([
-          reimbursementId,
-          li,
-          String(fileName || "").trim(),
-          filePath,
-        ]);
+        attValues.push([reimbursementId, lineId, fileName]);
       }
 
-      if (attValues.length) {
+      if (attValues.length)
         await conn.query(queries.SAVE_ATTACHMENTS, [attValues]);
-      }
     }
 
     await conn.commit();
-    return { success: true, aggregated_total };
+    return { id: reimbursementId, aggregated_total };
   } catch (err) {
     await conn.rollback().catch(() => {});
     console.error("updateReimbursement error:", err);
@@ -1011,7 +905,7 @@ exports.getTeamReimbursements = async (
   submittedFrom,
   submittedTo,
   teamLeadId,
-  orgId
+  orgId,
 ) => {
   const tenantPool = await getTenantPoolForOrgId(orgId);
   try {
@@ -1025,7 +919,7 @@ exports.getTeamReimbursements = async (
 
     const [reimbursementsRaw] = await tenantPool.query(
       queries.GET_TEAM_REIMBURSEMENTS,
-      params
+      params,
     );
 
     if (!reimbursementsRaw || reimbursementsRaw.length === 0) return [];
@@ -1054,11 +948,11 @@ exports.getTeamReimbursements = async (
 
     const [linesRows] = await tenantPool.query(
       queries.GET_LINES_BY_REIMBURSEMENT_IDS,
-      [safeIds]
+      [safeIds],
     );
     const [attachmentsRows] = await tenantPool.query(
       queries.GET_ATTACHMENTS_BY_REIMBURSEMENT_IDS,
-      [safeIds]
+      [safeIds],
     );
 
     const linesByReim = {};
@@ -1115,8 +1009,8 @@ exports.getTeamReimbursements = async (
         attachments: Array.isArray(parsedMeta.attachments)
           ? parsedMeta.attachments
           : parsedMeta.attachments
-          ? [parsedMeta.attachments]
-          : [],
+            ? [parsedMeta.attachments]
+            : [],
       };
 
       if (!linesByReim[l.reimbursement_id])
@@ -1148,7 +1042,7 @@ exports.getTeamReimbursements = async (
 
     const enriched = normalized.map((r) => {
       const lines = (linesByReim[r.id] || []).sort(
-        (a, b) => (a.line_index || 0) - (b.line_index || 0)
+        (a, b) => (a.line_index || 0) - (b.line_index || 0),
       );
       const attList = attachmentMap[r.id] || [];
 
@@ -1190,7 +1084,6 @@ exports.getTeamReimbursements = async (
           if (inv) invoiceSet.add(String(inv).trim());
         });
       });
-
       const aggregatedInvoices = Array.from(invoiceSet);
 
       return {
@@ -1217,7 +1110,7 @@ exports.updateReimbursementStatus = async (
   approver_name,
   approver_designation,
   project,
-  orgId
+  orgId,
 ) => {
   const tenantPool = await getTenantPoolForOrgId(orgId);
   try {
@@ -1225,7 +1118,7 @@ exports.updateReimbursementStatus = async (
     const allowed = ["approved", "rejected"];
     if (!allowed.includes(String(status).toLowerCase())) {
       const e = new Error(
-        "Invalid status. Allowed values: 'approved', 'rejected'"
+        "Invalid status. Allowed values: 'approved', 'rejected'",
       );
       e.statusCode = 400;
       throw e;
@@ -1244,7 +1137,7 @@ exports.updateReimbursementStatus = async (
 
     const [result] = await tenantPool.query(
       queries.UPDATE_REIMBURSEMENT_STATUS,
-      params
+      params,
     );
 
     if (!result || result.affectedRows === 0) {
@@ -1273,7 +1166,7 @@ exports.updatePaymentStatus = async (
   id,
   payment_status,
   paid_date = null,
-  orgId
+  orgId,
 ) => {
   const tenantPool = await getTenantPoolForOrgId(orgId);
   try {
@@ -1281,7 +1174,7 @@ exports.updatePaymentStatus = async (
     const params = [payment_status || null, paid_date || null, id];
     const [result] = await tenantPool.query(
       queries.UPDATE_PAYMENT_STATUS,
-      params
+      params,
     );
 
     if (!result || result.affectedRows === 0) {
@@ -1313,14 +1206,14 @@ exports.getAttachments = async (reimbursementId, orgId) => {
 
 exports.getAttachmentsByReimbursementIds = async (
   reimbursementIds = [],
-  orgId
+  orgId,
 ) => {
   const tenantPool = await getTenantPoolForOrgId(orgId);
   try {
     if (!reimbursementIds || !reimbursementIds.length) return [];
     const [attachments] = await tenantPool.query(
       queries.GET_ATTACHMENTS_BY_REIMBURSEMENT_IDS,
-      [reimbursementIds]
+      [reimbursementIds],
     );
     return attachments || [];
   } catch (err) {
@@ -1339,7 +1232,7 @@ exports.getAttachmentMeta = async (req, res) => {
     const attachments =
       await reimbursementService.getAttachmentsByReimbursementIds(
         [claimId],
-        orgId
+        orgId,
       );
 
     if (!attachments || attachments.length === 0) {
@@ -1351,7 +1244,7 @@ exports.getAttachmentMeta = async (req, res) => {
           (a) =>
             String(a.file_name || a.filename || "")
               .toLowerCase()
-              .trim() === String(filename).toLowerCase().trim()
+              .trim() === String(filename).toLowerCase().trim(),
         )
       : attachments;
 

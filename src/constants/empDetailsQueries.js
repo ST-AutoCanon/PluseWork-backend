@@ -655,12 +655,46 @@ LEFT JOIN (
     (? = 'Employee'  
        AND p.\`rank\` IN (6, 7, 8))
     OR
+    (? = 'HR'  
+       AND p.\`rank\` IN (3, 4, 5, 6, 7, 8))
+    OR
     (? = 'General'
        AND p.\`rank\` >= 9)
   GROUP BY
     p.name
   ORDER BY
     MIN(p.\`rank\`)
+`,
+
+  GET_POSITION_RANK: `
+  SELECT \`rank\`
+  FROM positions
+  WHERE name = ?
+  LIMIT 1
+`,
+
+  GET_MASTER_POSITIONS_BY_RANK_RANGE: `
+  SELECT name
+  FROM positions
+  WHERE \`rank\` BETWEEN ? AND ?
+    AND (department_id = ? OR department_id IS NULL)
+  ORDER BY \`rank\` DESC
+`,
+
+  GET_SUPERVISORS_BY_POSITION_FILTERED: `
+  SELECT
+    e.employee_id,
+    CONCAT(e.first_name, ' ', e.last_name) AS name,
+    p.position,
+    p.department_id,
+    d.name AS department
+  FROM employees e
+  JOIN employee_professional p USING (employee_id)
+  LEFT JOIN departments d ON p.department_id = d.id
+  WHERE p.position IN (%POSITION_LIST%)
+    AND e.status = 'Active'
+    AND e.org_id = ?
+  ORDER BY FIELD(p.position, %POSITION_LIST%)
 `,
 
   GET_SUPERVISORS_BY_POSITION: `
