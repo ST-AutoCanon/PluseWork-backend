@@ -1323,61 +1323,14 @@ exports.getAttachments = async (req, res) => {
       filename,
     );
 
-    const legacyPath = path.join(
-      __dirname,
-      "..",
-      "..",
-      "..",
-      "reimbursement",
-      year,
-      month,
-      employeeId,
-      filename,
-    );
-
-    const triedPaths = [tenantPath, legacyPath];
-
-    const existing = triedPaths.filter((p) => fs.existsSync(p));
-
-    console.info("getAttachments: attempted paths:", triedPaths);
-    console.info("getAttachments: existing matches:", existing);
-
-    if (existing.length > 0) {
-      const finalPath = existing[0];
-      const ext = path.extname(filename).toLowerCase();
-      const mimeType =
-        {
-          ".jpg": "image/jpeg",
-          ".jpeg": "image/jpeg",
-          ".png": "image/png",
-          ".pdf": "application/pdf",
-        }[ext] || "application/octet-stream";
-      res.setHeader("Content-Type", mimeType);
-      res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
-      return fs.createReadStream(finalPath).pipe(res);
+    if (fs.existsSync(tenantPath)) {
+      res.sendFile(tenantPath);
+    } else {
+      return res.status(404).json({ error: "File not found" });
     }
-
-    const triedDirs = Array.from(
-      new Set(triedPaths.map((p) => path.dirname(p))),
-    );
-    const dirListings = {};
-    for (const d of triedDirs) {
-      try {
-        if (fs.existsSync(d)) dirListings[d] = fs.readdirSync(d).slice(0, 100);
-        else dirListings[d] = null;
-      } catch (e) {
-        dirListings[d] = `ERR: ${e.message}`;
-      }
-    }
-
-    return res.status(404).json({
-      error: "File not found (diagnostic)",
-      triedPaths,
-      dirListings,
-    });
   } catch (error) {
-    console.error("Error fetching file:", error);
-    res.status(500).json({ error: "Error fetching file" });
+    console.error("Error fetching attachment:", error);
+    res.status(500).json({ error: "Internal server error" });
   }
 };
 

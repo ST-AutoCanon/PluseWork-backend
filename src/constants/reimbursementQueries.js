@@ -97,7 +97,7 @@ module.exports = {
     )
   `,
 
-  SAVE_ATTACHMENTS: `INSERT INTO reimbursement_attachments (reimbursement_id, line_id, file_name, file_path) VALUES ?`,
+  SAVE_ATTACHMENTS: `INSERT INTO reimbursement_attachments (reimbursement_id, line_id, file_name) VALUES ?`,
 
   CHECK_EXISTING_CLAIM: `
   SELECT * FROM reimbursement
@@ -164,13 +164,13 @@ module.exports = {
   DELETE_REIMBURSEMENT: `DELETE FROM reimbursement WHERE id=?`,
 
   GET_ATTACHMENTS_BY_REIMBURSEMENT_IDS: `
-    SELECT id, reimbursement_id, line_id, file_name, file_path
+    SELECT id, reimbursement_id, line_id, file_name
     FROM reimbursement_attachments
     WHERE reimbursement_id IN (?)
   `,
 
   GET_ATTACHMENTS: `
-    SELECT id, reimbursement_id, file_name, file_path
+    SELECT id, reimbursement_id, file_name
     FROM reimbursement_attachments
     WHERE reimbursement_id = ?
   `,

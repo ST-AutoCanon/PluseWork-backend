@@ -93,26 +93,87 @@ const getLeaveTypes = async (orgId) => {
 const getLeaveTypeByKey = async (orgId, keyOrId) => {
   if (!orgId) throw new Error("orgId required");
   if (!keyOrId) return null;
+
   const tenantPool = await getTenantPool(orgId);
+
+  // quick helper to canonicalize strings for comparison
+  const canon = (v) =>
+    v === null || v === undefined ? "" : String(v).trim().toLowerCase();
+
   try {
+    // First try the precise query (existing constant) which likely checks type_key or id
     const [rows] = await tenantPool.execute(queries.GET_LEAVE_TYPE_BY_KEY, [
       orgId,
       keyOrId,
       keyOrId,
     ]);
-    if (!rows || rows.length === 0) return null;
-    const r = rows[0];
-    return {
-      id: r.id,
-      key: String(r.key || r.type_key || "").trim(),
-      label: r.label || r.display_name || r.key || "",
-      gender: r.gender || null,
-      min_age: r.min_age === null ? null : Number(r.min_age),
-      max_age: r.max_age === null ? null : Number(r.max_age),
-      is_active: Number(r.is_active) === 1,
+    if (Array.isArray(rows) && rows.length > 0) {
+      const r = rows[0];
+      return {
+        id: r.id,
+        key: String(r.key || r.type_key || "").trim(),
+        label: r.label || r.display_name || r.key || "",
+        gender: r.gender || null,
+        min_age: r.min_age === null ? null : Number(r.min_age),
+        max_age: r.max_age === null ? null : Number(r.max_age),
+        is_active: Number(r.is_active) === 1,
+      };
+    }
+
+    // If not found, fetch all leave types for the org and try to find a match
+    const all = await getLeaveTypes(orgId); // returns normalized list
+    const input = canon(keyOrId);
+
+    // 1) match by numeric id
+    if (!isNaN(Number(keyOrId))) {
+      const byId = all.find((t) => Number(t.id) === Number(keyOrId));
+      if (byId) return byId;
+    }
+
+    // 2) exact case-insensitive match on key or label
+    let found =
+      all.find((t) => canon(t.key) === input) ||
+      all.find((t) => canon(t.label) === input);
+    if (found) return found;
+
+    // 3) fuzzy: partial match in label or key (startsWith / includes)
+    found =
+      all.find((t) => canon(t.key).startsWith(input)) ||
+      all.find((t) => canon(t.label).startsWith(input)) ||
+      all.find((t) => canon(t.key).includes(input)) ||
+      all.find((t) => canon(t.label).includes(input));
+    if (found) return found;
+
+    // 4) synonyms mapping (try to map common aliases to DB entries)
+    const synonyms = {
+      casual: ["casual", "casual leave", "leave-casual"],
+      vacation: ["vacation", "vacation leave", "annual", "annual leave"],
+      sick: ["sick", "sick leave", "medical"],
+      earned: ["earned", "earned leave", "privilege"],
+      lop: ["lop", "loss of pay", "unpaid", "unpaid leave"],
+      maternity: ["maternity"],
+      paternity: ["paternity"],
+      bereavement: ["bereavement", "compassionate"],
+      compensatory: ["comp", "compensatory", "compensated"],
     };
+    for (const dbType of all) {
+      const k = canon(dbType.key);
+      const l = canon(dbType.label);
+      for (const synGroupKey of Object.keys(synonyms)) {
+        const syns = synonyms[synGroupKey];
+        if (syns.includes(input)) {
+          // if DB type's key or label contains the synonym group key, treat as match
+          if (k.includes(synGroupKey) || l.includes(synGroupKey)) return dbType;
+        }
+      }
+    }
+
+    return null;
   } catch (err) {
-    console.error("[getLeaveTypeByKey] error:", err);
+    console.error(
+      "[getLeaveTypeByKey] error:",
+      err && err.message ? err.message : err,
+    );
     return null;
   }
 };
@@ -146,27 +207,29 @@ const computeAgeYears = (dobStr) => {
   if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age--;
   return age;
 };
-
-/**
- * Validate requested leave type for an employee (gender + age)
- * Throws Error if not allowed.
- */
 const validateLeaveTypeEligibility = async (employeeId, leaveKey, orgId) => {
   if (!orgId) throw new Error("orgId required");
   if (!employeeId) throw new Error("employeeId required");
   if (!leaveKey) throw new Error("leave type is required");
 
-  const leaveType = await getLeaveTypeByKey(orgId, leaveKey);
-  if (!leaveType || !leaveType.is_active) {
+  // Try to resolve the leave type in a flexible way
+  const resolved = await getLeaveTypeByKey(orgId, leaveKey);
+  if (!resolved || !resolved.is_active) {
     const err = new Error("Selected leave type is not available.");
     err.isBadRequest = true;
     throw err;
   }
 
+  const leaveType = resolved;
+
+  // Fetch personal details and compute age/gender
   const personal = await getEmployeePersonal(employeeId, orgId);
   const gender =
     personal && personal.gender ? String(personal.gender).toLowerCase() : null;
-  const dob = personal && personal.dob ? personal.dob : null;
+  const dob =
+    personal && (personal.dob || personal.employee_dob)
+      ? personal.dob || personal.employee_dob
+      : null;
   const age = computeAgeYears(dob);
 
   const reqGender = (leaveType.gender || "All").toString().toLowerCase();
@@ -1176,16 +1239,34 @@ async function deleteAttachmentById(attachmentId, orgId) {
 
   return true;
 }
+// in services/leaveService.js: safe replacement for getAttachmentByFileName
+async function getAttachmentByFileName(fileName, orgId, leaveId = null) {
+  if (!fileName) return null;
+  if (!orgId) throw new Error("orgId required");
 
-/**
- * Replace attachments for a leave:
- * - delete existing attachment rows (and attempt to unlink files)
- * - insert new files (saved by multer) as new rows
- *
- * Behavior: wrapped with DB transaction for DB changes. Files are unlinked best-effort.
- *
- * Returns: { deleted: [ids], inserted: [insertedMeta] }
- */
+  try {
+    const tenantPool = await getTenantPool(orgId);
+    let sql = `SELECT id, leave_id, file_name, file_path, mime_type, size, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at, org_id
+               FROM leave_attachments
+               WHERE file_name = ? AND org_id = ?`;
+    const params = [fileName, orgId];
+    if (leaveId) {
+      sql += ` AND leave_id = ?`;
+      params.push(leaveId);
+    }
+    sql += ` LIMIT 1`;
+    const [rows] = await tenantPool.execute(sql, params);
+    if (!Array.isArray(rows) || rows.length === 0) return null;
+    return rows[0];
+  } catch (err) {
+    console.error(
+      "[getAttachmentByFileName] error:",
+      err && err.message ? err.message : err,
+    );
+    throw err;
+  }
+}
+
 async function replaceAttachmentsForLeave(leaveId, files = [], orgId) {
   if (!leaveId) throw new Error("leaveId required");
   if (!orgId) throw new Error("orgId required");
@@ -1322,6 +1403,8 @@ module.exports = {
   getAttachmentsForLeave,
   getAttachmentById,
   deleteAttachmentById,
+  getAttachmentByFileName,
+
   replaceAttachmentsForLeave,
   getEmployeePersonal,
   validateLeaveTypeEligibility,

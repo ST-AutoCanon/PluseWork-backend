@@ -22,59 +22,59 @@ router.get("/reimbursements", reimbursementHandler.getAllReimbursements);
 
 router.get(
   "/reimbursement/:employeeId",
-  reimbursementHandler.getReimbursementsByEmployee
+  reimbursementHandler.getReimbursementsByEmployee,
 );
 
 router.put(
   "/reimbursement/status/:id",
-  reimbursementHandler.updateReimbursementStatus
+  reimbursementHandler.updateReimbursementStatus,
 );
 
 router.put(
   "/reimbursement/payment-status/:id",
-  reimbursementHandler.updatePaymentStatus
+  reimbursementHandler.updatePaymentStatus,
 );
 router.put(
   "/reimbursement/:id/status",
-  reimbursementHandler.updateReimbursementStatus
+  reimbursementHandler.updateReimbursementStatus,
 );
 router.put(
   "/reimbursement/:id/payment",
-  reimbursementHandler.updatePaymentStatus
+  reimbursementHandler.updatePaymentStatus,
 );
 router.post(
   "/reimbursement",
   upload.array("attachments", 5),
-  reimbursementHandler.createReimbursement
+  reimbursementHandler.createReimbursement,
 );
 router.get(
   "/reimbursement/attachment/meta",
-  reimbursementHandler.getAttachmentMeta
+  reimbursementHandler.getAttachmentMeta,
 );
 
 router.get(
   "/reimbursement/attachment/serve",
-  reimbursementHandler.serveAttachmentCanonical
+  reimbursementHandler.serveAttachmentCanonical,
 );
 
 router.put(
   "/reimbursement/:id",
   upload.array("attachments", 5),
-  reimbursementHandler.updateReimbursement
+  reimbursementHandler.updateReimbursement,
 );
 
 router.delete("/reimbursement/:id", reimbursementHandler.deleteReimbursement);
 
 router.get(
   "/team/:teamLeadId/reimbursements",
-  reimbursementHandler.getTeamReimbursements
+  reimbursementHandler.getTeamReimbursements,
 );
 
 router.get("/projectdrop", reimbursementHandler.getAllProjects);
 
 router.get(
   "/reimbursement/:reimbursementId/attachments",
-  reimbursementHandler.getAttachmentsByReimbursementId
+  reimbursementHandler.getAttachmentsByReimbursementId,
 );
 
 router.get("/reimbursements/export", reimbursementHandler.exportReimbursements);
@@ -102,80 +102,60 @@ router.post(
     }
 
     const uploadedFiles = req.files.map(
-      (file) => file.filename || path.basename(file.path || "")
+      (file) => file.filename || path.basename(file.path || ""),
     );
     res.json({ message: "Files uploaded successfully", files: uploadedFiles });
   },
   (err, req, res, next) => {
     res.status(500).json({ message: err.message });
-  }
+  },
 );
 
-router.get("/reimbursement/:year/:month/:employeeId/:filename", (req, res) => {
-  try {
-    const { year, month, employeeId, filename } = req.params;
+router.get(
+  "/reimbursement/:orgId/:year/:month/:employeeId/:filename",
+  (req, res) => {
+    const { orgId, year, month, employeeId, filename } = req.params;
 
     if (
-      [year, month, employeeId, filename].some(
+      [orgId, year, month, employeeId, filename].some(
         (param) =>
-          param.includes("..") || param.includes("/") || param.includes("\\")
+          param.includes("..") || param.includes("/") || param.includes("\\"),
       )
     ) {
       return res.status(400).json({ message: "Invalid filename" });
     }
 
-    const orgId = resolveOrgIdFromReq(req);
-
-    const tenantPath = orgId
-      ? path.join(
-          __dirname,
-          "..",
-          "..",
-          "reimbursement",
-          String(orgId),
-          year,
-          month,
-          employeeId,
-          filename
-        )
-      : null;
-
-    const legacyPath = path.join(
+    const filePath = path.join(
       __dirname,
       "..",
       "..",
+      "..",
       "reimbursement",
+      orgId,
       year,
       month,
       employeeId,
-      filename
+      filename,
     );
 
-    let filePath = null;
-    if (tenantPath && fs.existsSync(tenantPath)) {
-      filePath = tenantPath;
-    } else if (fs.existsSync(legacyPath)) {
-      filePath = legacyPath;
+    if (fs.existsSync(filePath)) {
+      const mimeType =
+        {
+          ".jpg": "image/jpeg",
+          ".jpeg": "image/jpeg",
+          ".png": "image/png",
+          ".pdf": "application/pdf",
+        }[path.extname(filename).toLowerCase()] || "application/octet-stream";
+
+      res.setHeader("Content-Type", mimeType);
+      res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
+
+      fs.createReadStream(filePath).pipe(res);
     } else {
-      return res.status(404).json({ message: "File not found" });
+      res.status(404).json({ message: "File not found" });
     }
-
-    const mimeType =
-      {
-        ".jpg": "image/jpeg",
-        ".jpeg": "image/jpeg",
-        ".png": "image/png",
-        ".pdf": "application/pdf",
-      }[path.extname(filename).toLowerCase()] || "application/octet-stream";
-
-    res.setHeader("Content-Type", mimeType);
-    res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
-    fs.createReadStream(filePath).pipe(res);
-  } catch (err) {
-    console.error("Attachment serve error:", err);
-    res.status(500).json({ message: "Internal Server Error" });
-  }
-});
+  },
+);
 
 router.get("/download/:claimId", reimbursementHandler.generateReimbursementPDF);
 

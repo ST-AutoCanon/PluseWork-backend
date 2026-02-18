@@ -30,6 +30,88 @@ const resolveOrgId = (req) =>
   (req.user && (req.user.orgId || req.user.org_id)) ||
   null;
 
+// Helper: build public-facing attachment shape (adds url & exists)
+function buildPublicAttachment(a, orgId, req) {
+  const id = a.id || a.attachment_id || a.attachmentId || null;
+  const file_name =
+    a.file_name || a.name || a.originalname || a.fileName || null;
+  const rawPath = a.file_path || a.path || a.filePath || a.file || "";
+
+  let file_path = rawPath;
+  // Keep file_path as originally stored if absolute; otherwise keep the raw value
+  if (!file_path) file_path = null;
+
+  // compute absolute path for exists check
+  let abs = file_path || "";
+  try {
+    if (abs && !path.isAbsolute(abs)) {
+      // If path looks like "uploads/..." or "/uploads/..." try to resolve relative to project
+      abs = path.join(process.cwd(), abs);
+    }
+  } catch (e) {
+    abs = file_path || "";
+  }
+
+  let exists = false;
+  try {
+    if (abs) exists = fs.existsSync(abs);
+  } catch (_) {
+    exists = false;
+  }
+
+  // Build base host/proto
+  const forwardedProto =
+    (req && req.headers && req.headers["x-forwarded-proto"]) || null;
+  const protocol =
+    (forwardedProto && String(forwardedProto).split(",")[0]) ||
+    (req && req.protocol) ||
+    "https";
+  const host =
+    (req && typeof req.get === "function" && req.get("host")) ||
+    process.env.PUBLIC_HOST ||
+    null;
+  const hostPart = host ? host.replace(/:\/\/$/, "") : host;
+
+  // Try to build useful urls in order of preference:
+  // 1) if an explicit url exists on record, use it
+  // 2) prefer a backend-served attachment route if we have an id
+  // 3) derive URL from an uploads path ("/uploads/") if present
+
+  let url = a.url || a.file_url || null;
+
+  if (!url && id && host) {
+    // prefer the simple attachments route which this handler provides (ensure your routes mount this)
+    try {
+      const base = `${protocol}://${hostPart}`;
+      url = `${base.replace(/\/$/, "")}/attachments/${encodeURIComponent(id)}?orgId=${encodeURIComponent(orgId)}`;
+    } catch (e) {
+      url = null;
+    }
+  }
+
+  if (!url && file_path && typeof file_path === "string") {
+    const uploadsIndex = String(file_path).indexOf("/uploads/");
+    if (uploadsIndex !== -1 && host) {
+      const publicPath = file_path.slice(uploadsIndex);
+      const base = `${protocol}://${hostPart}`;
+      url = `${base.replace(/\/$/, "")}${publicPath}`;
+    }
+  }
+
+  return {
+    id,
+    file_name,
+    file_path: file_path || null,
+    mime_type: a.mime_type || a.mimetype || a.type || null,
+    size: a.size || a.file_size || null,
+    created_at: a.created_at || a.createdAt || null,
+    url: url || null,
+    exists: Boolean(exists),
+    // keep original raw object for debugging if needed
+    _raw: a,
+  };
+}
+
 class LeaveHandler {
   static async getLeaveTypesHandler(req, res) {
     try {
@@ -108,10 +190,13 @@ class LeaveHandler {
             );
             const pool = await tenantPoolManagerLocal.getTenantPool(dbName);
             if (pool && typeof pool.execute === "function") {
-              const query = `
+              const query =
+                `
               SELECT
                 id,
-                COALESCE(type_key, \`key\`, '') AS type_key,
+                COALESCE(type_key, ` +
+                "`key`" +
+                `, '') AS type_key,
                 COALESCE(display_name, label, name, '') AS display_name,
                 COALESCE(is_active, 1) AS is_active
               FROM leave_types
@@ -231,10 +316,35 @@ class LeaveHandler {
         org_id,
       });
 
+      // Enrich with attachments
+      const enriched = await Promise.all(
+        leaveQueries.map(async (leave) => {
+          try {
+            const id = leave.id || leave.leave_id || leave.leaveId || null;
+            if (!id) return { ...leave, attachments: [] };
+
+            const atts = await LeaveService.getAttachmentsForLeave(id, org_id);
+            const attachments = Array.isArray(atts)
+              ? atts.map((a) => buildPublicAttachment(a, org_id, req))
+              : [];
+            return { ...leave, attachments };
+          } catch (err) {
+            console.warn(
+              "[getLeaveQueries] failed to fetch attachments for leave",
+              {
+                leave,
+                err: err && err.message ? err.message : err,
+              },
+            );
+            return { ...leave, attachments: [] };
+          }
+        }),
+      );
+
       return res.status(200).json({
         success: true,
         statusCode: 200,
-        data: leaveQueries,
+        data: enriched,
       });
     } catch (err) {
       console.error("Error in LeaveHandler.getLeaveQueries:", err);
@@ -495,8 +605,13 @@ class LeaveHandler {
         }
       }
 
+      // Map inserted attachments to public shape if available
+      const mappedInserted = Array.isArray(inserted)
+        ? inserted.map((a) => buildPublicAttachment(a, orgId, req))
+        : [];
+
       const responseData = Object.assign({}, leaveRequest, {
-        attachments: inserted,
+        attachments: mappedInserted,
       });
 
       return res
@@ -564,19 +679,7 @@ class LeaveHandler {
 
             const atts = await LeaveService.getAttachmentsForLeave(id, orgId);
             const attachments = Array.isArray(atts)
-              ? atts.map((a) => ({
-                  id: a.id || a.attachment_id || null,
-                  file_name:
-                    a.file_name ||
-                    a.name ||
-                    a.originalname ||
-                    a.fileName ||
-                    null,
-                  file_path: a.file_path || a.path || a.filePath || null,
-                  mime_type: a.mime_type || a.mimetype || a.type || null,
-                  size: a.size || a.file_size || null,
-                  created_at: a.created_at || a.createdAt || null,
-                }))
+              ? atts.map((a) => buildPublicAttachment(a, orgId, req))
               : [];
             return { ...leave, attachments };
           } catch (err) {
@@ -787,9 +890,35 @@ class LeaveHandler {
         teamLeadId,
         orgId,
       );
+
+      // Enrich with attachments
+      const enriched = await Promise.all(
+        leaveRequests.map(async (leave) => {
+          try {
+            const id = leave.id || leave.leave_id || leave.leaveId || null;
+            if (!id) return { ...leave, attachments: [] };
+
+            const atts = await LeaveService.getAttachmentsForLeave(id, orgId);
+            const attachments = Array.isArray(atts)
+              ? atts.map((a) => buildPublicAttachment(a, orgId, req))
+              : [];
+            return { ...leave, attachments };
+          } catch (err) {
+            console.warn(
+              "[getLeaveRequestsForTeamLeadHandler] failed to fetch attachments for leave",
+              {
+                leave,
+                err: err && err.message ? err.message : err,
+              },
+            );
+            return { ...leave, attachments: [] };
+          }
+        }),
+      );
+
       return res.status(200).json(
         ErrorHandler.generateSuccessResponse(200, "Success", {
-          data: leaveRequests,
+          data: enriched,
         }),
       );
     } catch (err) {
@@ -821,13 +950,18 @@ class LeaveHandler {
         leaveId,
         orgId,
       );
+
+      const mapped = Array.isArray(attachments)
+        ? attachments.map((a) => buildPublicAttachment(a, orgId, req))
+        : [];
+
       return res
         .status(200)
         .json(
           ErrorHandler.generateSuccessResponse(
             200,
             "Attachments fetched.",
-            attachments,
+            mapped,
           ),
         );
     } catch (err) {
@@ -893,11 +1027,15 @@ class LeaveHandler {
         orgId,
       );
 
+      const mappedInserted = Array.isArray(inserted)
+        ? inserted.map((a) => buildPublicAttachment(a, orgId, req))
+        : [];
+
       return res.status(200).json({
         success: true,
         code: 200,
         message: "Attachments uploaded.",
-        data: inserted,
+        data: mappedInserted,
       });
     } catch (err) {
       console.error(
@@ -932,13 +1070,18 @@ class LeaveHandler {
         files,
         orgId,
       );
+
+      const mapped = Array.isArray(result)
+        ? result.map((a) => buildPublicAttachment(a, orgId, req))
+        : result;
+
       return res
         .status(200)
         .json(
           ErrorHandler.generateSuccessResponse(
             200,
             "Attachments replaced.",
-            result,
+            mapped,
           ),
         );
     } catch (err) {
@@ -1049,6 +1192,72 @@ class LeaveHandler {
       return res.status(500).send("Failed to serve attachment");
     }
   }
-}
 
+  static async serveAttachmentByName(req, res) {
+    try {
+      const orgId = resolveOrgId(req) || req.query?.orgId;
+      const name = req.query?.name || req.params?.name;
+      const leaveId = req.query?.leaveId || req.params?.leaveId || null;
+
+      if (!orgId || !name) {
+        return res.status(400).send("Missing orgId or name");
+      }
+
+      // You'll implement this service method (see snippet below)
+      const attachment = await LeaveService.getAttachmentByFileName(
+        name,
+        orgId,
+        leaveId,
+      );
+      if (!attachment) {
+        return res.status(404).send("Attachment not found");
+      }
+
+      // Reuse same logic as serveAttachmentHandler to resolve abs path and safety checks
+      let abs = attachment.file_path || "";
+      if (!path.isAbsolute(abs)) {
+        abs = path.join(process.cwd(), abs);
+      }
+
+      // safer check using path.resolve / startsWith:
+      const uploadsRoot = path.resolve(
+        process.cwd(),
+        "uploads",
+        "leave_attachments",
+        String(orgId),
+      );
+      const normalizedAbs = path.resolve(abs);
+      if (!normalizedAbs.startsWith(uploadsRoot)) {
+        console.warn("[serveAttachmentByName] file path outside safe folder:", {
+          normalizedAbs,
+          uploadsRoot,
+        });
+        return res.status(403).send("Forbidden");
+      }
+
+      if (!fs.existsSync(normalizedAbs)) {
+        console.warn(
+          "[serveAttachmentByName] file missing on disk:",
+          normalizedAbs,
+        );
+        return res.status(404).send("File missing");
+      }
+
+      const disposition = req.query?.download === "1" ? "attachment" : "inline";
+      res.setHeader(
+        "Content-Type",
+        attachment.mime_type || "application/octet-stream",
+      );
+      const fname = (attachment.file_name || "attachment").replace(/"/g, "");
+      res.setHeader(
+        "Content-Disposition",
+        `${disposition}; filename="${fname}"`,
+      );
+      return res.sendFile(normalizedAbs);
+    } catch (err) {
+      console.error("[serveAttachmentByName] error:", err);
+      return res.status(500).send("Failed to serve attachment by name");
+    }
+  }
+}
 module.exports = LeaveHandler;

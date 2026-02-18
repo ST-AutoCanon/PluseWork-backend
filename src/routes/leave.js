@@ -102,13 +102,8 @@ router.delete(
   "/cancel/:leaveId/:employeeId",
   LeaveHandler.cancelLeaveRequestHandler,
 );
+router.get("/attachments/byname", LeaveHandler.serveAttachmentByName);
 
-/* ------------- attachments & submit ------------- */
-/**
- * POST /employee/leave
- * Accepts multipart form-data (attachments optional) OR application/json.
- * Using runUpload(upload.array('attachments')) works when there's no multipart body too.
- */
 router.post(
   "/employee/leave",
   runUpload(upload.array("attachments")),
@@ -117,7 +112,7 @@ router.post(
 
 // Get attachments metadata
 router.get(
-  "/employee/leave/:id/attachments",
+  "/api/employee/leave/:id/attachments",
   LeaveHandler.getAttachmentsHandler,
 );
 
