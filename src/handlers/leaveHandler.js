@@ -112,6 +112,103 @@ function buildPublicAttachment(a, orgId, req) {
   };
 }
 
+/**
+ * Move uploaded files (from multer) into the tenant/employee folder and update file.path to be a relative path.
+ * This function mutates the file objects in-place and returns them.
+ */
+function moveUploadedFilesToTenant(files = [], orgId, employeeId) {
+  if (!Array.isArray(files) || files.length === 0) return files;
+  if (!orgId) return files; // nothing we can do
+
+  const tenantRoot = path.join(
+    process.cwd(),
+    "uploads",
+    "leave_attachments",
+    String(orgId),
+  );
+  try {
+    fs.mkdirSync(tenantRoot, { recursive: true });
+  } catch (e) {
+    // continue; we'll try per-file mkdir if necessary
+  }
+
+  return files.map((file) => {
+    try {
+      const origPath = file.path || file.location || file.filename || "";
+      if (!origPath) return file;
+
+      const absOld = path.isAbsolute(origPath)
+        ? origPath
+        : path.join(process.cwd(), String(origPath));
+
+      // choose employee folder if provided, otherwise put under org root
+      const destDir = employeeId
+        ? path.join(
+            process.cwd(),
+            "uploads",
+            "leave_attachments",
+            String(orgId),
+            String(employeeId),
+          )
+        : path.join(
+            process.cwd(),
+            "uploads",
+            "leave_attachments",
+            String(orgId),
+          );
+      fs.mkdirSync(destDir, { recursive: true });
+
+      const original = String(file.originalname || file.filename || "file");
+      const safe = original
+        .replace(/\s+/g, "_")
+        .replace(/[^a-zA-Z0-9_\-.]/g, "");
+      const newFileName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safe}`;
+      const absNew = path.join(destDir, newFileName);
+
+      // attempt rename, if fails try copy and unlink
+      try {
+        if (fs.existsSync(absOld)) {
+          fs.renameSync(absOld, absNew);
+        } else {
+          // If file wasn't saved where expected, skip moving but still update path to expected (no overwrite)
+          // This helps if multer already placed file correctly (absOld already in destDir)
+          // If not exists, we won't throw here; caller will see missing file on disk when checking.
+        }
+      } catch (renameErr) {
+        try {
+          // try copy
+          if (fs.existsSync(absOld)) {
+            fs.copyFileSync(absOld, absNew);
+            try {
+              fs.unlinkSync(absOld);
+            } catch (_) {}
+          }
+        } catch (copyErr) {
+          // if both rename and copy failed, leave original path untouched
+        }
+      }
+
+      // store relative path (forward slashes) so service can store portable path in DB
+      const rel = path.relative(process.cwd(), absNew);
+      const relNormalized = rel.split(path.sep).join("/");
+
+      // mutate file object fields expected by saveLeaveAttachments
+      file.path = relNormalized;
+      file.destination = relNormalized.replace(/\/[^\/]+$/, ""); // path without filename (best-effort)
+      file.filename = newFileName;
+      file.originalname = original;
+      return file;
+    } catch (e) {
+      // do not fail entire upload for one file; log and return original file object
+      console.warn(
+        "[moveUploadedFilesToTenant] file move failed:",
+        e && e.message ? e.message : e,
+      );
+      return file;
+    }
+  });
+}
+
 class LeaveHandler {
   static async getLeaveTypesHandler(req, res) {
     try {
@@ -578,6 +675,7 @@ class LeaveHandler {
           );
       }
 
+      // Create leave first
       const leaveRequest = await LeaveService.submitLeaveRequest({
         employeeId,
         startDate,
@@ -588,10 +686,15 @@ class LeaveHandler {
         orgId,
       });
 
+      // process uploaded files (if any)
       const files = Array.isArray(req.files) ? req.files : [];
       let inserted = [];
       if (files.length > 0) {
         try {
+          // Move files to tenant/employee folder and update file.path to relative path
+          moveUploadedFilesToTenant(files, orgId, employeeId);
+
+          // Save metadata in DB
           inserted = await LeaveService.saveLeaveAttachments(
             leaveRequest.id,
             files,
@@ -1021,6 +1124,16 @@ class LeaveHandler {
           .json({ success: false, code: 400, message: "No files uploaded." });
       }
 
+      // Ensure files moved into org/employee folder
+      try {
+        moveUploadedFilesToTenant(files, orgId, employeeId);
+      } catch (moveErr) {
+        console.warn(
+          "[addAttachmentsHandler] moveUploadedFilesToTenant failed:",
+          moveErr && moveErr.message ? moveErr.message : moveErr,
+        );
+      }
+
       const inserted = await LeaveService.saveLeaveAttachments(
         leaveId,
         files,
@@ -1065,15 +1178,38 @@ class LeaveHandler {
           );
       }
       const files = Array.isArray(req.files) ? req.files : [];
+
+      // Move files to tenant folder before passing to service
+      try {
+        const leaveRow = await LeaveService.getAttachmentById(
+          leaveId,
+          orgId,
+        ).catch(() => null);
+        // try to resolve employee id from leave row if available; otherwise leave undefined
+        const employeeId =
+          (leaveRow && leaveRow.employee_id) ||
+          req.body?.employeeId ||
+          req.headers?.["x-employee-id"] ||
+          null;
+        moveUploadedFilesToTenant(files, orgId, employeeId);
+      } catch (moveErr) {
+        console.warn(
+          "[replaceAttachmentsHandler] moveUploadedFilesToTenant failed:",
+          moveErr && moveErr.message ? moveErr.message : moveErr,
+        );
+      }
+
       const result = await LeaveService.replaceAttachmentsForLeave(
         leaveId,
         files,
         orgId,
       );
 
-      const mapped = Array.isArray(result)
-        ? result.map((a) => buildPublicAttachment(a, orgId, req))
-        : result;
+      // result is { deleted: [...], inserted: [...] } as implemented in service
+      const mapped =
+        result && Array.isArray(result.inserted)
+          ? result.inserted.map((a) => buildPublicAttachment(a, orgId, req))
+          : result;
 
       return res
         .status(200)

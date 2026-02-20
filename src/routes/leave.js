@@ -27,6 +27,13 @@ const storage = multer.diskStorage({
         req.body?.employeeId ||
         "unknown";
 
+      if (orgId === "unknown" || employeeId === "unknown") {
+        console.warn("Missing orgId or employeeId for file upload:", {
+          orgId,
+          employeeId,
+        });
+      }
+
       const destDir = path.join(
         process.cwd(),
         "uploads",
@@ -109,7 +116,11 @@ router.post(
   runUpload(upload.array("attachments")),
   LeaveHandler.submitLeaveRequestHandler,
 );
-
+router.post(
+  "/api/employee/leave/:id/attachments",
+  runUpload(upload.array("attachments")),
+  LeaveHandler.addAttachmentsHandler,
+);
 // Get attachments metadata
 router.get(
   "/api/employee/leave/:id/attachments",

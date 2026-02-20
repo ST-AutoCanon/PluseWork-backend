@@ -1,3 +1,4 @@
+// src/services/reimbursementService.js
 const queries = require("../constants/reimbursementQueries");
 const path = require("path");
 const fs = require("fs").promises;
@@ -101,9 +102,18 @@ async function getTenantPoolForOrgId(orgId) {
   return getTenantPool(dbName);
 }
 
+/**
+ * buildAttachmentUrl
+ * NOTE: we no longer persist file_path in DB. Build a URL or return the filename.
+ * You can update this to return a full backend endpoint if you have a route like:
+ *  GET /reimbursement/:orgId/:year/:month/:employeeId/:filename
+ */
 const buildAttachmentUrl = (fileName, employeeIdHint = null) => {
   try {
     const fname = String(fileName || "").trim();
+    if (!fname) return null;
+    // If you have a route on backend to serve attachments by filename, build and return it here.
+    // For now just return the filename so the frontend can call your serve endpoint and pass orgId/employee/etc.
     return fname;
   } catch (e) {
     return null;
@@ -136,9 +146,10 @@ const buildAttachmentsFromFiles = (files = [], attachmentsMeta = {}) => {
       lineIndex = undefined;
     }
 
+    // IMPORTANT: we only persist filename and optional line index
     return {
       file_name: String(diskName || originalName || "").trim(),
-      file_path: file.path || null,
+      file_path: file.path || null, // keep in-memory if handler wants to use it for uploading; NOT stored in DB
       line_index:
         typeof lineIndex !== "undefined" && lineIndex !== null
           ? Number(lineIndex)
@@ -147,18 +158,27 @@ const buildAttachmentsFromFiles = (files = [], attachmentsMeta = {}) => {
   });
 };
 
+/**
+ * saveAttachmentsBulk
+ * Now inserts only (reimbursement_id, line_id, file_name) to match existing DB schema.
+ */
 const saveAttachmentsBulk = async (reimbursementId, files = [], orgId) => {
   if (!files || !files.length) return;
   const tenantPool = await getTenantPoolForOrgId(orgId);
 
   const attachmentValues = files.map((f) => [
     reimbursementId,
-    f.line_id !== undefined ? f.line_id : null,
+    f.line_id !== undefined && f.line_id !== null ? f.line_id : null,
     f.file_name,
   ]);
   await tenantPool.query(queries.SAVE_ATTACHMENTS, [attachmentValues]);
 };
 
+/**
+ * processUploadedFiles
+ * Normalize incoming uploaded files and persist DB rows for them (3-column).
+ * Returns normalized array (with file_name, file_path (in-memory), line_index).
+ */
 exports.processUploadedFiles = async (
   files,
   reimbursementId,
@@ -191,7 +211,7 @@ exports.processUploadedFiles = async (
 
       return {
         file_name: String(diskName || originalName || "").trim(),
-        file_path: file.path || null,
+        file_path: file.path || null, // kept in-memory for potential immediate processing, NOT stored as DB column
         line_index:
           typeof lineIndex !== "undefined" && lineIndex !== null
             ? Number(lineIndex)
@@ -199,13 +219,19 @@ exports.processUploadedFiles = async (
       };
     });
 
+    // Convert to DB rows shape: reimbursement_id, line_id, file_name
     const toSave = normalized.map((n) => ({
       file_name: n.file_name,
-      file_path: n.file_path || "",
       line_id: n.line_index !== undefined ? n.line_index : null,
     }));
+
     if (toSave.length) {
-      await saveAttachmentsBulk(reimbursementId, toSave, orgId);
+      // Save using the 3-column insert
+      await saveAttachmentsBulk(
+        reimbursementId,
+        toSave.map((t) => ({ line_id: t.line_id, file_name: t.file_name })),
+        orgId,
+      );
     }
 
     return normalized;
@@ -315,13 +341,13 @@ exports.getReimbursementsByEmployee = async (
   const attByReim = {};
   attachRows.forEach((a) => {
     if (!attByReim[a.reimbursement_id]) attByReim[a.reimbursement_id] = [];
-    const url = buildAttachmentUrl(a.file_path, a.file_name, employeeId);
+    const url = buildAttachmentUrl(a.file_name, employeeId);
     attByReim[a.reimbursement_id].push({
       id: a.id,
       line_id: a.line_id,
       file_name: a.file_name,
       url: url,
-      file_path: a.file_path,
+      // no file_path persisted
     });
   });
 
@@ -460,7 +486,7 @@ exports.getAllReimbursements = async (
     (attachRows || []).forEach((a) => {
       if (!attByReim[a.reimbursement_id]) attByReim[a.reimbursement_id] = [];
       const url = buildAttachmentUrl(
-        a.file_path,
+        a.file_name,
         a.file_name,
         a.employee_id || null,
       );
@@ -468,7 +494,7 @@ exports.getAllReimbursements = async (
         id: a.id,
         line_id: a.line_id,
         file_name: a.file_name,
-        file_path: a.file_path,
+        file_path: undefined, // not persisted
         url,
       });
     });
@@ -484,8 +510,8 @@ exports.getAllReimbursements = async (
         .map((a) => ({
           id: a.id,
           file_name: a.file_name,
-          file_path: a.file_path,
-          url: buildAttachmentUrl(a.file_path, a.file_name, r.employee_id),
+          file_path: undefined,
+          url: buildAttachmentUrl(a.file_name, r.employee_id),
         }));
 
       const line_attachments_map = attList
@@ -496,8 +522,8 @@ exports.getAllReimbursements = async (
             id: a.id,
             line_id: a.line_id,
             file_name: a.file_name,
-            file_path: a.file_path,
-            url: buildAttachmentUrl(a.file_path, a.file_name, r.employee_id),
+            file_path: undefined,
+            url: buildAttachmentUrl(a.file_name, r.employee_id),
           });
           return acc;
         }, {});
@@ -710,6 +736,7 @@ exports.createReimbursement = async (reimbursementData, orgId) => {
           a.originalname ||
           (a.path ? path.basename(String(a.path)) : "") ||
           "";
+        // if a.line_index is provided, translate to inserted line id
         const li =
           a.line_index !== undefined && a.line_index !== null
             ? lineIndexToId[Number(a.line_index)] || null
@@ -731,6 +758,13 @@ exports.createReimbursement = async (reimbursementData, orgId) => {
   }
 };
 
+/**
+ * updateReimbursement
+ * Important changes:
+ *  - We no longer blindly DELETE all attachments and re-insert.
+ *  - We compute incoming filenames and keep existing filenames unless explicitly removed.
+ *  - We only insert rows with (reimbursement_id, line_id, file_name).
+ */
 exports.updateReimbursement = async (reimbursementId, updateData, orgId) => {
   const tenantPool = await getTenantPoolForOrgId(orgId);
   const conn = await tenantPool.getConnection();
@@ -764,6 +798,7 @@ exports.updateReimbursement = async (reimbursementId, updateData, orgId) => {
       reimbursementId,
     ]);
 
+    // delete and re-save lines (existing approach)
     await conn.query(queries.DELETE_LINES_BY_REIMBURSEMENT_ID, [
       reimbursementId,
     ]);
@@ -827,66 +862,119 @@ exports.updateReimbursement = async (reimbursementId, updateData, orgId) => {
       await conn.query(queries.SAVE_REIMBURSEMENT_LINES_BULK, [values]);
     }
 
-    if (
-      Array.isArray(updateData.attachments) &&
-      updateData.attachments.length
-    ) {
-      const [existingAttachRows] = await conn.query(
-        `SELECT file_name FROM reimbursement_attachments WHERE reimbursement_id = ?`,
-        [reimbursementId],
-      );
-      const existingMap = {};
-      (existingAttachRows || []).forEach((r) => {
-        if (r && r.file_name) existingMap[String(r.file_name)] = true;
-      });
+    // === Attachments handling (preserve existing unless removed) ===
+    // Fetch current attachments for reimbursement
+    const [existingAttachRows] = await conn.query(
+      `SELECT id, file_name FROM reimbursement_attachments WHERE reimbursement_id = ?`,
+      [reimbursementId],
+    );
+    const existingFileNameSet = new Set(
+      (existingAttachRows || []).map((r) => String(r.file_name).trim()),
+    );
 
+    // Build map of filename -> info for incoming attachments (updateData.attachments)
+    const incomingAttachments = Array.isArray(updateData.attachments)
+      ? updateData.attachments.slice()
+      : [];
+
+    // Normalize incoming filenames (some entries may contain path or file_path); extract base name
+    const incomingFileNames = incomingAttachments
+      .map((a) => {
+        const fn =
+          a &&
+          (a.file_name ||
+            a.filename ||
+            a.originalname ||
+            (a.path ? path.basename(String(a.path)) : null) ||
+            "");
+        return fn ? String(fn).trim() : null;
+      })
+      .filter(Boolean);
+
+    // Determine which existing files were removed (existing minus incoming) -> delete those
+    // If incomingFileNames empty that means user removed all attachments => delete all
+    if (!incomingFileNames.length) {
+      // user removed all attachments -> delete all rows for this reimbursement
       await conn.query(queries.DELETE_ATTACHMENTS_BY_REIMBURSEMENT_ID, [
         reimbursementId,
       ]);
-
-      const [insertedLines] = await conn.query(
-        `SELECT id, line_index FROM reimbursement_lines WHERE reimbursement_id = ?`,
-        [reimbursementId],
+    } else {
+      // delete any existing attachment whose file_name is NOT present in incomingFileNames
+      await conn.query(
+        `DELETE FROM reimbursement_attachments WHERE reimbursement_id = ? AND file_name NOT IN (?)`,
+        [reimbursementId, incomingFileNames],
       );
-      const lineIndexToId = {};
-      insertedLines.forEach((l) => (lineIndexToId[l.line_index] = l.id));
+    }
 
-      const filenameToLineIndex = {};
-      for (let idx = 0; idx < lines.length; idx++) {
-        const ln = lines[idx] || {};
-        const payload = ln.payload || {};
-        const atts = Array.isArray(payload.attachments)
-          ? payload.attachments
-          : payload.attachments
-            ? [payload.attachments]
-            : [];
-        for (const rawName of atts) {
-          if (!rawName) continue;
-          const fbase = path.basename(String(rawName));
-          if (!filenameToLineIndex[fbase]) filenameToLineIndex[fbase] = idx;
-          const trimmed = String(rawName).trim();
-          if (trimmed && !filenameToLineIndex[trimmed])
-            filenameToLineIndex[trimmed] = idx;
+    // Build map from line_index -> inserted DB line id (we already re-inserted lines above)
+    const [insertedLines] = await conn.query(
+      `SELECT id, line_index FROM reimbursement_lines WHERE reimbursement_id = ?`,
+      [reimbursementId],
+    );
+    const lineIndexToId = {};
+    insertedLines.forEach((l) => (lineIndexToId[l.line_index] = l.id));
+
+    // Now compute which of incoming filenames are new and need insertion
+    const toInsert = [];
+    for (const a of incomingAttachments) {
+      const rawFileName =
+        a &&
+        (a.file_name ||
+          a.filename ||
+          a.originalname ||
+          (a.path ? path.basename(String(a.path)) : null) ||
+          "");
+      const fileName = rawFileName ? String(rawFileName).trim() : null;
+      if (!fileName) continue;
+
+      if (existingFileNameSet.has(fileName)) {
+        // already present (we kept it), skip insert
+        continue;
+      }
+
+      // Determine DB line id if a.line_index provided
+      let lineId = null;
+      if (typeof a.line_id !== "undefined" && a.line_id !== null) {
+        // If frontend provided actual DB line id (rare), use it; otherwise treat as line_index and map
+        // We expect frontend normally sends line_index -> so try to map
+        if (
+          Number.isFinite(Number(a.line_id)) &&
+          lineIndexToId[Number(a.line_id)]
+        ) {
+          lineId = lineIndexToId[Number(a.line_id)];
+        } else if (
+          Number.isFinite(Number(a.line_index)) &&
+          lineIndexToId[Number(a.line_index)]
+        ) {
+          lineId = lineIndexToId[Number(a.line_index)];
+        } else if (
+          Number.isFinite(Number(a.line_index)) === false &&
+          Number.isFinite(Number(a.line_id)) === true
+        ) {
+          // fallback: treat a.line_id as the DB line id if it looks like it already is DB id
+          lineId = a.line_id;
+        } else {
+          // fallback null
+          lineId = null;
+        }
+      } else if (typeof a.line_index !== "undefined" && a.line_index !== null) {
+        if (
+          Number.isFinite(Number(a.line_index)) &&
+          lineIndexToId[Number(a.line_index)]
+        ) {
+          lineId = lineIndexToId[Number(a.line_index)];
         }
       }
 
-      const attValues = [];
-      for (const a of updateData.attachments) {
-        const fileName =
-          a.file_name ||
-          a.filename ||
-          a.originalname ||
-          (a.path ? path.basename(String(a.path)) : "") ||
-          "";
+      toInsert.push([
+        reimbursementId,
+        lineId !== undefined ? lineId : null,
+        fileName,
+      ]);
+    }
 
-        const lineId =
-          a.line_id !== undefined && a.line_id !== null ? a.line_id : null; // Ensure line_id is included
-
-        attValues.push([reimbursementId, lineId, fileName]);
-      }
-
-      if (attValues.length)
-        await conn.query(queries.SAVE_ATTACHMENTS, [attValues]);
+    if (toInsert.length) {
+      await conn.query(queries.SAVE_ATTACHMENTS, [toInsert]);
     }
 
     await conn.commit();
@@ -1035,8 +1123,8 @@ exports.getTeamReimbursements = async (
         id: att.id,
         line_id: att.line_id,
         file_name: att.file_name,
-        file_path: att.file_path,
-        url: buildAttachmentUrl(att.file_path, att.file_name, empHint),
+        // no file_path persisted or returned
+        url: buildAttachmentUrl(att.file_name, empHint),
       });
     });
 
@@ -1051,10 +1139,8 @@ exports.getTeamReimbursements = async (
         .map((a) => ({
           id: a.id,
           file_name: a.file_name,
-          file_path: a.file_path,
-          url:
-            a.url ||
-            buildAttachmentUrl(a.file_path, a.file_name, r.employee_id),
+          file_path: undefined,
+          url: a.url || buildAttachmentUrl(a.file_name, r.employee_id),
         }));
 
       const line_attachments_map = attList
@@ -1065,10 +1151,8 @@ exports.getTeamReimbursements = async (
             id: a.id,
             line_id: a.line_id,
             file_name: a.file_name,
-            file_path: a.file_path,
-            url:
-              a.url ||
-              buildAttachmentUrl(a.file_path, a.file_name, r.employee_id),
+            file_path: undefined,
+            url: a.url || buildAttachmentUrl(a.file_name, r.employee_id),
           });
           return acc;
         }, {});
@@ -1197,6 +1281,7 @@ exports.getAttachments = async (reimbursementId, orgId) => {
     const [rows] = await tenantPool.query(queries.GET_ATTACHMENTS, [
       reimbursementId,
     ]);
+    // return rows with id, reimbursement_id, line_id, file_name
     return rows || [];
   } catch (err) {
     console.error("Error in getAttachments:", err);
@@ -1221,38 +1306,10 @@ exports.getAttachmentsByReimbursementIds = async (
     throw err;
   }
 };
+
 exports.getAttachmentMeta = async (req, res) => {
-  try {
-    const orgId = resolveOrgIdFromReq(req);
-    if (!orgId) return res.status(400).json({ error: "orgId required" });
-
-    const { claimId, filename } = req.query;
-    if (!claimId) return res.status(400).json({ error: "claimId required" });
-
-    const attachments =
-      await reimbursementService.getAttachmentsByReimbursementIds(
-        [claimId],
-        orgId,
-      );
-
-    if (!attachments || attachments.length === 0) {
-      return res.status(404).json({ message: "No attachments found." });
-    }
-
-    const matches = filename
-      ? attachments.filter(
-          (a) =>
-            String(a.file_name || a.filename || "")
-              .toLowerCase()
-              .trim() === String(filename).toLowerCase().trim(),
-        )
-      : attachments;
-
-    return res.json({ attachments: matches });
-  } catch (error) {
-    console.error("Error in getAttachmentMeta:", error);
-    return res.status(500).json({ error: "Internal server error" });
-  }
+  // leave this for handlers (the handler code will use service.getAttachmentsByReimbursementIds)
+  throw new Error("Not implemented in service; use handler route.");
 };
 
 exports.deleteReimbursement = async (id, orgId) => {
