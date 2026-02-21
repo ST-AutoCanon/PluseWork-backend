@@ -1,11 +1,30 @@
 const CLEARANCE_QUERIES = {
 
   GET_ITEMS: `
-    SELECT *
-    FROM employee_exit_clearance_items
-    WHERE org_id = ? AND exit_request_id = ?
-    ORDER BY item_type, created_at
-  `,
+  SELECT
+    id,
+    org_id,
+    exit_request_id,
+    item_type,
+    title,
+    DATE_FORMAT(planned_date, '%Y-%m-%d') AS planned_date,
+    description,
+    DATE_FORMAT(actual_completed_date, '%Y-%m-%d') AS actual_completed_date,
+    status,
+    attached_files,
+    supervisor_approved,
+    supervisor_approved_at,
+    supervisor_comment,
+    hr_approved,
+    hr_approved_at,
+    hr_comment,
+    created_by,
+    created_at,
+    updated_at
+  FROM employee_exit_clearance_items
+  WHERE org_id = ? AND exit_request_id = ?
+  ORDER BY item_type, created_at
+`,
 
   ADD_ITEM: `
     INSERT INTO employee_exit_clearance_items
