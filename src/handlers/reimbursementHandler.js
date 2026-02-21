@@ -459,7 +459,7 @@ exports.generateReimbursementPDF = async (req, res) => {
     if (!employee || !employee.name) {
       return res.status(404).json({ error: "Employee details not found" });
     }
-
+    // ----- ATTACHMENTS RESOLUTION & DISCOVERY -----
     const [attachmentsRows] = await tenantPool.query(queries.GET_ATTACHMENTS, [
       claimId,
     ]);
@@ -467,33 +467,214 @@ exports.generateReimbursementPDF = async (req, res) => {
       ? attachmentsRows
       : attachmentsRows || [];
 
-    const attachmentsWithFiles = attachments.filter(
-      (att) => att && att.file_path,
-    );
-    if (attachmentsWithFiles.length !== attachments.length) {
-      console.warn(
-        `Filtered out ${attachments.length - attachmentsWithFiles.length} attachments without file_path`,
-      );
-    }
+    /**
+     * Normalize and try to resolve file_path for attachments.
+     * Strategy:
+     * 1) Keep file_name and any existing file_path.
+     * 2) If file_path missing, attempt to construct a path using:
+     *    reimbursement/{orgId}/{year}/{month}/{employeeId}/{file_name}
+     *    where year/month come from claim.created_at || claim.date || current date.
+     * 3) If that doesn't exist, attempt a shallow search under reimbursement/{orgId}/{year}/{month}/<employeeDir>/<filename>
+     * 4) Result: attachmentsResolved contains those attachments with resolved file_path (absolute where possible).
+     */
+    const attachmentsResolved = [];
 
-    attachmentsWithFiles.forEach((att) => {
-      if (att.file_path && !path.isAbsolute(att.file_path)) {
-        const maybeTenantPath = path.join(
+    for (const a of attachments) {
+      try {
+        const file_name =
+          (a && (a.file_name || a.filename || a.name || a.fileName)) || null;
+        const empIdFromRow =
+          a && (a.employee_id || a.emp_id || a.employeeId)
+            ? String(a.employee_id || a.emp_id || a.employeeId)
+            : null;
+
+        const attObj = {
+          ...a,
+          file_name,
+          file_path: a && a.file_path ? a.file_path : null,
+          employee_id: empIdFromRow,
+        };
+
+        // If we already have a file_path, try to make it absolute and verify existence.
+        if (attObj.file_path) {
+          let candidate = attObj.file_path;
+          if (!path.isAbsolute(candidate)) {
+            // try several plausible bases
+            const tries = [
+              path.join(__dirname, "..", "..", "..", candidate),
+              path.join(__dirname, "..", "..", candidate),
+              path.join(
+                __dirname,
+                "..",
+                "..",
+                "..",
+                "reimbursement",
+                String(orgId),
+                candidate,
+              ),
+            ];
+            for (const t of tries) {
+              if (fs.existsSync(t)) {
+                candidate = t;
+                break;
+              }
+            }
+          }
+          if (fs.existsSync(candidate)) {
+            attObj.file_path = candidate;
+            attachmentsResolved.push(attObj);
+            continue; // resolved
+          } else {
+            // keep going — maybe a different derivation will find it
+            attObj.file_path = null;
+          }
+        }
+
+        // Not resolved yet — need to derive from filename + claim metadata
+        if (!file_name) {
+          // nothing to do if we don't have a filename
+          continue;
+        }
+
+        // Use claim created_at or claim.date if available to get year/month; fallback to current date
+        let created =
+          claim && (claim.created_at || claim.date)
+            ? new Date(claim.created_at || claim.date)
+            : null;
+        if (!created || isNaN(created.getTime())) created = new Date();
+        const year = `${created.getFullYear()}`;
+        const month = String(created.getMonth() + 1).padStart(2, "0");
+
+        // Prefer employee id from claim, then from attachment row
+        const empId = claim.employee_id || attObj.employee_id || "unknown";
+
+        // Construct expected path using your storage convention
+        const constructed = path.join(
           __dirname,
           "..",
           "..",
           "..",
           "reimbursement",
           String(orgId),
-          att.file_path,
+          year,
+          month,
+          String(empId),
+          file_name,
         );
-        if (fs.existsSync(maybeTenantPath)) {
-          att.file_path = maybeTenantPath;
-        } else {
+        if (fs.existsSync(constructed)) {
+          attObj.file_path = constructed;
+          attachmentsResolved.push(attObj);
+          continue;
         }
+
+        // If constructed path doesn't exist, attempt to search under the tenant/year/month directory for the file across employee subdirs.
+        const candidateDir = path.join(
+          __dirname,
+          "..",
+          "..",
+          "..",
+          "reimbursement",
+          String(orgId),
+          year,
+          month,
+        );
+
+        if (fs.existsSync(candidateDir)) {
+          // read subdirectories and check each employee folder for the filename
+          try {
+            const entries = fs.readdirSync(candidateDir, {
+              withFileTypes: true,
+            });
+            let found = null;
+            for (const e of entries) {
+              if (!e.isDirectory()) continue;
+              const possible = path.join(candidateDir, e.name, file_name);
+              if (fs.existsSync(possible)) {
+                found = possible;
+                break;
+              }
+            }
+            if (found) {
+              attObj.file_path = found;
+              attachmentsResolved.push(attObj);
+              continue;
+            }
+          } catch (searchErr) {
+            console.warn(
+              "attachment search error:",
+              searchErr?.message || searchErr,
+            );
+          }
+        }
+
+        // As a final fallback, try a looser search for the filename anywhere under the tenant reimbursement directory for that year (may be slower)
+        try {
+          const topTenantDir = path.join(
+            __dirname,
+            "..",
+            "..",
+            "..",
+            "reimbursement",
+            String(orgId),
+          );
+          const searchYears = [year];
+          for (const y of searchYears) {
+            const dirToWalk = path.join(topTenantDir, y);
+            if (!fs.existsSync(dirToWalk)) continue;
+            const walk = (dir) => {
+              const items = fs.readdirSync(dir, { withFileTypes: true });
+              for (const it of items) {
+                const p = path.join(dir, it.name);
+                if (it.isDirectory()) {
+                  const r = walk(p);
+                  if (r) return r;
+                } else if (it.isFile() && it.name === file_name) {
+                  return p;
+                }
+              }
+              return null;
+            };
+            const foundAny = walk(dirToWalk);
+            if (foundAny) {
+              attObj.file_path = foundAny;
+              attachmentsResolved.push(attObj);
+              break;
+            }
+          }
+        } catch (looseErr) {
+          /* ignore - fallback failed */
+        }
+
+        // If none of the attempts resolved the file_path, do not include this attachment (we can't attach what we can't find).
+      } catch (inner) {
+        console.warn(
+          "Attachment normalization error:",
+          inner?.message || inner,
+        );
+        // skip this attachment
+      }
+    }
+
+    // attachmentsResolved now contains attachments we can find on disk (file_path absolute)
+    const attachmentsWithFiles = (attachmentsResolved || []).filter(
+      (x) => x && x.file_path && fs.existsSync(x.file_path),
+    );
+
+    if (attachmentsWithFiles.length !== (attachments || []).length) {
+      console.warn(
+        `Filtered out ${(attachments || []).length - attachmentsWithFiles.length} attachments without resolved file_path (claim ${claimId})`,
+      );
+    }
+
+    // optional: log each resolved path for debugging
+    attachmentsWithFiles.forEach((att) => {
+      if (!path.isAbsolute(att.file_path)) {
+        att.file_path = path.join(__dirname, "..", "..", "..", att.file_path);
       }
       if (!fs.existsSync(att.file_path)) {
-        console.warn(`File not found on disk: ${att.file_path}`);
+        console.warn(`File not found on disk (post-resolve): ${att.file_path}`);
+      } else {
+        // console.info(`Attachment resolved: ${att.file_path}`);
       }
     });
 

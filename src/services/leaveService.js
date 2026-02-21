@@ -622,6 +622,8 @@ const updateLeaveRequest = async (payload, orgId) => {
   }
 };
 
+// --- at top of file (already present): const path = require("path"); const fs = require("fs");
+
 const submitLeaveRequest = async ({
   employeeId,
   startDate,
@@ -630,6 +632,7 @@ const submitLeaveRequest = async ({
   reason,
   leavetype,
   orgId,
+  attachments = [], // <-- add attachments param with default
 }) => {
   if (!orgId) throw new Error("orgId required");
 
@@ -675,6 +678,12 @@ const submitLeaveRequest = async ({
       leavetype,
       orgId,
     ]);
+
+    // Save attachments if provided
+    if (Array.isArray(attachments) && attachments.length > 0) {
+      await saveLeaveAttachments(result.insertId, attachments, orgId);
+    }
+
     return {
       id: result.insertId,
       orgId,
@@ -1031,7 +1040,22 @@ async function saveLeaveAttachments(leaveId, files = [], orgId) {
         file && file.originalname,
         err && err.message ? err.message : err,
       );
-      // continue with other files
+      const absolutePath = file.path || file.filename || "";
+      // convert to a normalized relative path from project root, forward slashes for DB/URL use
+      let filePathToStore = absolutePath;
+      try {
+        if (absolutePath) {
+          const rel = path.relative(process.cwd(), absolutePath);
+          filePathToStore = rel.split(path.sep).join("/"); // use forward slashes
+        }
+      } catch (e) {
+        filePathToStore = absolutePath;
+      }
+
+      const [result] = await tenantPool.execute(
+        queries.INSERT_LEAVE_ATTACHMENT,
+        [leaveId, fileName, filePathToStore, mime, size, orgId],
+      );
     }
   }
 
