@@ -49,7 +49,7 @@ module.exports = {
       )
   `,
 
-  GET_ASSIGNED_COMPENSATION_DETAILS: `
+ GET_ASSIGNED_COMPENSATION_DETAILS: `
 SELECT 
     ac.id,
     ac.compensation_plan_name,
@@ -63,11 +63,12 @@ SELECT
 FROM assigned_compensations ac
 JOIN employees e 
     ON JSON_SEARCH(ac.assigned_data, 'one', e.employee_id, NULL, '$[*].employee_id') IS NOT NULL
+   AND e.status = 'Active'      -- ✅ only active employees
 LEFT JOIN employee_professional ep 
     ON e.employee_id = ep.employee_id
 LEFT JOIN compensation_plans c 
     ON ac.compensation_plan_name = c.compensation_plan_name
-WHERE ac.org_id = ?   -- ✅ filter by org_id
+WHERE ac.org_id = ?
 ORDER BY ac.assigned_date DESC, e.first_name ASC
 LIMIT 0, 1000;
 `,
@@ -225,8 +226,9 @@ FROM (
     AND ea.punchout_time IS NOT NULL
     AND DATE(ea.punchin_time) <> DATE(ea.punchout_time)
 ) d
-LEFT JOIN employees e ON d.employee_id = e.employee_id
-WHERE
+INNER JOIN employees e 
+  ON d.employee_id = e.employee_id
+ AND e.status = 'Active'WHERE
   d.work_date BETWEEN ? AND ?
 GROUP BY
   d.employee_id,
