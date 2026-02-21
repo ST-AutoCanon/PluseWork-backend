@@ -91,7 +91,6 @@ router.post("/item", upload.array('files', 5), async (req, res) => {
     res.status(500).json({ error: err.message || "Failed to add item" });
   }
 });
-
 // PUT - Update clearance item with optional files
 router.put("/item/:itemId", upload.array('files', 5), async (req, res) => {
   try {
@@ -134,9 +133,17 @@ router.put("/item/:itemId", upload.array('files', 5), async (req, res) => {
       description: description !== undefined ? description : currentItem.description,
       planned_date: plannedDate || currentItem.planned_date,
       status: status || currentItem.status,
-      actual_completed_date: completedDate ? new Date(completedDate).toISOString().split('T')[0] : (status === "completed" ? new Date().toISOString().split('T')[0] : currentItem.actual_completed_date),
+      actual_completed_date: completedDate 
+        ? completedDate 
+        : (status === "completed" 
+            ? new Date().toISOString().slice(0, 10) 
+            : currentItem.actual_completed_date),
       attached_files: currentFiles.length > 0 ? JSON.stringify(currentFiles) : null
     };
+
+    // Logs AFTER updateData is created
+    console.log("[PUT] Frontend sent completedDate:", completedDate);
+    console.log("[PUT] Saving actual_completed_date as:", updateData.actual_completed_date);
 
     await clearanceService.updateItem(orgId, itemId, updateData);
 
@@ -147,11 +154,10 @@ router.put("/item/:itemId", upload.array('files', 5), async (req, res) => {
     });
 
   } catch (err) {
-    console.error("[CLEARANCE/PUT] ERROR:", err.message);
+    console.error("[CLEARANCE/PUT] ERROR:", err.message, err.stack);
     res.status(500).json({ error: err.message || "Failed to update item" });
   }
 });
-
 // PUT - Update item status
 router.put("/item/:itemId/status", h.updateStatus);
 
