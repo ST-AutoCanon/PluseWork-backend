@@ -1,3 +1,4 @@
+// handlers/leaveHandler.js
 const fs = require("fs");
 const path = require("path");
 const LeaveService = require("../services/leaveService");
@@ -38,14 +39,13 @@ function buildPublicAttachment(a, orgId, req) {
   const rawPath = a.file_path || a.path || a.filePath || a.file || "";
 
   let file_path = rawPath;
-  // Keep file_path as originally stored if absolute; otherwise keep the raw value
   if (!file_path) file_path = null;
 
   // compute absolute path for exists check
   let abs = file_path || "";
   try {
     if (abs && !path.isAbsolute(abs)) {
-      // If path looks like "uploads/..." or "/uploads/..." try to resolve relative to project
+      // If path looks relative, resolve against project root
       abs = path.join(process.cwd(), abs);
     }
   } catch (e) {
@@ -72,27 +72,32 @@ function buildPublicAttachment(a, orgId, req) {
     null;
   const hostPart = host ? host.replace(/:\/\/$/, "") : host;
 
-  // Try to build useful urls in order of preference:
-  // 1) if an explicit url exists on record, use it
-  // 2) prefer a backend-served attachment route if we have an id
-  // 3) derive URL from an uploads path ("/uploads/") if present
-
   let url = a.url || a.file_url || null;
 
+  // if explicit url provided on record, keep it
   if (!url && id && host) {
-    // prefer the simple attachments route which this handler provides (ensure your routes mount this)
     try {
       const base = `${protocol}://${hostPart}`;
-      url = `${base.replace(/\/$/, "")}/attachments/${encodeURIComponent(id)}?orgId=${encodeURIComponent(orgId)}`;
+      url = `${base.replace(/\/$/, "")}/attachments/${encodeURIComponent(
+        id,
+      )}?orgId=${encodeURIComponent(orgId)}`;
     } catch (e) {
       url = null;
     }
   }
 
+  // If not url yet, attempt to derive from known path patterns:
+  // prefer /leave_attachments/... then /uploads/leave_attachments/...
   if (!url && file_path && typeof file_path === "string") {
-    const uploadsIndex = String(file_path).indexOf("/uploads/");
-    if (uploadsIndex !== -1 && host) {
-      const publicPath = file_path.slice(uploadsIndex);
+    const p = String(file_path);
+    const leaveIndex = p.indexOf("/leave_attachments/");
+    const uploadsIndex = p.indexOf("/uploads/leave_attachments/");
+    if (leaveIndex !== -1 && host) {
+      const publicPath = p.slice(leaveIndex);
+      const base = `${protocol}://${hostPart}`;
+      url = `${base.replace(/\/$/, "")}${publicPath}`;
+    } else if (uploadsIndex !== -1 && host) {
+      const publicPath = p.slice(uploadsIndex);
       const base = `${protocol}://${hostPart}`;
       url = `${base.replace(/\/$/, "")}${publicPath}`;
     }
@@ -107,7 +112,6 @@ function buildPublicAttachment(a, orgId, req) {
     created_at: a.created_at || a.createdAt || null,
     url: url || null,
     exists: Boolean(exists),
-    // keep original raw object for debugging if needed
     _raw: a,
   };
 }
@@ -120,16 +124,16 @@ function moveUploadedFilesToTenant(files = [], orgId, employeeId) {
   if (!Array.isArray(files) || files.length === 0) return files;
   if (!orgId) return files; // nothing we can do
 
+  // New root is process.cwd()/leave_attachments (outside uploads)
   const tenantRoot = path.join(
     process.cwd(),
-    "uploads",
     "leave_attachments",
     String(orgId),
   );
   try {
     fs.mkdirSync(tenantRoot, { recursive: true });
   } catch (e) {
-    // continue; we'll try per-file mkdir if necessary
+    // fallback handled per-file
   }
 
   return files.map((file) => {
@@ -145,17 +149,11 @@ function moveUploadedFilesToTenant(files = [], orgId, employeeId) {
       const destDir = employeeId
         ? path.join(
             process.cwd(),
-            "uploads",
             "leave_attachments",
             String(orgId),
             String(employeeId),
           )
-        : path.join(
-            process.cwd(),
-            "uploads",
-            "leave_attachments",
-            String(orgId),
-          );
+        : path.join(process.cwd(), "leave_attachments", String(orgId));
       fs.mkdirSync(destDir, { recursive: true });
 
       const original = String(file.originalname || file.filename || "file");
@@ -165,18 +163,20 @@ function moveUploadedFilesToTenant(files = [], orgId, employeeId) {
       const newFileName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safe}`;
       const absNew = path.join(destDir, newFileName);
 
-      // attempt rename, if fails try copy and unlink
       try {
-        if (fs.existsSync(absOld)) {
+        if (fs.existsSync(absOld) && absOld !== absNew) {
           fs.renameSync(absOld, absNew);
         } else {
-          // If file wasn't saved where expected, skip moving but still update path to expected (no overwrite)
-          // This helps if multer already placed file correctly (absOld already in destDir)
-          // If not exists, we won't throw here; caller will see missing file on disk when checking.
+          // if absOld doesn't exist, maybe multer already placed it in destDir; try to copy if exists
+          if (fs.existsSync(absOld) && absOld !== absNew) {
+            fs.copyFileSync(absOld, absNew);
+            try {
+              fs.unlinkSync(absOld);
+            } catch (_) {}
+          }
         }
       } catch (renameErr) {
         try {
-          // try copy
           if (fs.existsSync(absOld)) {
             fs.copyFileSync(absOld, absNew);
             try {
@@ -184,22 +184,20 @@ function moveUploadedFilesToTenant(files = [], orgId, employeeId) {
             } catch (_) {}
           }
         } catch (copyErr) {
-          // if both rename and copy failed, leave original path untouched
+          // give up on moving but continue
         }
       }
 
-      // store relative path (forward slashes) so service can store portable path in DB
+      // store relative path (forward slashes)
       const rel = path.relative(process.cwd(), absNew);
       const relNormalized = rel.split(path.sep).join("/");
 
-      // mutate file object fields expected by saveLeaveAttachments
       file.path = relNormalized;
-      file.destination = relNormalized.replace(/\/[^\/]+$/, ""); // path without filename (best-effort)
+      file.destination = relNormalized.replace(/\/[^\/]+$/, "");
       file.filename = newFileName;
       file.originalname = original;
       return file;
     } catch (e) {
-      // do not fail entire upload for one file; log and return original file object
       console.warn(
         "[moveUploadedFilesToTenant] file move failed:",
         e && e.message ? e.message : e,
@@ -380,7 +378,6 @@ class LeaveHandler {
         from_date = "",
         to_date = "",
       } = req.query;
-
       const org_id = resolveOrgId(req);
 
       if (!org_id) {
@@ -428,21 +425,16 @@ class LeaveHandler {
           } catch (err) {
             console.warn(
               "[getLeaveQueries] failed to fetch attachments for leave",
-              {
-                leave,
-                err: err && err.message ? err.message : err,
-              },
+              { leave, err: err && err.message ? err.message : err },
             );
             return { ...leave, attachments: [] };
           }
         }),
       );
 
-      return res.status(200).json({
-        success: true,
-        statusCode: 200,
-        data: enriched,
-      });
+      return res
+        .status(200)
+        .json({ success: true, statusCode: 200, data: enriched });
     } catch (err) {
       console.error("Error in LeaveHandler.getLeaveQueries:", err);
       return res
@@ -691,10 +683,7 @@ class LeaveHandler {
       let inserted = [];
       if (files.length > 0) {
         try {
-          // Move files to tenant/employee folder and update file.path to relative path
           moveUploadedFilesToTenant(files, orgId, employeeId);
-
-          // Save metadata in DB
           inserted = await LeaveService.saveLeaveAttachments(
             leaveRequest.id,
             files,
@@ -708,7 +697,6 @@ class LeaveHandler {
         }
       }
 
-      // Map inserted attachments to public shape if available
       const mappedInserted = Array.isArray(inserted)
         ? inserted.map((a) => buildPublicAttachment(a, orgId, req))
         : [];
@@ -741,6 +729,7 @@ class LeaveHandler {
         );
     }
   }
+
   static async getLeaveRequestsHandler(req, res) {
     try {
       const { employeeId } = req.params;
@@ -788,10 +777,7 @@ class LeaveHandler {
           } catch (err) {
             console.warn(
               "[getLeaveRequestsHandler] failed to fetch attachments for leave",
-              {
-                leave,
-                err: err && err.message ? err.message : err,
-              },
+              { leave, err: err && err.message ? err.message : err },
             );
             return { ...leave, attachments: [] };
           }
@@ -994,7 +980,6 @@ class LeaveHandler {
         orgId,
       );
 
-      // Enrich with attachments
       const enriched = await Promise.all(
         leaveRequests.map(async (leave) => {
           try {
@@ -1009,10 +994,7 @@ class LeaveHandler {
           } catch (err) {
             console.warn(
               "[getLeaveRequestsForTeamLeadHandler] failed to fetch attachments for leave",
-              {
-                leave,
-                err: err && err.message ? err.message : err,
-              },
+              { leave, err: err && err.message ? err.message : err },
             );
             return { ...leave, attachments: [] };
           }
@@ -1079,6 +1061,7 @@ class LeaveHandler {
         );
     }
   }
+
   static async addAttachmentsHandler(req, res) {
     try {
       const orgId = resolveOrgId(req);
@@ -1124,7 +1107,6 @@ class LeaveHandler {
           .json({ success: false, code: 400, message: "No files uploaded." });
       }
 
-      // Ensure files moved into org/employee folder
       try {
         moveUploadedFilesToTenant(files, orgId, employeeId);
       } catch (moveErr) {
@@ -1179,13 +1161,11 @@ class LeaveHandler {
       }
       const files = Array.isArray(req.files) ? req.files : [];
 
-      // Move files to tenant folder before passing to service
       try {
         const leaveRow = await LeaveService.getAttachmentById(
           leaveId,
           orgId,
         ).catch(() => null);
-        // try to resolve employee id from leave row if available; otherwise leave undefined
         const employeeId =
           (leaveRow && leaveRow.employee_id) ||
           req.body?.employeeId ||
@@ -1205,7 +1185,6 @@ class LeaveHandler {
         orgId,
       );
 
-      // result is { deleted: [...], inserted: [...] } as implemented in service
       const mapped =
         result && Array.isArray(result.inserted)
           ? result.inserted.map((a) => buildPublicAttachment(a, orgId, req))
@@ -1290,15 +1269,27 @@ class LeaveHandler {
       if (!path.isAbsolute(abs)) {
         abs = path.join(process.cwd(), abs);
       }
-      const safeSegment = path.join(
+
+      // Accept files under either leave_attachments/ or uploads/leave_attachments/ for compatibility
+      const leaveRoot = path.resolve(
+        process.cwd(),
+        "leave_attachments",
+        String(orgId),
+      );
+      const uploadsRoot = path.resolve(
+        process.cwd(),
         "uploads",
         "leave_attachments",
         String(orgId),
       );
-      const normalizedAbs = path.normalize(abs);
-      if (!normalizedAbs.includes(path.normalize(safeSegment))) {
+      const normalizedAbs = path.resolve(abs);
+
+      if (
+        !normalizedAbs.startsWith(leaveRoot) &&
+        !normalizedAbs.startsWith(uploadsRoot)
+      ) {
         console.warn(
-          "[serveAttachmentHandler] file path outside safe folder:",
+          "[serveAttachmentHandler] file path outside safe folders:",
           normalizedAbs,
         );
         return res.status(403).send("Forbidden");
@@ -1339,7 +1330,6 @@ class LeaveHandler {
         return res.status(400).send("Missing orgId or name");
       }
 
-      // You'll implement this service method (see snippet below)
       const attachment = await LeaveService.getAttachmentByFileName(
         name,
         orgId,
@@ -1349,13 +1339,16 @@ class LeaveHandler {
         return res.status(404).send("Attachment not found");
       }
 
-      // Reuse same logic as serveAttachmentHandler to resolve abs path and safety checks
       let abs = attachment.file_path || "";
       if (!path.isAbsolute(abs)) {
         abs = path.join(process.cwd(), abs);
       }
 
-      // safer check using path.resolve / startsWith:
+      const leaveRoot = path.resolve(
+        process.cwd(),
+        "leave_attachments",
+        String(orgId),
+      );
       const uploadsRoot = path.resolve(
         process.cwd(),
         "uploads",
@@ -1363,9 +1356,14 @@ class LeaveHandler {
         String(orgId),
       );
       const normalizedAbs = path.resolve(abs);
-      if (!normalizedAbs.startsWith(uploadsRoot)) {
+
+      if (
+        !normalizedAbs.startsWith(leaveRoot) &&
+        !normalizedAbs.startsWith(uploadsRoot)
+      ) {
         console.warn("[serveAttachmentByName] file path outside safe folder:", {
           normalizedAbs,
+          leaveRoot,
           uploadsRoot,
         });
         return res.status(403).send("Forbidden");
@@ -1396,4 +1394,5 @@ class LeaveHandler {
     }
   }
 }
+
 module.exports = LeaveHandler;
