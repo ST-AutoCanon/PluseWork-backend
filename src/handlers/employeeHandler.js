@@ -41,7 +41,7 @@ const mapUploadedFilesToData = (req, data) => {
     for (const f of req.files) {
       try {
         const bm = String(f.fieldname || "").match(
-          /^(experience|additional_certs)\[(\d+)\]\[(doc|file)\]$/
+          /^(experience|additional_certs)\[(\d+)\]\[(doc|file)\]$/,
         );
         if (bm) {
           const type = bm[1];
@@ -60,7 +60,7 @@ const mapUploadedFilesToData = (req, data) => {
       } catch (e) {
         console.warn(
           "[mapUploadedFilesToData] bracket mapping failed",
-          e && e.message
+          e && e.message,
         );
       }
     }
@@ -103,7 +103,7 @@ const mapUploadedFilesToData = (req, data) => {
   try {
     console.debug(
       "[mapUploadedFilesToData] filesByField keys:",
-      Object.keys(filesByField)
+      Object.keys(filesByField),
     );
     for (const rawKey of Object.keys(filesByField)) {
       const baseKey = String(rawKey)
@@ -120,7 +120,7 @@ const mapUploadedFilesToData = (req, data) => {
         `${baseKey}_url`,
         `${baseKey}_doc_url`,
         `${baseKey}_cert_url`,
-        baseKey
+        baseKey,
       );
 
       for (const ck of candidateKeys) {
@@ -163,15 +163,15 @@ exports.bulkAddEmployees = async (req, res) => {
       .json(
         ErrorHandler.generateErrorResponse(
           400,
-          "Excel file is required for bulk upload."
-        )
+          "Excel file is required for bulk upload.",
+        ),
       );
   }
 
   const orgId = resolveOrgIdFromReq(req);
   if (!orgId) {
     console.warn(
-      "[bulkAddEmployees] orgId not provided - employees will be created without org association"
+      "[bulkAddEmployees] orgId not provided - employees will be created without org association",
     );
   }
 
@@ -213,7 +213,7 @@ exports.bulkAddEmployees = async (req, res) => {
         .catch((err) => {
           console.error(
             `Error adding employee (${employeeData.email}):`,
-            err.message || err
+            err.message || err,
           );
           errors.push({
             email: employeeData.email,
@@ -230,8 +230,8 @@ exports.bulkAddEmployees = async (req, res) => {
         ErrorHandler.generateSuccessResponse(
           207,
           "Bulk employee process completed.",
-          { added: results, errors }
-        )
+          { added: results, errors },
+        ),
       );
   } catch (error) {
     console.error("Bulk employee addition error:", error);
@@ -240,8 +240,8 @@ exports.bulkAddEmployees = async (req, res) => {
       .json(
         ErrorHandler.generateErrorResponse(
           500,
-          "Failed to add employees in bulk."
-        )
+          "Failed to add employees in bulk.",
+        ),
       );
   }
 };
@@ -272,8 +272,8 @@ exports.createFullEmployee = async (req, res) => {
         .json(
           ErrorHandler.generateErrorResponse(
             400,
-            "Email already exists. Please use another."
-          )
+            "Email already exists. Please use another.",
+          ),
         );
     }
 
@@ -290,8 +290,8 @@ exports.createFullEmployee = async (req, res) => {
         .json(
           ErrorHandler.generateErrorResponse(
             400,
-            `Aadhaar/PAN number already exists.`
-          )
+            `Aadhaar/PAN number already exists.`,
+          ),
         );
     }
 
@@ -314,32 +314,10 @@ exports.createFullEmployee = async (req, res) => {
       throw svcErr;
     }
 
-    try {
-      if (!process.env.SENDGRID_API_KEY) {
-        console.warn(
-          "[createFullEmployee] SENDGRID_API_KEY missing — skipping email send"
-        );
-      } else if (!process.env.SENDGRID_SENDER_EMAIL) {
-        console.warn(
-          "[createFullEmployee] SENDGRID_SENDER_EMAIL missing — skipping email send"
-        );
-      } else {
-        await sendResetEmail(
-          data.email,
-          `${data.first_name} ${data.last_name}`
-        );
-      }
-    } catch (mailErr) {
-      console.warn(
-        "[createFullEmployee] warning: reset-email failed — not rolling back:",
-        mailErr
-      );
-    }
-
     return res.status(201).json(
       ErrorHandler.generateSuccessResponse(201, "Employee created.", {
         employee_id,
-      })
+      }),
     );
   } catch (err) {
     console.error("[createFullEmployee] error:", err);
@@ -348,8 +326,8 @@ exports.createFullEmployee = async (req, res) => {
       .json(
         ErrorHandler.generateErrorResponse(
           500,
-          err.message || "Failed to create employee."
-        )
+          err.message || "Failed to create employee.",
+        ),
       );
   } finally {
   }
@@ -382,14 +360,14 @@ exports.updateFullEmployee = async (req, res) => {
         .json(
           ErrorHandler.generateErrorResponse(
             400,
-            "Email already in use by another employee."
-          )
+            "Email already in use by another employee.",
+          ),
         );
     }
 
     const [persRows] = await tenantDb.execute(
       queries.CHECK_PERSONAL_DUP_UPDATE,
-      [data.aadhaar_number, data.pan_number, data.employee_id]
+      [data.aadhaar_number, data.pan_number, data.employee_id],
     );
     if (persRows.length) {
       const field =
@@ -399,8 +377,8 @@ exports.updateFullEmployee = async (req, res) => {
         .json(
           ErrorHandler.generateErrorResponse(
             400,
-            `${field} number already in use by another employee.`
-          )
+            `${field} number already in use by another employee.`,
+          ),
         );
     }
 
@@ -416,8 +394,8 @@ exports.updateFullEmployee = async (req, res) => {
       .json(
         ErrorHandler.generateErrorResponse(
           500,
-          err.message || "Failed to update employee."
-        )
+          err.message || "Failed to update employee.",
+        ),
       );
   } finally {
   }
@@ -432,7 +410,7 @@ exports.getFullEmployee = async (req, res) => {
       return res
         .status(400)
         .json(
-          ErrorHandler.generateErrorResponse(400, "Missing x-org-id header")
+          ErrorHandler.generateErrorResponse(400, "Missing x-org-id header"),
         );
     }
     const profile = await employeeService.getFullEmployee(employeeId, orgId);
@@ -440,7 +418,7 @@ exports.getFullEmployee = async (req, res) => {
     return res
       .status(200)
       .json(
-        ErrorHandler.generateSuccessResponse(200, "Employee fetched.", profile)
+        ErrorHandler.generateSuccessResponse(200, "Employee fetched.", profile),
       );
   } catch (err) {
     console.error("getFullEmployee error:", err);
@@ -449,8 +427,8 @@ exports.getFullEmployee = async (req, res) => {
       .json(
         ErrorHandler.generateErrorResponse(
           404,
-          err.message || "Employee not found."
-        )
+          err.message || "Employee not found.",
+        ),
       );
   }
 };
@@ -465,7 +443,7 @@ exports.searchEmployees = async (req, res) => {
       search,
       fromDate,
       toDate,
-      orgId
+      orgId,
     );
 
     return res
@@ -477,7 +455,7 @@ exports.searchEmployees = async (req, res) => {
     return res
       .status(500)
       .json(
-        ErrorHandler.generateErrorResponse(500, "Failed to fetch employees")
+        ErrorHandler.generateErrorResponse(500, "Failed to fetch employees"),
       );
   }
 };
@@ -492,7 +470,7 @@ exports.serveEmployeeFile = async (req, res) => {
 
     const fullPath = path.join(
       BASE_UPLOADS,
-      sanitizedPath.replace(/^EmployeeDetails[\\/]/, "")
+      sanitizedPath.replace(/^EmployeeDetails[\\/]/, ""),
     );
 
     if (!fs.existsSync(fullPath)) {
@@ -520,7 +498,7 @@ exports.deactivateEmployee = async (req, res) => {
       return res
         .status(400)
         .json(
-          ErrorHandler.generateErrorResponse(400, "Missing x-org-id header")
+          ErrorHandler.generateErrorResponse(400, "Missing x-org-id header"),
         );
     }
     await employeeService.deactivateEmployee(employeeId, orgId);
@@ -530,14 +508,17 @@ exports.deactivateEmployee = async (req, res) => {
       .json(
         ErrorHandler.generateSuccessResponse(
           200,
-          "Employee deactivated successfully"
-        )
+          "Employee deactivated successfully",
+        ),
       );
   } catch (error) {
     return res
       .status(400)
       .json(
-        ErrorHandler.generateErrorResponse(400, "Failed to deactivate employee")
+        ErrorHandler.generateErrorResponse(
+          400,
+          "Failed to deactivate employee",
+        ),
       );
   }
 };
@@ -575,7 +556,7 @@ exports.listSupervisorsByPosition = async (req, res) => {
     const supervisors = await employeeService.getSupervisorsByPosition(
       position,
       department_id,
-      orgId
+      orgId,
     );
     return res.status(200).json({ status: "success", data: supervisors });
   } catch (err) {
@@ -595,8 +576,8 @@ exports.assignSupervisor = async (req, res, next) => {
         .json(
           ErrorHandler.generateErrorResponse(
             400,
-            "employeeId, supervisorId and startDate are required."
-          )
+            "employeeId, supervisorId and startDate are required.",
+          ),
         );
     }
     const orgId =
@@ -605,18 +586,18 @@ exports.assignSupervisor = async (req, res, next) => {
       return res
         .status(400)
         .json(
-          ErrorHandler.generateErrorResponse(400, "Missing x-org-id header")
+          ErrorHandler.generateErrorResponse(400, "Missing x-org-id header"),
         );
     }
     const result = await employeeService.assignSupervisor(
       employeeId,
       supervisorId,
       startDate,
-      orgId
+      orgId,
     );
 
     return res.json(
-      ErrorHandler.generateSuccessResponse(200, "Supervisor assigned.", result)
+      ErrorHandler.generateSuccessResponse(200, "Supervisor assigned.", result),
     );
   } catch (err) {
     next(err);
@@ -632,16 +613,18 @@ exports.getSupervisorHistory = async (req, res, next) => {
       return res
         .status(400)
         .json(
-          ErrorHandler.generateErrorResponse(400, "Missing x-org-id header")
+          ErrorHandler.generateErrorResponse(400, "Missing x-org-id header"),
         );
     }
     const history = await employeeService.getSupervisorHistory(
       employeeId,
-      orgId
+      orgId,
     );
 
     return res.json(
-      ErrorHandler.generateSuccessResponse(200, "History fetched.", { history })
+      ErrorHandler.generateSuccessResponse(200, "History fetched.", {
+        history,
+      }),
     );
   } catch (err) {
     next(err);
