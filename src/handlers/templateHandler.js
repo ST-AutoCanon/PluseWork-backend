@@ -7,19 +7,19 @@ async function moveFileToUploads(tmpPath, originalName) {
     console.warn("moveFileToUploads: No tmpPath provided");
     return null;
   }
-  
+
   const publicUploads = path.join(
     __dirname,
     "..",
     "..",
     "..",
     "public",
-    "uploads"
+    "uploads",
   );
-  
+
   console.log(`📁 Moving file from temp: ${tmpPath}`);
   console.log(`📁 Target directory: ${publicUploads}`);
-  
+
   try {
     await fs.ensureDir(publicUploads);
     console.log(`✅ Upload directory ready: ${publicUploads}`);
@@ -40,15 +40,17 @@ async function moveFileToUploads(tmpPath, originalName) {
     await fs.ensureDir(path.dirname(destPath));
     await fs.move(tmpPath, destPath, { overwrite: true });
     console.log(`✅ File moved successfully: ${destName}`);
-    
+
     // Verify file exists
     const fileExists = await fs.pathExists(destPath);
     if (fileExists) {
       console.log(`✅ File verified at: ${destPath}`);
     } else {
-      console.error(`❌ File move reported success but file not found at: ${destPath}`);
+      console.error(
+        `❌ File move reported success but file not found at: ${destPath}`,
+      );
     }
-    
+
     return destName;
   } catch (err) {
     console.error(`❌ Failed to move file: ${err.message}`);
@@ -61,7 +63,7 @@ function buildSimpleTemplateHtml(
   headerName,
   footerName,
   watermarkUrl = null,
-  watermarkPlacement = null
+  watermarkPlacement = null,
 ) {
   const headerUrl = headerName
     ? `/api/orgs/${orgId}/uploads/${headerName}`
@@ -137,14 +139,14 @@ function buildSimpleTemplateHtml(
   const htmlParts = [];
   if (headerUrl)
     htmlParts.push(
-      `<img src="${headerUrl}" class="template-header" alt="header" style="width:100%;display:block" />`
+      `<img src="${headerUrl}" class="template-header" alt="header" style="width:100%;display:block" />`,
     );
   htmlParts.push(
-    `<div class="template-body" style="min-height:200px;padding:12px"></div>`
+    `<div class="template-body" style="min-height:200px;padding:12px"></div>`,
   );
   if (footerUrl)
     htmlParts.push(
-      `<img src="${footerUrl}" class="template-footer" alt="footer" style="width:100%;display:block" />`
+      `<img src="${footerUrl}" class="template-footer" alt="footer" style="width:100%;display:block" />`,
     );
 
   const html = `<div class="template-page">${htmlParts.join("\n")}</div>`;
@@ -270,7 +272,7 @@ async function uploadScanHandler(req, res) {
         headerName,
         footerName,
         watermarkUrlForGrapes,
-        watermarkPlacement
+        watermarkPlacement,
       );
       grapesJsonBuilt = built.grapesJson;
       htmlBuilt = built.html;
@@ -330,7 +332,7 @@ async function uploadScanHandler(req, res) {
         if (!Array.isArray(boxes)) return;
         for (const b of boxes) {
           const name = String(
-            b.fieldName || b.name || b.id || ""
+            b.fieldName || b.name || b.id || "",
           ).toLowerCase();
           if (name.includes("qr") && uploadedUrls.qr) {
             b.imageUrl = uploadedUrls.qr;
@@ -369,6 +371,35 @@ async function uploadScanHandler(req, res) {
       if (uploadedUrls.header) {
         grapesJsonBuilt.headerUrl = uploadedUrls.header;
       }
+      if (uploadedUrls.header && grapesJsonBuilt.components?.length) {
+        const root = grapesJsonBuilt.components[0];
+        if (root && Array.isArray(root.components)) {
+          const alreadyHasHeader = root.components.some(
+            (c) =>
+              c.attributes &&
+              c.attributes.class &&
+              c.attributes.class.includes("template-header"),
+          );
+
+          if (!alreadyHasHeader) {
+            root.components.unshift({
+              type: "image",
+              attributes: {
+                src: uploadedUrls.header,
+                alt: "header",
+                class: "template-header",
+              },
+              style: {
+                width: "100%",
+                display: "block",
+                pointerEvents: "none",
+              },
+              selectable: false,
+              draggable: false,
+            });
+          }
+        }
+      }
       if (uploadedUrls.footer) {
         grapesJsonBuilt.footerUrl = uploadedUrls.footer;
       }
@@ -395,7 +426,7 @@ async function uploadScanHandler(req, res) {
     } catch (e) {
       console.warn(
         "uploadScanHandler: failed to attach header/footer/watermark into grapes_json",
-        e
+        e,
       );
     }
 
@@ -429,10 +460,15 @@ async function uploadScanHandler(req, res) {
     const saved = await templateService.saveTemplate(
       orgId,
       userId,
-      savePayload
+      savePayload,
     );
 
-    return res.json({ success: true, id: saved.id || saved.insertId || null });
+    const fullRow = await templateService.getTemplateById(
+      orgId,
+      saved.id || saved.insertId,
+    );
+
+    return res.json(fullRow);
   } catch (err) {
     console.error("uploadScanHandler", err);
     return res.status(500).json({ error: err.message || "Save failed" });
@@ -451,7 +487,7 @@ async function uploadImageHandler(req, res) {
       "..",
       "..",
       "public",
-      "uploads"
+      "uploads",
     );
     await fs.ensureDir(publicUploads);
 
@@ -474,9 +510,14 @@ async function saveTemplateHandler(req, res) {
   const orgId = parseInt(req.params.orgId, 10);
   const payload = req.body;
   const userId = req.user && req.user.id;
+
   try {
-    const row = await templateService.saveTemplate(orgId, userId, payload);
-    return res.json(row);
+    const result = await templateService.saveTemplate(orgId, userId, payload);
+    const insertedId = result.id;
+
+    const fullRow = await templateService.getTemplateById(orgId, insertedId);
+
+    return res.json(fullRow);
   } catch (err) {
     console.error("saveTemplateHandler", err);
     return res.status(500).json({ error: err.message });
@@ -520,7 +561,7 @@ async function listTemplatesHandler(req, res) {
 async function serveUploadedFileHandler(req, res) {
   try {
     const { orgId, filename } = req.params;
-    
+
     if (!filename) {
       return res.status(400).json({ error: "Filename required" });
     }
@@ -546,10 +587,10 @@ async function serveUploadedFileHandler(req, res) {
 
     if (!filePath) {
       console.error(`❌ File not found in any location:`, possiblePaths);
-      return res.status(404).json({ 
+      return res.status(404).json({
         error: "File not found",
         attempted_paths: possiblePaths,
-        filename: filename 
+        filename: filename,
       });
     }
 
@@ -557,7 +598,9 @@ async function serveUploadedFileHandler(req, res) {
     return res.sendFile(filePath);
   } catch (err) {
     console.error("serveUploadedFileHandler", err);
-    return res.status(500).json({ error: "Failed to serve file", details: err.message });
+    return res
+      .status(500)
+      .json({ error: "Failed to serve file", details: err.message });
   }
 }
 
@@ -599,6 +642,40 @@ async function listBasicTemplatesHandler(req, res) {
   }
 }
 
+async function updateTemplateHandler(req, res) {
+  const orgId = parseInt(req.params.orgId, 10);
+  const templateId = parseInt(req.params.templateId, 10);
+  const userId = req.user && req.user.id;
+
+  try {
+    const result = await templateService.updateTemplate(
+      orgId,
+      templateId,
+      userId,
+      req.body,
+    );
+
+    return res.json(result);
+  } catch (err) {
+    console.error("updateTemplateHandler", err);
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+async function deleteTemplateHandler(req, res) {
+  const orgId = parseInt(req.params.orgId, 10);
+  const templateId = parseInt(req.params.templateId, 10);
+
+  try {
+    const result = await templateService.deleteTemplate(orgId, templateId);
+
+    return res.json(result);
+  } catch (err) {
+    console.error("deleteTemplateHandler", err);
+    return res.status(500).json({ error: err.message });
+  }
+}
+
 module.exports = {
   uploadScanHandler,
   uploadImageHandler,
@@ -606,4 +683,6 @@ module.exports = {
   listTemplatesHandler,
   serveUploadedFileHandler,
   listBasicTemplatesHandler,
+  updateTemplateHandler,
+  deleteTemplateHandler,
 };

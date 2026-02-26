@@ -20,19 +20,19 @@ router.post(
     { name: "qr", maxCount: 1 },
     { name: "seal", maxCount: 1 },
   ]),
-  handler.uploadScanHandler
+  handler.uploadScanHandler,
 );
 
 router.post(
   "/:orgId/uploads",
   upload.single("file"),
-  handler.uploadImageHandler
+  handler.uploadImageHandler,
 );
 
 router.post(
   "/:orgId/templates",
   express.json({ limit: "50mb" }),
-  handler.saveTemplateHandler
+  handler.saveTemplateHandler,
 );
 
 router.get("/:orgId/templates", handler.listTemplatesHandler);
@@ -40,5 +40,13 @@ router.get("/:orgId/templates", handler.listTemplatesHandler);
 router.get("/:orgId/uploads/:filename", handler.serveUploadedFileHandler);
 
 router.get("/:orgId/templates/basic", handler.listBasicTemplatesHandler);
+
+router.put(
+  "/:orgId/templates/:templateId",
+  express.json({ limit: "50mb" }),
+  handler.updateTemplateHandler,
+);
+
+router.delete("/:orgId/templates/:templateId", handler.deleteTemplateHandler);
 
 module.exports = router;

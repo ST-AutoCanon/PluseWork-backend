@@ -10,4 +10,9 @@ module.exports = {
   GET_TEMPLATES_BY_ORG: `SELECT * FROM templates WHERE organization_id = ? ORDER BY created_at DESC;`,
 
   GET_TEMPLATE_BY_ID: `SELECT * FROM templates WHERE id = ? AND organization_id = ?;`,
+
+  DELETE_TEMPLATE: `
+  DELETE FROM templates
+  WHERE id = ? AND organization_id = ?;
+`,
 };
