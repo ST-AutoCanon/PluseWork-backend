@@ -66,7 +66,7 @@ async function runTesseractCLI(imagePath) {
   } catch (err) {
     console.warn(
       "Tesseract CLI failed:",
-      err && err.message ? err.message : err
+      err && err.message ? err.message : err,
     );
     return { text: "", words: [] };
   }
@@ -99,7 +99,7 @@ function groupWordsIntoLines(words = [], yThreshold = 10) {
 
   lines.forEach(
     (l) =>
-      (l.words = l.words.sort((a, b) => (a.bbox.x0 || 0) - (b.bbox.x0 || 0)))
+      (l.words = l.words.sort((a, b) => (a.bbox.x0 || 0) - (b.bbox.x0 || 0))),
   );
   lines.sort((a, b) => a.y - b.y);
   return lines;
@@ -108,7 +108,7 @@ function groupWordsIntoLines(words = [], yThreshold = 10) {
 function buildGrapesFromComposite(
   compositeUrl,
   compositeMeta = {},
-  lines = []
+  lines = [],
 ) {
   const W = compositeMeta.width || 1000;
   const H = compositeMeta.height || 1400;
@@ -294,12 +294,12 @@ async function makeCompositeAndCleanMask({
       const resizedBuf = await sharp(buf).resize({ width: compW }).toBuffer();
       const newMeta = await sharp(resizedBuf).metadata();
       return { buf: resizedBuf, meta: newMeta };
-    })
+    }),
   );
 
   const totalHeight = resizedBuffers.reduce(
     (s, p) => s + (p.meta.height || 0),
-    0
+    0,
   );
   const compositeImage = sharp({
     create: {
@@ -402,7 +402,7 @@ async function processScanToTemplate({
     "..",
     "..",
     "public",
-    "uploads"
+    "uploads",
   );
   await fs.ensureDir(publicUploads);
 
@@ -478,7 +478,7 @@ async function processScanToTemplate({
   const { grapesJson, html } = buildGrapesFromComposite(
     cleanedUrl,
     compositeMeta,
-    lines
+    lines,
   );
 
   return {
@@ -620,4 +620,114 @@ const getTemplates = async (orgId) => {
   }
 };
 
-module.exports = { processScanToTemplate, saveTemplate, getTemplates };
+const updateTemplate = async (orgId, templateId, userId, payload) => {
+  if (!orgId || !templateId) {
+    throw new Error("orgId and templateId required");
+  }
+
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+
+  // Ensure template exists
+  const [existing] = await tenantPool.query(queries.GET_TEMPLATE_BY_ID, [
+    templateId,
+    orgId,
+  ]);
+
+  if (!existing.length) {
+    throw new Error("Template not found");
+  }
+
+  let grapes_json_val = payload.grapes_json
+    ? typeof payload.grapes_json === "string"
+      ? payload.grapes_json
+      : JSON.stringify(payload.grapes_json)
+    : null;
+
+  let meta_val = payload.meta
+    ? typeof payload.meta === "string"
+      ? payload.meta
+      : JSON.stringify(payload.meta)
+    : null;
+
+  let layout_val = payload.layout
+    ? typeof payload.layout === "string"
+      ? payload.layout
+      : JSON.stringify(payload.layout)
+    : null;
+
+  const html = payload.html || null;
+  const css = payload.css || null;
+
+  await tenantPool.query(queries.UPDATE_TEMPLATE, [
+    grapes_json_val,
+    html,
+    css,
+    meta_val,
+    layout_val,
+    templateId,
+    orgId,
+  ]);
+
+  // Insert version snapshot
+  const [row] = await tenantPool.query(queries.GET_TEMPLATE_BY_ID, [
+    templateId,
+    orgId,
+  ]);
+
+  const updated = row[0];
+
+  try {
+    await tenantPool.query(queries.INSERT_TEMPLATE_VERSION, [
+      templateId,
+      updated.grapes_json,
+      updated.html,
+      updated.css,
+      updated.layout,
+      updated.version,
+      userId || null,
+    ]);
+  } catch (verErr) {
+    console.warn("Version insert failed:", verErr);
+  }
+
+  return { success: true };
+};
+
+const deleteTemplate = async (orgId, templateId) => {
+  if (!orgId || !templateId) {
+    throw new Error("orgId and templateId required");
+  }
+
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+
+  const [existing] = await tenantPool.query(queries.GET_TEMPLATE_BY_ID, [
+    templateId,
+    orgId,
+  ]);
+
+  if (!existing.length) {
+    throw new Error("Template not found");
+  }
+
+  await tenantPool.query(queries.DELETE_TEMPLATE, [templateId, orgId]);
+
+  return { success: true };
+};
+
+const getTemplateById = async (orgId, templateId) => {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  const [rows] = await tenantPool.query(queries.GET_TEMPLATE_BY_ID, [
+    templateId,
+    orgId,
+  ]);
+  return rows[0] || null;
+};
+
+module.exports = {
+  processScanToTemplate,
+  saveTemplate,
+  getTemplates,
+  updateTemplate,
+  deleteTemplate,
+  getTemplateById,
+};
