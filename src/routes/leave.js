@@ -1,15 +1,13 @@
-// src/routes/leave.js
 const express = require("express");
 const fs = require("fs");
 const path = require("path");
 const multer = require("multer");
-const LeaveHandler = require("../handlers/leaveHandler"); // existing handler in your project
+const LeaveHandler = require("../handlers/leaveHandler");
 
 const router = express.Router();
 
-// ------------------------
-// Multer storage -> leave_attachments (project root)
-// ------------------------
+const ATTACHMENTS_ROOT = path.resolve(__dirname, "../../../leave_attachments");
+
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     try {
@@ -32,10 +30,8 @@ const storage = multer.diskStorage({
         (req.user && (req.user.employeeId || req.user.id)) ||
         "unknown";
 
-      // Use leave_attachments at project root (outside 'uploads')
       const destDir = path.join(
-        process.cwd(),
-        "leave_attachments",
+        ATTACHMENTS_ROOT,
         String(orgId),
         String(employeeId),
       );
@@ -81,10 +77,9 @@ const fileFilter = (req, file, cb) => {
 const upload = multer({
   storage,
   fileFilter,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB per file
+  limits: { fileSize: 10 * 1024 * 1024 },
 });
 
-// wrapper to surface multer errors as JSON
 const runUpload = (mw) => (req, res, next) => {
   mw(req, res, (err) => {
     if (err) {
@@ -95,7 +90,6 @@ const runUpload = (mw) => (req, res, next) => {
   });
 };
 
-// helper similar to reimbursement routes
 function resolveOrgIdFromReq(req) {
   const header =
     req.headers && (req.headers["x-org-id"] || req.headers["x_org_id"]);
@@ -106,16 +100,10 @@ function resolveOrgIdFromReq(req) {
   return header || body || query || userOrg || null;
 }
 
-// ------------------------
-// Existing leave endpoints (keep as before)
-// ------------------------
-// leave types
 router.get("/types", LeaveHandler.getLeaveTypesHandler);
 
-// GET employee's leaves
 router.get("/employee/leave/:employeeId", LeaveHandler.getLeaveRequestsHandler);
 
-// team-lead and admin endpoints
 router.get(
   "/team-lead/:teamLeadId",
   LeaveHandler.getLeaveRequestsForTeamLeadHandler,
@@ -123,24 +111,24 @@ router.get(
 router.get("/admin/leave", LeaveHandler.getLeaveQueries);
 router.put("/admin/leave/:leaveId", LeaveHandler.updateLeaveRequest);
 
-// edit / cancel
-router.put("/edit/:leaveId", LeaveHandler.editLeaveRequestHandler);
+router.put(
+  "/edit/:leaveId",
+  runUpload(upload.array("attachments")),
+  LeaveHandler.editLeaveRequestHandler,
+);
 router.delete(
   "/cancel/:leaveId/:employeeId",
   LeaveHandler.cancelLeaveRequestHandler,
 );
 
-// Keep previous convenience route to serve by filename if used
 router.get("/attachments/byname", LeaveHandler.serveAttachmentByName);
 
-// submit leave (multipart attachments)
 router.post(
   "/employee/leave",
   runUpload(upload.array("attachments")),
   LeaveHandler.submitLeaveRequestHandler,
 );
 
-// Attachments endpoints (API and non-API compatibility)
 router.post(
   "/api/employee/leave/:id/attachments",
   runUpload(upload.array("attachments")),
@@ -151,7 +139,6 @@ router.get(
   LeaveHandler.getAttachmentsHandler,
 );
 
-// Also expose non-api variant so frontend calls work either way
 router.post(
   "/employee/leave/:id/attachments",
   runUpload(upload.array("attachments")),
@@ -162,32 +149,25 @@ router.get(
   LeaveHandler.getAttachmentsHandler,
 );
 
-// Replace attachments for a leave (delete all + add new)
 router.put(
   "/employee/leave/:id/attachments",
   runUpload(upload.array("attachments")),
   LeaveHandler.replaceAttachmentsHandler,
 );
 
-// Delete one attachment
 router.delete(
   "/employee/leave/:id/attachments/:attachmentId",
   LeaveHandler.deleteAttachmentHandler,
 );
 
-// Serve attachment file via DB-resolve handler (existing handler)
 router.get("/attachments/:attachmentId", LeaveHandler.serveAttachmentHandler);
 
-// ------------------------
-// Direct upload helper (like reimbursement/upload) — returns filenames
-// ------------------------
 router.post(
   "/leave/upload",
   runUpload(upload.array("attachments", 5)),
   (req, res) => {
     const orgId = resolveOrgIdFromReq(req);
     if (!orgId) {
-      // cleanup uploaded files if org missing
       if (req.files && req.files.length) {
         req.files.forEach((f) => {
           try {
@@ -214,15 +194,10 @@ router.post(
   },
 );
 
-// ------------------------
-// Serve by path: /leave_attachments/:orgId/:employeeId/:filename
-// (useful when metadata stores direct relative path pieces)
-// ------------------------
 router.get("/leave_attachments/:orgId/:employeeId/:filename", (req, res) => {
   try {
     const { orgId, employeeId, filename } = req.params;
 
-    // basic traversal protection
     if (
       [orgId, employeeId, filename].some(
         (param) =>
@@ -234,10 +209,8 @@ router.get("/leave_attachments/:orgId/:employeeId/:filename", (req, res) => {
       return res.status(400).json({ message: "Invalid filename or path" });
     }
 
-    // Resolve actual file path in leave_attachments root
     const filePath = path.join(
-      process.cwd(),
-      "leave_attachments",
+      ATTACHMENTS_ROOT,
       String(orgId),
       String(employeeId),
       String(filename),
@@ -268,5 +241,4 @@ router.get("/leave_attachments/:orgId/:employeeId/:filename", (req, res) => {
   }
 });
 
-// Export router
 module.exports = router;

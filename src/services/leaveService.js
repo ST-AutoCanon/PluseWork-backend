@@ -1,11 +1,10 @@
-// services/leaveService.js
 const fs = require("fs");
 const path = require("path");
 const { getTenantPoolByOrgId } = require("../db/tenantPoolManager");
 const queries = require("../constants/leaveQueries");
 const LeavePolicyService = require("./leavePolicyService");
 
-const FILE_BASE_URL = process.env.FILE_BASE_URL || ""; // optional
+const FILE_BASE_URL = process.env.FILE_BASE_URL || "";
 
 const toLocalDateString = (dateInput) => {
   if (!dateInput) return "";
@@ -96,12 +95,10 @@ const getLeaveTypeByKey = async (orgId, keyOrId) => {
 
   const tenantPool = await getTenantPool(orgId);
 
-  // quick helper to canonicalize strings for comparison
   const canon = (v) =>
     v === null || v === undefined ? "" : String(v).trim().toLowerCase();
 
   try {
-    // First try the precise query (existing constant) which likely checks type_key or id
     const [rows] = await tenantPool.execute(queries.GET_LEAVE_TYPE_BY_KEY, [
       orgId,
       keyOrId,
@@ -120,23 +117,19 @@ const getLeaveTypeByKey = async (orgId, keyOrId) => {
       };
     }
 
-    // If not found, fetch all leave types for the org and try to find a match
-    const all = await getLeaveTypes(orgId); // returns normalized list
+    const all = await getLeaveTypes(orgId);
     const input = canon(keyOrId);
 
-    // 1) match by numeric id
     if (!isNaN(Number(keyOrId))) {
       const byId = all.find((t) => Number(t.id) === Number(keyOrId));
       if (byId) return byId;
     }
 
-    // 2) exact case-insensitive match on key or label
     let found =
       all.find((t) => canon(t.key) === input) ||
       all.find((t) => canon(t.label) === input);
     if (found) return found;
 
-    // 3) fuzzy: partial match in label or key (startsWith / includes)
     found =
       all.find((t) => canon(t.key).startsWith(input)) ||
       all.find((t) => canon(t.label).startsWith(input)) ||
@@ -144,7 +137,6 @@ const getLeaveTypeByKey = async (orgId, keyOrId) => {
       all.find((t) => canon(t.label).includes(input));
     if (found) return found;
 
-    // 4) synonyms mapping (try to map common aliases to DB entries)
     const synonyms = {
       casual: ["casual", "casual leave", "leave-casual"],
       vacation: ["vacation", "vacation leave", "annual", "annual leave"],
@@ -162,7 +154,6 @@ const getLeaveTypeByKey = async (orgId, keyOrId) => {
       for (const synGroupKey of Object.keys(synonyms)) {
         const syns = synonyms[synGroupKey];
         if (syns.includes(input)) {
-          // if DB type's key or label contains the synonym group key, treat as match
           if (k.includes(synGroupKey) || l.includes(synGroupKey)) return dbType;
         }
       }
@@ -212,7 +203,6 @@ const validateLeaveTypeEligibility = async (employeeId, leaveKey, orgId) => {
   if (!employeeId) throw new Error("employeeId required");
   if (!leaveKey) throw new Error("leave type is required");
 
-  // Try to resolve the leave type in a flexible way
   const resolved = await getLeaveTypeByKey(orgId, leaveKey);
   if (!resolved || !resolved.is_active) {
     const err = new Error("Selected leave type is not available.");
@@ -222,7 +212,6 @@ const validateLeaveTypeEligibility = async (employeeId, leaveKey, orgId) => {
 
   const leaveType = resolved;
 
-  // Fetch personal details and compute age/gender
   const personal = await getEmployeePersonal(employeeId, orgId);
   const gender =
     personal && personal.gender ? String(personal.gender).toLowerCase() : null;
@@ -531,7 +520,6 @@ const updateLeaveRequest = async (payload, orgId) => {
         }
       }
 
-      // recompute monthly LOP for months spanned by leave
       try {
         const leaveStart = parseDateOnly(leave.start_date);
         const leaveEnd = parseDateOnly(leave.end_date);
@@ -622,8 +610,6 @@ const updateLeaveRequest = async (payload, orgId) => {
   }
 };
 
-// --- at top of file (already present): const path = require("path"); const fs = require("fs");
-
 const submitLeaveRequest = async ({
   employeeId,
   startDate,
@@ -632,11 +618,10 @@ const submitLeaveRequest = async ({
   reason,
   leavetype,
   orgId,
-  attachments = [], // <-- add attachments param with default
+  attachments = [],
 }) => {
   if (!orgId) throw new Error("orgId required");
 
-  // Validate leave type eligibility before any DB write
   await validateLeaveTypeEligibility(employeeId, leavetype, orgId);
 
   const tenantPool = await getTenantPool(orgId);
@@ -679,7 +664,6 @@ const submitLeaveRequest = async ({
       orgId,
     ]);
 
-    // Save attachments if provided
     if (Array.isArray(attachments) && attachments.length > 0) {
       await saveLeaveAttachments(result.insertId, attachments, orgId);
     }
@@ -705,9 +689,6 @@ const submitLeaveRequest = async ({
   }
 };
 
-/**
- * getLeaveRequests
- */
 const getLeaveRequests = async (
   employeeId,
   from_date = null,
@@ -758,7 +739,6 @@ const getLeaveRequests = async (
       filterConditions.push("lq.end_date <= ?");
       filterParams.push(to_date);
     }
-    // Ensure tenant filter (org_id) if queries use leavequeries table
     if (!/\blq\.org_id\b/i.test(baseQuery)) {
       filterConditions.push("lq.org_id = ?");
       filterParams.push(orgId);
@@ -785,9 +765,6 @@ const getLeaveRequests = async (
   }
 };
 
-/**
- * editLeaveRequest: validate leave type eligibility before updating
- */
 const editLeaveRequest = async ({
   leaveId,
   employeeId,
@@ -811,7 +788,6 @@ const editLeaveRequest = async ({
     )
       throw new Error("All fields are required.");
 
-    // Validate leave type eligibility BEFORE update
     await validateLeaveTypeEligibility(employeeId, leavetype, orgId);
 
     const tenantPool = await getTenantPool(orgId);
@@ -973,7 +949,6 @@ const getLeaveQueriesForTeamLead = async (filters = {}, teamLeadId, orgId) => {
       "lq",
     );
 
-    // ensure tenant filter
     let query = queries.GET_LEAVE_QUERIES_FOR_TEAM;
     const tenantFilter = " lq.org_id = ? ";
     const tenantIndexInsertPos = query.toUpperCase().indexOf("WHERE");
@@ -1001,11 +976,6 @@ const getLeaveQueriesForTeamLead = async (filters = {}, teamLeadId, orgId) => {
   }
 };
 
-/**
- * Insert attachment rows for a leave (append).
- * files: array of multer file objects (each has originalname, filename, path, mimetype, size)
- * Returns array of inserted metadata objects.
- */
 async function saveLeaveAttachments(leaveId, files = [], orgId) {
   if (!leaveId) throw new Error("leaveId required");
   if (!Array.isArray(files) || files.length === 0) return [];
@@ -1016,7 +986,6 @@ async function saveLeaveAttachments(leaveId, files = [], orgId) {
 
   for (const file of files) {
     try {
-      // multer provides: file.originalname, file.filename, file.path, file.mimetype, file.size
       const fileName = file.originalname || file.filename || "file";
       const filePath = file.path || file.filename || "";
       const mime = file.mimetype || null;
@@ -1041,12 +1010,11 @@ async function saveLeaveAttachments(leaveId, files = [], orgId) {
         err && err.message ? err.message : err,
       );
       const absolutePath = file.path || file.filename || "";
-      // convert to a normalized relative path from project root, forward slashes for DB/URL use
       let filePathToStore = absolutePath;
       try {
         if (absolutePath) {
           const rel = path.relative(process.cwd(), absolutePath);
-          filePathToStore = rel.split(path.sep).join("/"); // use forward slashes
+          filePathToStore = rel.split(path.sep).join("/");
         }
       } catch (e) {
         filePathToStore = absolutePath;
@@ -1062,18 +1030,9 @@ async function saveLeaveAttachments(leaveId, files = [], orgId) {
   return inserted;
 }
 
-/**
- * Get attachments for a leave
- *
- * Behavior:
- * - Attempts to fetch by leave_id + org_id first.
- * - If that returns nothing, performs a fallback fetch by leave_id only (covers rows with NULL/missing org_id).
- * - Returns metadata objects including `url` (if FILE_BASE_URL provided) and `exists` (best-effort check).
- */
 async function getAttachmentsForLeave(leaveId, orgId) {
   if (!leaveId) throw new Error("leaveId required");
-  if (!orgId) throw new Error("orgId required"); // handler should pass this; keep strict but tolerant in query
-
+  if (!orgId) throw new Error("orgId required");
   const tenantPool = await getTenantPool(orgId);
 
   let rows = [];
@@ -1091,7 +1050,6 @@ async function getAttachmentsForLeave(leaveId, orgId) {
     rows = [];
   }
 
-  // fallback: if no rows returned, try fetching by leave_id only (covers org_id NULL or mismatched metadata)
   if (!rows || rows.length === 0) {
     try {
       const fallbackSql = `
@@ -1116,26 +1074,20 @@ async function getAttachmentsForLeave(leaveId, orgId) {
     }
   }
 
-  // Map rows: normalize fields and build url/exists flags (best-effort)
   const mapped = (rows || []).map((r) => {
     const filePath = r.file_path || "";
-    // Build a public URL if configured. Prefer r.url if present.
     let url = r.url || null;
     if (!url && filePath) {
       if (/^https?:\/\//i.test(filePath)) {
         url = filePath;
       } else if (FILE_BASE_URL) {
-        // ensure no double slashes
         url = `${FILE_BASE_URL.replace(/\/+$/, "")}/${String(filePath).replace(/^\/+/, "")}`;
       } else {
         url = null;
       }
     }
-
-    // best-effort exists: only check when path plausibly points to local filesystem
     let exists = false;
     try {
-      // consider it local if it contains uploads/leave_attachments or is absolute path
       const looksLocal =
         path.isAbsolute(filePath) ||
         String(filePath).includes(path.join("uploads", "leave_attachments")) ||
@@ -1169,9 +1121,6 @@ async function getAttachmentsForLeave(leaveId, orgId) {
   return mapped;
 }
 
-/**
- * Get single attachment by id
- */
 async function getAttachmentById(attachmentId, orgId) {
   if (!attachmentId) throw new Error("attachmentId required");
   if (!orgId) throw new Error("orgId required");
@@ -1193,35 +1142,27 @@ async function getAttachmentById(attachmentId, orgId) {
   };
 }
 
-/**
- * Delete an attachment row + unlink the physical file (best-effort).
- * Returns true if DB deletion succeeded (even if unlink failed).
- */
 async function deleteAttachmentById(attachmentId, orgId) {
   if (!attachmentId) throw new Error("attachmentId required");
   if (!orgId) throw new Error("orgId required");
 
   const tenantPool = await getTenantPool(orgId);
 
-  // fetch record first (to get path)
   const [rows] = await tenantPool.execute(queries.GET_ATTACHMENT_BY_ID, [
     attachmentId,
     orgId,
   ]);
   if (!rows || rows.length === 0) {
-    // nothing to delete
     return false;
   }
   const rec = rows[0];
   const filePath = rec.file_path;
 
-  // delete db record
   await tenantPool.execute(queries.DELETE_ATTACHMENT_BY_ID, [
     attachmentId,
     orgId,
   ]);
 
-  // unlink filesystem - be safe: only unlink if path contains uploads/leave_attachments/<orgId> to avoid accidental deletes
   try {
     if (typeof filePath === "string" && filePath.length > 0) {
       const safeSegment = path.join(
@@ -1233,7 +1174,6 @@ async function deleteAttachmentById(attachmentId, orgId) {
         ? filePath
         : path.join(process.cwd(), filePath);
 
-      // allow unlink only if the abs path contains the expected safeSegment
       const normalizedAbs = path.normalize(abs);
       if (normalizedAbs.includes(path.normalize(safeSegment))) {
         try {
@@ -1263,7 +1203,6 @@ async function deleteAttachmentById(attachmentId, orgId) {
 
   return true;
 }
-// in services/leaveService.js: safe replacement for getAttachmentByFileName
 async function getAttachmentByFileName(fileName, orgId, leaveId = null) {
   if (!fileName) return null;
   if (!orgId) throw new Error("orgId required");
@@ -1296,26 +1235,23 @@ async function replaceAttachmentsForLeave(leaveId, files = [], orgId) {
   if (!orgId) throw new Error("orgId required");
   const tenantPool = await getTenantPool(orgId);
 
-  // fetch existing attachments (to unlink later)
-  // Use the service function (with fallback) rather than a direct query to ensure we pick up rows with NULL org_id too
   const existing = await getAttachmentsForLeave(leaveId, orgId);
 
-  // start transaction
   const conn = await tenantPool.getConnection();
   try {
     await conn.beginTransaction();
 
-    // delete records for this leave
     const idsToDelete = existing.map((r) => Number(r.id)).filter(Boolean);
     if (idsToDelete.length > 0) {
-      // build placeholders
       const placeholders = idsToDelete.map(() => "?").join(",");
-      // we use a safe delete that includes org_id in WHERE to avoid cross-tenant issues
-      const deleteSql = `DELETE FROM leave_attachments WHERE id IN (${placeholders}) AND org_id = ?`;
+      const deleteSql = `
+  DELETE FROM leave_attachments 
+  WHERE id IN (${placeholders})
+`;
+      await conn.execute(deleteSql, idsToDelete);
       await conn.execute(deleteSql, [...idsToDelete, orgId]);
     }
 
-    // insert new files
     const inserted = [];
     for (const file of files) {
       try {
@@ -1344,7 +1280,7 @@ async function replaceAttachmentsForLeave(leaveId, files = [], orgId) {
           "[replaceAttachmentsForLeave] failed to insert a new attachment:",
           insErr && insErr.message ? insErr.message : insErr,
         );
-        // bubble to outer catch to rollback
+
         throw insErr;
       }
     }
@@ -1354,7 +1290,6 @@ async function replaceAttachmentsForLeave(leaveId, files = [], orgId) {
       conn.release();
     } catch (e) {}
 
-    // best-effort unlink of old files (after commit)
     for (const r of existing) {
       try {
         const filePath = r.file_path;
@@ -1396,7 +1331,6 @@ async function replaceAttachmentsForLeave(leaveId, files = [], orgId) {
 
     return { deleted: existing.map((r) => Number(r.id)), inserted };
   } catch (err) {
-    // rollback DB changes on error
     try {
       await conn.rollback();
     } catch (rbErr) {
