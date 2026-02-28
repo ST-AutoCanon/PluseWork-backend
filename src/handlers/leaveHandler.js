@@ -1,8 +1,8 @@
-// handlers/leaveHandler.js
 const fs = require("fs");
 const path = require("path");
 const LeaveService = require("../services/leaveService");
 const ErrorHandler = require("../utils/errorHandler");
+const ATTACHMENTS_ROOT = path.resolve(__dirname, "../../../leave_attachments");
 let tenantPoolManager = null;
 try {
   tenantPoolManager = require("../db/tenantPoolManager");
@@ -31,7 +31,6 @@ const resolveOrgId = (req) =>
   (req.user && (req.user.orgId || req.user.org_id)) ||
   null;
 
-// Helper: build public-facing attachment shape (adds url & exists)
 function buildPublicAttachment(a, orgId, req) {
   const id = a.id || a.attachment_id || a.attachmentId || null;
   const file_name =
@@ -41,11 +40,9 @@ function buildPublicAttachment(a, orgId, req) {
   let file_path = rawPath;
   if (!file_path) file_path = null;
 
-  // compute absolute path for exists check
   let abs = file_path || "";
   try {
     if (abs && !path.isAbsolute(abs)) {
-      // If path looks relative, resolve against project root
       abs = path.join(process.cwd(), abs);
     }
   } catch (e) {
@@ -59,7 +56,6 @@ function buildPublicAttachment(a, orgId, req) {
     exists = false;
   }
 
-  // Build base host/proto
   const forwardedProto =
     (req && req.headers && req.headers["x-forwarded-proto"]) || null;
   const protocol =
@@ -74,7 +70,6 @@ function buildPublicAttachment(a, orgId, req) {
 
   let url = a.url || a.file_url || null;
 
-  // if explicit url provided on record, keep it
   if (!url && id && host) {
     try {
       const base = `${protocol}://${hostPart}`;
@@ -86,8 +81,6 @@ function buildPublicAttachment(a, orgId, req) {
     }
   }
 
-  // If not url yet, attempt to derive from known path patterns:
-  // prefer /leave_attachments/... then /uploads/leave_attachments/...
   if (!url && file_path && typeof file_path === "string") {
     const p = String(file_path);
     const leaveIndex = p.indexOf("/leave_attachments/");
@@ -116,25 +109,14 @@ function buildPublicAttachment(a, orgId, req) {
   };
 }
 
-/**
- * Move uploaded files (from multer) into the tenant/employee folder and update file.path to be a relative path.
- * This function mutates the file objects in-place and returns them.
- */
 function moveUploadedFilesToTenant(files = [], orgId, employeeId) {
   if (!Array.isArray(files) || files.length === 0) return files;
-  if (!orgId) return files; // nothing we can do
+  if (!orgId) return files;
 
-  // New root is process.cwd()/leave_attachments (outside uploads)
-  const tenantRoot = path.join(
-    process.cwd(),
-    "leave_attachments",
-    String(orgId),
-  );
+  const tenantRoot = path.join(ATTACHMENTS_ROOT, String(orgId));
   try {
     fs.mkdirSync(tenantRoot, { recursive: true });
-  } catch (e) {
-    // fallback handled per-file
-  }
+  } catch (e) {}
 
   return files.map((file) => {
     try {
@@ -145,15 +127,9 @@ function moveUploadedFilesToTenant(files = [], orgId, employeeId) {
         ? origPath
         : path.join(process.cwd(), String(origPath));
 
-      // choose employee folder if provided, otherwise put under org root
       const destDir = employeeId
-        ? path.join(
-            process.cwd(),
-            "leave_attachments",
-            String(orgId),
-            String(employeeId),
-          )
-        : path.join(process.cwd(), "leave_attachments", String(orgId));
+        ? path.join(ATTACHMENTS_ROOT, String(orgId), String(employeeId))
+        : path.join(ATTACHMENTS_ROOT, String(orgId));
       fs.mkdirSync(destDir, { recursive: true });
 
       const original = String(file.originalname || file.filename || "file");
@@ -167,7 +143,6 @@ function moveUploadedFilesToTenant(files = [], orgId, employeeId) {
         if (fs.existsSync(absOld) && absOld !== absNew) {
           fs.renameSync(absOld, absNew);
         } else {
-          // if absOld doesn't exist, maybe multer already placed it in destDir; try to copy if exists
           if (fs.existsSync(absOld) && absOld !== absNew) {
             fs.copyFileSync(absOld, absNew);
             try {
@@ -183,12 +158,9 @@ function moveUploadedFilesToTenant(files = [], orgId, employeeId) {
               fs.unlinkSync(absOld);
             } catch (_) {}
           }
-        } catch (copyErr) {
-          // give up on moving but continue
-        }
+        } catch (copyErr) {}
       }
 
-      // store relative path (forward slashes)
       const rel = path.relative(process.cwd(), absNew);
       const relNormalized = rel.split(path.sep).join("/");
 
@@ -410,7 +382,6 @@ class LeaveHandler {
         org_id,
       });
 
-      // Enrich with attachments
       const enriched = await Promise.all(
         leaveQueries.map(async (leave) => {
           try {
@@ -667,7 +638,6 @@ class LeaveHandler {
           );
       }
 
-      // Create leave first
       const leaveRequest = await LeaveService.submitLeaveRequest({
         employeeId,
         startDate,
@@ -678,7 +648,6 @@ class LeaveHandler {
         orgId,
       });
 
-      // process uploaded files (if any)
       const files = Array.isArray(req.files) ? req.files : [];
       let inserted = [];
       if (files.length > 0) {
@@ -912,13 +881,62 @@ class LeaveHandler {
         orgId,
       });
 
+      const files = Array.isArray(req.files) ? req.files : [];
+
+      let attachments = [];
+
+      if (files.length > 0) {
+        try {
+          moveUploadedFilesToTenant(files, orgId, employeeId);
+
+          const result = await LeaveService.replaceAttachmentsForLeave(
+            leaveId,
+            files,
+            orgId,
+          );
+
+          const inserted =
+            result && Array.isArray(result.inserted) ? result.inserted : [];
+
+          attachments = inserted.map((a) =>
+            buildPublicAttachment(a, orgId, req),
+          );
+        } catch (attachErr) {
+          console.warn(
+            "[editLeaveRequestHandler] replaceAttachments failed:",
+            attachErr?.message || attachErr,
+          );
+        }
+      } else {
+        try {
+          const atts = await LeaveService.getAttachmentsForLeave(
+            leaveId,
+            orgId,
+          );
+
+          attachments = Array.isArray(atts)
+            ? atts.map((a) => buildPublicAttachment(a, orgId, req))
+            : [];
+        } catch (err) {
+          console.warn(
+            "[editLeaveRequestHandler] failed to fetch attachments:",
+            err?.message || err,
+          );
+        }
+      }
+
+      const responseData = {
+        ...updatedLeaveRequest,
+        attachments,
+      };
+
       return res
         .status(200)
         .json(
           ErrorHandler.generateSuccessResponse(
             200,
             "Leave request updated successfully.",
-            updatedLeaveRequest,
+            responseData,
           ),
         );
     } catch (err) {
@@ -1270,24 +1288,11 @@ class LeaveHandler {
         abs = path.join(process.cwd(), abs);
       }
 
-      // Accept files under either leave_attachments/ or uploads/leave_attachments/ for compatibility
-      const leaveRoot = path.resolve(
-        process.cwd(),
-        "leave_attachments",
-        String(orgId),
-      );
-      const uploadsRoot = path.resolve(
-        process.cwd(),
-        "uploads",
-        "leave_attachments",
-        String(orgId),
-      );
+      const leaveRoot = path.resolve(ATTACHMENTS_ROOT, String(orgId));
+      const uploadsRoot = path.resolve(ATTACHMENTS_ROOT, String(orgId));
       const normalizedAbs = path.resolve(abs);
 
-      if (
-        !normalizedAbs.startsWith(leaveRoot) &&
-        !normalizedAbs.startsWith(uploadsRoot)
-      ) {
+      if (!normalizedAbs.startsWith(leaveRoot)) {
         console.warn(
           "[serveAttachmentHandler] file path outside safe folders:",
           normalizedAbs,
@@ -1344,23 +1349,11 @@ class LeaveHandler {
         abs = path.join(process.cwd(), abs);
       }
 
-      const leaveRoot = path.resolve(
-        process.cwd(),
-        "leave_attachments",
-        String(orgId),
-      );
-      const uploadsRoot = path.resolve(
-        process.cwd(),
-        "uploads",
-        "leave_attachments",
-        String(orgId),
-      );
+      const leaveRoot = path.resolve(ATTACHMENTS_ROOT, String(orgId));
+      const uploadsRoot = path.resolve(ATTACHMENTS_ROOT, String(orgId));
       const normalizedAbs = path.resolve(abs);
 
-      if (
-        !normalizedAbs.startsWith(leaveRoot) &&
-        !normalizedAbs.startsWith(uploadsRoot)
-      ) {
+      if (!normalizedAbs.startsWith(leaveRoot)) {
         console.warn("[serveAttachmentByName] file path outside safe folder:", {
           normalizedAbs,
           leaveRoot,

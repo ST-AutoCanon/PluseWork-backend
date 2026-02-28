@@ -459,7 +459,6 @@ exports.generateReimbursementPDF = async (req, res) => {
     if (!employee || !employee.name) {
       return res.status(404).json({ error: "Employee details not found" });
     }
-    // ----- ATTACHMENTS RESOLUTION & DISCOVERY -----
     const [attachmentsRows] = await tenantPool.query(queries.GET_ATTACHMENTS, [
       claimId,
     ]);
@@ -467,16 +466,6 @@ exports.generateReimbursementPDF = async (req, res) => {
       ? attachmentsRows
       : attachmentsRows || [];
 
-    /**
-     * Normalize and try to resolve file_path for attachments.
-     * Strategy:
-     * 1) Keep file_name and any existing file_path.
-     * 2) If file_path missing, attempt to construct a path using:
-     *    reimbursement/{orgId}/{year}/{month}/{employeeId}/{file_name}
-     *    where year/month come from claim.created_at || claim.date || current date.
-     * 3) If that doesn't exist, attempt a shallow search under reimbursement/{orgId}/{year}/{month}/<employeeDir>/<filename>
-     * 4) Result: attachmentsResolved contains those attachments with resolved file_path (absolute where possible).
-     */
     const attachmentsResolved = [];
 
     for (const a of attachments) {
@@ -495,11 +484,9 @@ exports.generateReimbursementPDF = async (req, res) => {
           employee_id: empIdFromRow,
         };
 
-        // If we already have a file_path, try to make it absolute and verify existence.
         if (attObj.file_path) {
           let candidate = attObj.file_path;
           if (!path.isAbsolute(candidate)) {
-            // try several plausible bases
             const tries = [
               path.join(__dirname, "..", "..", "..", candidate),
               path.join(__dirname, "..", "..", candidate),
@@ -523,20 +510,16 @@ exports.generateReimbursementPDF = async (req, res) => {
           if (fs.existsSync(candidate)) {
             attObj.file_path = candidate;
             attachmentsResolved.push(attObj);
-            continue; // resolved
+            continue;
           } else {
-            // keep going — maybe a different derivation will find it
             attObj.file_path = null;
           }
         }
 
-        // Not resolved yet — need to derive from filename + claim metadata
         if (!file_name) {
-          // nothing to do if we don't have a filename
           continue;
         }
 
-        // Use claim created_at or claim.date if available to get year/month; fallback to current date
         let created =
           claim && (claim.created_at || claim.date)
             ? new Date(claim.created_at || claim.date)
@@ -545,10 +528,8 @@ exports.generateReimbursementPDF = async (req, res) => {
         const year = `${created.getFullYear()}`;
         const month = String(created.getMonth() + 1).padStart(2, "0");
 
-        // Prefer employee id from claim, then from attachment row
         const empId = claim.employee_id || attObj.employee_id || "unknown";
 
-        // Construct expected path using your storage convention
         const constructed = path.join(
           __dirname,
           "..",
@@ -567,7 +548,6 @@ exports.generateReimbursementPDF = async (req, res) => {
           continue;
         }
 
-        // If constructed path doesn't exist, attempt to search under the tenant/year/month directory for the file across employee subdirs.
         const candidateDir = path.join(
           __dirname,
           "..",
@@ -580,7 +560,6 @@ exports.generateReimbursementPDF = async (req, res) => {
         );
 
         if (fs.existsSync(candidateDir)) {
-          // read subdirectories and check each employee folder for the filename
           try {
             const entries = fs.readdirSync(candidateDir, {
               withFileTypes: true,
@@ -607,7 +586,6 @@ exports.generateReimbursementPDF = async (req, res) => {
           }
         }
 
-        // As a final fallback, try a looser search for the filename anywhere under the tenant reimbursement directory for that year (may be slower)
         try {
           const topTenantDir = path.join(
             __dirname,
@@ -641,21 +619,15 @@ exports.generateReimbursementPDF = async (req, res) => {
               break;
             }
           }
-        } catch (looseErr) {
-          /* ignore - fallback failed */
-        }
-
-        // If none of the attempts resolved the file_path, do not include this attachment (we can't attach what we can't find).
+        } catch (looseErr) {}
       } catch (inner) {
         console.warn(
           "Attachment normalization error:",
           inner?.message || inner,
         );
-        // skip this attachment
       }
     }
 
-    // attachmentsResolved now contains attachments we can find on disk (file_path absolute)
     const attachmentsWithFiles = (attachmentsResolved || []).filter(
       (x) => x && x.file_path && fs.existsSync(x.file_path),
     );
@@ -666,7 +638,6 @@ exports.generateReimbursementPDF = async (req, res) => {
       );
     }
 
-    // optional: log each resolved path for debugging
     attachmentsWithFiles.forEach((att) => {
       if (!path.isAbsolute(att.file_path)) {
         att.file_path = path.join(__dirname, "..", "..", "..", att.file_path);
@@ -674,7 +645,6 @@ exports.generateReimbursementPDF = async (req, res) => {
       if (!fs.existsSync(att.file_path)) {
         console.warn(`File not found on disk (post-resolve): ${att.file_path}`);
       } else {
-        // console.info(`Attachment resolved: ${att.file_path}`);
       }
     });
 
