@@ -567,43 +567,6 @@ exports.listSupervisorsByPosition = async (req, res) => {
   }
 };
 
-exports.assignSupervisor = async (req, res, next) => {
-  try {
-    const { employeeId, supervisorId, startDate } = req.body;
-    if (!employeeId || !supervisorId || !startDate) {
-      return res
-        .status(400)
-        .json(
-          ErrorHandler.generateErrorResponse(
-            400,
-            "employeeId, supervisorId and startDate are required.",
-          ),
-        );
-    }
-    const orgId =
-      resolveOrgIdFromReq(req) || (req.user && req.user.orgId) || null;
-    if (!orgId) {
-      return res
-        .status(400)
-        .json(
-          ErrorHandler.generateErrorResponse(400, "Missing x-org-id header"),
-        );
-    }
-    const result = await employeeService.assignSupervisor(
-      employeeId,
-      supervisorId,
-      startDate,
-      orgId,
-    );
-
-    return res.json(
-      ErrorHandler.generateSuccessResponse(200, "Supervisor assigned.", result),
-    );
-  } catch (err) {
-    next(err);
-  }
-};
-
 exports.getSupervisorHistory = async (req, res, next) => {
   try {
     const employeeId = req.params.employeeId;

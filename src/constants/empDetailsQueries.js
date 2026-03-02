@@ -748,4 +748,25 @@ LEFT JOIN (
     SET employee_id = CONCAT(?, '-', LPAD(suffix, 6, '0'))
     WHERE org_id = ?
   `,
+
+  UPDATE_ACTIVE_SUPERVISOR_ASSIGNMENT_END: `
+    UPDATE supervisor_assignments
+    SET end_date = ?
+    WHERE employee_id = ?
+      AND end_date IS NULL
+  `,
+
+  INSERT_SUPERVISOR_ASSIGNMENT: `
+    INSERT INTO supervisor_assignments
+      (employee_id, supervisor_id, start_date)
+    VALUES (?, ?, ?)
+  `,
+
+  GET_ACTIVE_SUPERVISOR_ASSIGNMENT: `
+    SELECT *
+    FROM supervisor_assignments
+    WHERE employee_id = ?
+      AND end_date IS NULL
+    LIMIT 1
+  `,
 };
