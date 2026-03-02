@@ -26,7 +26,7 @@ const excelUpload = multer({
 router.post(
   "/admin/employees/bulk",
   excelUpload.single("excel"),
-  employeeHandler.bulkAddEmployees
+  employeeHandler.bulkAddEmployees,
 );
 
 router.post("/full", upload, employeeHandler.createFullEmployee);
@@ -45,16 +45,14 @@ router.put("/full/:employeeId", upload, employeeHandler.updateFullEmployee);
 
 router.put(
   "/admin/employees/:employeeId/deactivate",
-  employeeHandler.deactivateEmployee
+  employeeHandler.deactivateEmployee,
 );
 
 router.get("/docs/*", employeeHandler.serveEmployeeFile);
 
-router.post("/supervisor/assign", employeeHandler.assignSupervisor);
-
 router.get(
   "/supervisor/history/:employeeId",
-  employeeHandler.getSupervisorHistory
+  employeeHandler.getSupervisorHistory,
 );
 
 module.exports = router;
