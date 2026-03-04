@@ -9,7 +9,7 @@ const { Server } = require("socket.io");
 const webpush = require("web-push");
 const cron = require("node-cron");
 const configRoutes = require("./routes/configRoutes");
-
+const visibilityRoutes = require("./routes/visibilityRoutes");
 const supervisorEmployeesRoutes = require("./routes/supervisorEmployeesRoutes");
 const supervisorRoutes = require("./routes/supervisorRoutes");
 const taskEmployeesRoutes = require("./routes/taskEmployeesRoutes");
@@ -298,7 +298,7 @@ app.use((req, res, next) => {
     app.use("/api/salary-prefe", salaryPreferenceRoutes);
     app.use("/api", sidebarRoutes);
     app.use("/api", configRoutes);
-
+app.use("/api/org", visibilityRoutes);
     app.use("/api/weekly_task_supervisor", weeklyTaskSupervisorRoutes);
     app.use("/api/week_tasks", weekTaskRoutes);
     app.use("/api/tasks", taskRoutes);

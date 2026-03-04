@@ -35,15 +35,27 @@ const computeInclusiveDays = (startDateStr, endDateStr, h_f_day = "") => {
   const start = parseDateOnly(startDateStr);
   const end = parseDateOnly(endDateStr);
   if (!start || !end || end < start) return 0;
+
   const msPerDay = 24 * 60 * 60 * 1000;
-  const diff = end - start;
-  const dayCount = Math.round(diff / msPerDay) + 1;
+  let cur = new Date(start);
+  const last = new Date(end);
+  let dayCount = 0;
+
+  while (cur <= last) {
+    const dow = cur.getDay(); // 0 = Sunday
+    if (dow !== 0) {
+      dayCount++;
+    }
+    cur.setDate(cur.getDate() + 1);
+  }
+
   if (
     String(h_f_day).toLowerCase().includes("half") &&
     start.getTime() === end.getTime()
   ) {
-    return 0.5;
+    return start.getDay() === 0 ? 0 : 0.5; // Half-day is 0 if Sunday
   }
+
   return dayCount;
 };
 
