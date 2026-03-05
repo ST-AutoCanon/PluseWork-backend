@@ -333,6 +333,14 @@ async function addFullEmployeeUsingConnection(conn, data, options = {}) {
     arrayToJsonOrNull(data.resume_url || data.resume || data.resume_urls),
   ]);
 
+  if (data.supervisor_id) {
+    await conn.execute(queries.INSERT_SUPERVISOR_ASSIGNMENT, [
+      eid,
+      data.supervisor_id,
+      data.joining_date || new Date(),
+    ]);
+  }
+
   const otherDocsRaw = data.other_docs_urls || data.other_docs || null;
   const otherDocs = normalizeToStringArray(otherDocsRaw);
   if (otherDocs.length) {
@@ -783,6 +791,30 @@ exports.editFullEmployee = async (data) => {
     } else {
     }
 
+    const oldSupervisor = existing.supervisor_id || null;
+    const newSupervisor = hasKey("supervisor_id")
+      ? data.supervisor_id || null
+      : oldSupervisor;
+
+    if (oldSupervisor !== newSupervisor) {
+      const today = new Date().toISOString().slice(0, 10);
+
+      if (oldSupervisor) {
+        await conn.execute(queries.UPDATE_ACTIVE_SUPERVISOR_ASSIGNMENT_END, [
+          today,
+          eid,
+        ]);
+      }
+
+      if (newSupervisor) {
+        await conn.execute(queries.INSERT_SUPERVISOR_ASSIGNMENT, [
+          eid,
+          newSupervisor,
+          today,
+        ]);
+      }
+    }
+
     await conn.commit();
   } catch (err) {
     await conn.rollback();
@@ -999,38 +1031,6 @@ exports.getSupervisorsByPosition = async (position, department_id, orgId) => {
 
   const [rows] = await tenantPool.execute(finalQuery, params);
   return rows;
-};
-
-exports.assignSupervisor = async (
-  employeeId,
-  supervisorId,
-  startDate,
-  orgId,
-) => {
-  if (!orgId) throw new Error("orgId required");
-
-  const tenantPool = await getTenantPoolForOrgId(orgId);
-  const conn = await tenantPool.getConnection();
-
-  try {
-    await conn.beginTransaction();
-    await conn.execute(queries.UPDATE_SUPERVISOR_ASSIGNMENT_END, [
-      startDate,
-      employeeId,
-    ]);
-    const [addRes] = await conn.execute(queries.ADD_SUPERVISOR_ASSIGNMENT, [
-      employeeId,
-      supervisorId,
-      startDate,
-    ]);
-    await conn.commit();
-    return { assignment_id: addRes.insertId };
-  } catch (err) {
-    await conn.rollback();
-    throw err;
-  } finally {
-    conn.release();
-  }
 };
 
 exports.getSupervisorHistory = async (employeeId, orgId) => {
