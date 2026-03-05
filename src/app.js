@@ -179,11 +179,9 @@ app.use((req, res, next) => {
     );
     app.use("/api/exit/download", downloadRoutes);
     app.use(apiKeyMiddleware);
-   app.use(
+    app.use(
       "/exitflowuploads",
-      express.static(
-        path.resolve(__dirname, "../exitflowuploads"),
-      ),
+      express.static(path.resolve(__dirname, "../exitflowuploads")),
     );
 
     app.use("/", contact);
@@ -399,7 +397,7 @@ app.use("/api/org", visibilityRoutes);
     app.use("/api/overtime-summary", overtimeSummaryRoutes);
     app.use("/api", employeeProjectsRoute);
     app.use("/api/lop", lossofPayCalculationRoutes);
-app.use("/api/org", orgWorkHoursRoutes);
+    app.use("/api/org", orgWorkHoursRoutes);
     app.use("/api/compensations", compensationRoutes);
 
     app.get("/", (req, res) => res.send("Employee Face Recognition API"));
@@ -483,7 +481,44 @@ app.use("/api/org", orgWorkHoursRoutes);
     });
 
     io.on("connection", (socket) => {
-      const socketOrgId = resolveOrgIdFromSocket(socket);
+      console.log(
+        "[socket] raw handshake.auth:",
+        JSON.stringify(socket.handshake?.auth || {}),
+      );
+      console.log(
+        "[socket] raw handshake.query:",
+        JSON.stringify(socket.handshake?.query || {}),
+      );
+      console.log(
+        "[socket] raw handshake.headers:",
+        JSON.stringify({
+          x_org_id: socket.handshake?.headers?.["x_org_id"] || null,
+          x_org_id_alt: socket.handshake?.headers?.["x-org-id"] || null,
+          x_orgid: socket.handshake?.headers?.["x-orgid"] || null,
+          x_employee_id: socket.handshake?.headers?.["x-employee-id"] || null,
+        }),
+      );
+
+      let socketOrgId = resolveOrgIdFromSocket(socket);
+      // fallback to session user org id if present
+      try {
+        if (
+          !socketOrgId &&
+          socket.request &&
+          socket.request.session &&
+          socket.request.session.user
+        ) {
+          const sessOrg =
+            socket.request.session.user.orgId ||
+            socket.request.session.user.org_id ||
+            socket.request.session.user.organization_id ||
+            null;
+          if (sessOrg) socketOrgId = String(sessOrg);
+        }
+      } catch (e) {
+        // ignore
+      }
+
       console.log(
         `[socket] connected ${socket.id} userId=${socket.userId} via=${socket.authenticatedBy} orgId=${socketOrgId}`,
       );
@@ -554,7 +589,7 @@ app.use("/api/org", orgWorkHoursRoutes);
             payload.message,
             payload.recipient_id,
             null,
-            payload.attachmentBase64,
+            socketOrgId,
           );
 
           const newMsg = {

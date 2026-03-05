@@ -2,26 +2,35 @@ const templateService = require("../services/templateService");
 const path = require("path");
 const fs = require("fs-extra");
 
-// helpers to determine where we store uploads
 function getUploadBaseDir() {
-  // build at workspace root under BuildTemplates
-  return path.join(__dirname, "..", "..", "..", "..", "BuildTemplates");
+  return path.join(__dirname, "..", "..", "..", "BuildTemplates");
 }
 
-function getUploadDir(orgId, templateId) {
+function getUploadDir(orgId, templateName = null) {
   if (!orgId) orgId = "unknown";
   let dir = path.join(getUploadBaseDir(), String(orgId));
-  if (templateId) dir = path.join(dir, String(templateId));
+  if (templateName) {
+    const safeName = String(templateName)
+      .toLowerCase()
+      .replace(/[^a-z0-9-_]/g, "_")
+      .substring(0, 50);
+    dir = path.join(dir, safeName);
+  }
   return dir;
 }
 
-async function moveFileToUploads(tmpPath, originalName, orgId, templateId) {
+async function moveFileToUploads(
+  tmpPath,
+  originalName,
+  orgId,
+  templateName = null,
+) {
   if (!tmpPath) {
     console.warn("moveFileToUploads: No tmpPath provided");
     return null;
   }
 
-  const publicUploads = getUploadDir(orgId, templateId);
+  const publicUploads = getUploadDir(orgId, templateName);
 
   console.log(`📁 Moving file from temp: ${tmpPath}`);
   console.log(`📁 Target directory: ${publicUploads}`);
@@ -47,7 +56,6 @@ async function moveFileToUploads(tmpPath, originalName, orgId, templateId) {
     await fs.move(tmpPath, destPath, { overwrite: true });
     console.log(`✅ File moved successfully: ${destName}`);
 
-    // Verify file exists
     const fileExists = await fs.pathExists(destPath);
     if (fileExists) {
       console.log(`✅ File verified at: ${destPath}`);
@@ -66,6 +74,7 @@ async function moveFileToUploads(tmpPath, originalName, orgId, templateId) {
 
 function buildSimpleTemplateHtml(
   orgId,
+  templateName,
   headerName,
   footerName,
   watermarkUrl = null,
@@ -187,28 +196,70 @@ async function uploadScanHandler(req, res) {
   }
 
   try {
-    // move files into org-specific directory (no templateId yet)
+    const nameFromClient =
+      (req.body && req.body.name) ||
+      `Uploaded template ${new Date().toISOString()}`;
+
+    const templateFolderName = String(nameFromClient)
+      .toLowerCase()
+      .replace(/[^a-z0-9-_]/g, "_")
+      .substring(0, 50);
+
+    console.log(`\n📝 TEMPLATE UPLOAD STARTED`);
+    console.log(`   Template Name: ${nameFromClient}`);
+    console.log(`   Folder Name: ${templateFolderName}`);
+    console.log(`   Org ID: ${orgId}`);
+    console.log(
+      `   Files: Header=${!!headerFile}, Footer=${!!footerFile}, QR=${!!qrFile}, Seal=${!!sealFile}\n`,
+    );
+
     const headerName = headerFile
-      ? await moveFileToUploads(headerFile.path, headerFile.originalname, orgId)
+      ? await moveFileToUploads(
+          headerFile.path,
+          headerFile.originalname,
+          orgId,
+          templateFolderName,
+        )
       : null;
     const bodyName = bodyFile
-      ? await moveFileToUploads(bodyFile.path, bodyFile.originalname, orgId)
+      ? await moveFileToUploads(
+          bodyFile.path,
+          bodyFile.originalname,
+          orgId,
+          templateFolderName,
+        )
       : null;
     const footerName = footerFile
-      ? await moveFileToUploads(footerFile.path, footerFile.originalname, orgId)
+      ? await moveFileToUploads(
+          footerFile.path,
+          footerFile.originalname,
+          orgId,
+          templateFolderName,
+        )
       : null;
     const watermarkName = watermarkFile
       ? await moveFileToUploads(
           watermarkFile.path,
           watermarkFile.originalname,
           orgId,
+          templateFolderName,
         )
       : null;
     const qrName = qrFile
-      ? await moveFileToUploads(qrFile.path, qrFile.originalname, orgId)
+      ? await moveFileToUploads(
+          qrFile.path,
+          qrFile.originalname,
+          orgId,
+          templateFolderName,
+        )
       : null;
     const sealName = sealFile
-      ? await moveFileToUploads(sealFile.path, sealFile.originalname, orgId)
+      ? await moveFileToUploads(
+          sealFile.path,
+          sealFile.originalname,
+          orgId,
+          templateFolderName,
+        )
       : null;
 
     let watermarkPlacement = null;
@@ -231,7 +282,6 @@ async function uploadScanHandler(req, res) {
     let incomingLayout = null;
     let incomingGrapesJson = null;
     let incomingHtml = null;
-    let incomingFileMap = null;
     let incomingCss = null;
 
     try {
@@ -250,12 +300,6 @@ async function uploadScanHandler(req, res) {
         }
         if (req.body.html) {
           incomingHtml = req.body.html;
-        }
-        if (req.body.fileMap) {
-          incomingFileMap =
-            typeof req.body.fileMap === "string"
-              ? JSON.parse(req.body.fileMap)
-              : req.body.fileMap;
         }
         if (req.body.css) {
           incomingCss = req.body.css;
@@ -288,6 +332,7 @@ async function uploadScanHandler(req, res) {
     } else {
       const built = buildSimpleTemplateHtml(
         orgId,
+        templateFolderName,
         headerName,
         footerName,
         watermarkUrlForGrapes,
@@ -312,87 +357,115 @@ async function uploadScanHandler(req, res) {
       seal: sealName ? `/api/orgs/${orgId}/uploads/${sealName}` : null,
     };
 
-    console.log(`📋 uploadScanHandler: QR URL: ${uploadedUrls.qr}`);
-    console.log(`📋 uploadScanHandler: Seal URL: ${uploadedUrls.seal}`);
+    console.log(`✅ uploadScanHandler - File URLs:`);
+    console.log(`   QR: ${uploadedUrls.qr || "null"}`);
+    console.log(`   Seal: ${uploadedUrls.seal || "null"}`);
+    console.log(`   Header: ${uploadedUrls.header || "null"}`);
+    console.log(`   Footer: ${uploadedUrls.footer || "null"}`);
 
-    if (
-      incomingFileMap &&
-      typeof incomingFileMap === "object" &&
-      Object.keys(incomingFileMap).length > 0
-    ) {
-      console.log(`📋 Using explicit fileMap:`, incomingFileMap);
-      const mapKeyToUrl = {};
-      if (incomingFileMap.qr && uploadedUrls.qr) {
-        mapKeyToUrl[incomingFileMap.qr] = uploadedUrls.qr;
-        console.log(`  QR: ${incomingFileMap.qr} => ${uploadedUrls.qr}`);
-      }
-      if (incomingFileMap.seal && uploadedUrls.seal) {
-        mapKeyToUrl[incomingFileMap.seal] = uploadedUrls.seal;
-        console.log(`  Seal: ${incomingFileMap.seal} => ${uploadedUrls.seal}`);
-      }
+    const applyUrlsToLayout = (boxes) => {
+      if (!Array.isArray(boxes)) return;
 
-      const replaceInBoxes = (boxes) => {
-        if (!Array.isArray(boxes)) return boxes;
-        for (const b of boxes) {
-          const key = b.id || b.fieldName || b.name;
-          if (!key) continue;
-          if (mapKeyToUrl[key]) {
-            console.log(
-              `✅ Box matched by key "${key}": setting imageUrl & content`,
-            );
-            b.imageUrl = mapKeyToUrl[key];
-            b.content = mapKeyToUrl[key];
-          }
+      for (const b of boxes) {
+        if (!b.style) b.style = {};
+
+        const fieldName = String(
+          b.fieldName || b.name || b.id || "",
+        ).toLowerCase();
+
+        if (/(qr|qrcode|qr_code)/i.test(fieldName) && uploadedUrls.qr) {
+          b.imageUrl = uploadedUrls.qr;
+          b.content = uploadedUrls.qr;
+          console.log(`✅ Assigned QR URL to box: ${b.fieldName || b.id}`);
         }
-        return boxes;
-      };
 
-      if (finalLayout) {
-        replaceInBoxes(finalLayout);
-      }
-      if (grapesJsonBuilt && Array.isArray(grapesJsonBuilt.layout)) {
-        replaceInBoxes(grapesJsonBuilt.layout);
-      } else if (grapesJsonBuilt && finalLayout) {
-        try {
-          grapesJsonBuilt.layout = finalLayout;
-        } catch (e) {
-          console.warn("Failed to embed layout into grapes_json", e);
+        if (
+          /(seal|stamp|companyseal|logo)/i.test(fieldName) &&
+          uploadedUrls.seal
+        ) {
+          b.imageUrl = uploadedUrls.seal;
+          b.content = uploadedUrls.seal;
+          console.log(`✅ Assigned Seal URL to box: ${b.fieldName || b.id}`);
         }
       }
-    } else {
-      console.log("📋 Using heuristic matching for QR and Seal images");
-      const applyHeuristic = (boxes) => {
-        if (!Array.isArray(boxes)) return;
-        for (const b of boxes) {
-          const name = String(
-            b.fieldName || b.name || b.id || "",
-          ).toLowerCase();
-          if (name.includes("qr") && uploadedUrls.qr) {
-            console.log(
-              `✅ Matched QR box: ${b.id || b.fieldName} => ${uploadedUrls.qr}`,
-            );
-            b.imageUrl = uploadedUrls.qr;
-            b.content = uploadedUrls.qr;
-          }
-          if (
-            /(seal|stamp|companyseal|logo)/i.test(name) &&
-            uploadedUrls.seal
-          ) {
-            console.log(
-              `✅ Matched Seal box: ${b.id || b.fieldName} => ${uploadedUrls.seal}`,
-            );
-            b.imageUrl = uploadedUrls.seal;
-            b.content = uploadedUrls.seal;
-          }
-        }
-      };
-      if (finalLayout) applyHeuristic(finalLayout);
-      if (grapesJsonBuilt && Array.isArray(grapesJsonBuilt.layout))
-        applyHeuristic(grapesJsonBuilt.layout);
-      else if (grapesJsonBuilt && finalLayout) {
-        try {
-          grapesJsonBuilt.layout = finalLayout;
-        } catch (e) {}
+    };
+
+    const ensureQrSealBoxes = (boxes) => {
+      if (!Array.isArray(boxes)) boxes = [];
+
+      const hasQrBox = boxes.some((b) =>
+        /(qr|qrcode)/i.test(String(b.fieldName || b.name || b.id || "")),
+      );
+      const hasSealBox = boxes.some((b) =>
+        /(seal|stamp)/i.test(String(b.fieldName || b.name || b.id || "")),
+      );
+
+      if (uploadedUrls.qr && !hasQrBox) {
+        console.log(`📦 Creating QR box - file uploaded but no box found`);
+        boxes.push({
+          id: `qr-${Date.now()}`,
+          type: "image",
+          fieldName: "qrCode",
+          name: "QR Code",
+          imageUrl: uploadedUrls.qr,
+          content: uploadedUrls.qr,
+          xPct: "70%",
+          yPct: "5%",
+          wPct: "25%",
+          hPct: "15%",
+          style: {
+            background: "transparent",
+            width: "100%",
+            height: "100%",
+            objectFit: "contain",
+          },
+        });
+      }
+
+      if (uploadedUrls.seal && !hasSealBox) {
+        console.log(`📦 Creating Seal box - file uploaded but no box found`);
+        boxes.push({
+          id: `seal-${Date.now()}`,
+          type: "image",
+          fieldName: "companySeal",
+          name: "Company Seal",
+          imageUrl: uploadedUrls.seal,
+          content: uploadedUrls.seal,
+          xPct: "70%",
+          yPct: "25%",
+          wPct: "25%",
+          hPct: "15%",
+          style: {
+            background: "transparent",
+            width: "100%",
+            height: "100%",
+            objectFit: "contain",
+          },
+        });
+      }
+
+      return boxes;
+    };
+
+    if (finalLayout) {
+      applyUrlsToLayout(finalLayout);
+      ensureQrSealBoxes(finalLayout);
+    } else if (uploadedUrls.qr || uploadedUrls.seal) {
+      const newLayout = [];
+      ensureQrSealBoxes(newLayout);
+      if (newLayout.length > 0) {
+        finalLayout = newLayout;
+      }
+    }
+
+    if (grapesJsonBuilt && Array.isArray(grapesJsonBuilt.layout)) {
+      applyUrlsToLayout(grapesJsonBuilt.layout);
+      ensureQrSealBoxes(grapesJsonBuilt.layout);
+    } else if (grapesJsonBuilt && finalLayout) {
+      try {
+        grapesJsonBuilt.layout = finalLayout;
+      } catch (e) {
+        console.warn("Failed to embed layout into grapes_json", e);
       }
 
       // FALLBACK: Ensure all QR/Seal boxes have the correct URLs assigned
@@ -457,37 +530,14 @@ async function uploadScanHandler(req, res) {
       if (uploadedUrls.header) {
         grapesJsonBuilt.headerUrl = uploadedUrls.header;
       }
-      if (uploadedUrls.header && grapesJsonBuilt.components?.length) {
-        const root = grapesJsonBuilt.components[0];
-        if (root && Array.isArray(root.components)) {
-          const alreadyHasHeader = root.components.some(
-            (c) =>
-              c.attributes &&
-              c.attributes.class &&
-              c.attributes.class.includes("template-header"),
-          );
-
-          if (!alreadyHasHeader) {
-            root.components.unshift({
-              type: "image",
-              attributes: {
-                src: uploadedUrls.header,
-                alt: "header",
-                class: "template-header",
-              },
-              style: {
-                width: "100%",
-                display: "block",
-                pointerEvents: "none",
-              },
-              selectable: false,
-              draggable: false,
-            });
-          }
-        }
-      }
       if (uploadedUrls.footer) {
         grapesJsonBuilt.footerUrl = uploadedUrls.footer;
+      }
+      if (uploadedUrls.qr) {
+        grapesJsonBuilt.qrUrl = uploadedUrls.qr;
+      }
+      if (uploadedUrls.seal) {
+        grapesJsonBuilt.sealUrl = uploadedUrls.seal;
       }
       if (uploadedUrls.watermark) {
         grapesJsonBuilt.watermark = grapesJsonBuilt.watermark || {};
@@ -511,7 +561,7 @@ async function uploadScanHandler(req, res) {
       }
     } catch (e) {
       console.warn(
-        "uploadScanHandler: failed to attach header/footer/watermark into grapes_json",
+        "uploadScanHandler: failed to attach URLs into grapes_json",
         e,
       );
     }
@@ -529,57 +579,6 @@ async function uploadScanHandler(req, res) {
       },
     };
 
-    // CRITICAL VERIFICATION: Log all box URLs before saving
-    console.log(
-      `\n🔍 CRITICAL VERIFICATION - State before savePayload creation:`,
-    );
-    console.log(
-      `   uploadedUrls.qr: ${uploadedUrls.qr ? "✅" : "❌"} = ${uploadedUrls.qr || "null"}`,
-    );
-    console.log(
-      `   uploadedUrls.seal: ${uploadedUrls.seal ? "✅" : "❌"} = ${uploadedUrls.seal || "null"}`,
-    );
-
-    if (Array.isArray(finalLayout)) {
-      console.log(
-        `   finalLayout boxes with QR/Seal (total: ${finalLayout.length}):`,
-      );
-      finalLayout.forEach((b, idx) => {
-        const isQr = /(qr|qrcode)/i.test(b.fieldName || b.id || b.name || "");
-        const isSeal = /(seal|stamp|logo)/i.test(
-          b.fieldName || b.id || b.name || "",
-        );
-        if (isQr || isSeal) {
-          const icon = b.imageUrl ? "✅" : "❌";
-          console.log(
-            `     [${idx}] ${b.fieldName || b.id}: ${icon} imageUrl="${b.imageUrl || "NO_URL"}"`,
-          );
-        }
-      });
-    }
-
-    if (grapesJsonBuilt && Array.isArray(grapesJsonBuilt.layout)) {
-      console.log(
-        `   grapesJsonBuilt.layout boxes with QR/Seal (total: ${grapesJsonBuilt.layout.length}):`,
-      );
-      grapesJsonBuilt.layout.forEach((b, idx) => {
-        const isQr = /(qr|qrcode)/i.test(b.fieldName || b.id || b.name || "");
-        const isSeal = /(seal|stamp|logo)/i.test(
-          b.fieldName || b.id || b.name || "",
-        );
-        if (isQr || isSeal) {
-          const icon = b.imageUrl ? "✅" : "❌";
-          console.log(
-            `     [${idx}] ${b.fieldName || b.id}: ${icon} imageUrl="${b.imageUrl || "NO_URL"}"`,
-          );
-        }
-      });
-    }
-    console.log(`\n`);
-
-    const nameFromClient =
-      (req.body && req.body.name) ||
-      `Uploaded template ${new Date().toISOString()}`;
     const savePayload = {
       name: nameFromClient,
       template_type: "scan",
@@ -591,41 +590,30 @@ async function uploadScanHandler(req, res) {
       layout: finalLayout ? JSON.stringify(finalLayout) : null,
     };
 
-    // Logging: Check QR/Seal URLs in finalLayout before saving
-    if (Array.isArray(finalLayout)) {
-      console.log(
-        `📊 finalLayout before save has ${finalLayout.length} boxes:`,
-      );
+    console.log(`\n✅ LAYOUT BEFORE SAVE:`);
+    if (finalLayout && Array.isArray(finalLayout)) {
+      console.log(`   Total boxes: ${finalLayout.length}`);
       finalLayout.forEach((box, idx) => {
-        const isQr = String(box.fieldName || "")
-          .toLowerCase()
-          .includes("qr");
-        const isSeal = /(seal|stamp|logo)/i.test(String(box.fieldName || ""));
-        if (isQr || isSeal) {
-          console.log(
-            `  [${idx}] ${box.fieldName}: imageUrl="${box.imageUrl}", content="${box.content}"`,
-          );
-        }
+        const fieldName = String(box.fieldName || box.name || "unknown");
+        const hasUrl = !!(box.imageUrl || box.content);
+        console.log(
+          `   [${idx}] ${fieldName}: type=${box.type}, hasImage=${hasUrl}`,
+        );
       });
     }
+    console.log(`\n`);
 
-    // Logging: Check QR/Seal URLs in grapesJsonBuilt.layout before saving
-    if (grapesJsonBuilt && Array.isArray(grapesJsonBuilt.layout)) {
-      console.log(
-        `📊 grapesJsonBuilt.layout before save has ${grapesJsonBuilt.layout.length} boxes:`,
-      );
-      grapesJsonBuilt.layout.forEach((box, idx) => {
-        const isQr = String(box.fieldName || "")
-          .toLowerCase()
-          .includes("qr");
-        const isSeal = /(seal|stamp|logo)/i.test(String(box.fieldName || ""));
-        if (isQr || isSeal) {
-          console.log(
-            `  [${idx}] ${box.fieldName}: imageUrl="${box.imageUrl}", content="${box.content}"`,
-          );
-        }
-      });
-    }
+    console.log(`📦 SAVING URLS IN LAYOUT:`);
+    console.log(`   QR: ${uploadedUrls.qr || "null"}`);
+    console.log(`   Seal: ${uploadedUrls.seal || "null"}\n`);
+
+    console.log(`📊 Saving template: ${nameFromClient}`);
+    console.log(
+      `   Layout boxes count: ${finalLayout ? finalLayout.length : 0}`,
+    );
+    console.log(
+      `   grapesJson.layout count: ${grapesJsonBuilt && grapesJsonBuilt.layout ? grapesJsonBuilt.layout.length : 0}`,
+    );
 
     const saved = await templateService.saveTemplate(
       orgId,
@@ -670,6 +658,7 @@ async function uploadScanHandler(req, res) {
       saved.id || saved.insertId,
     );
 
+    console.log(`✅ Template saved successfully with ID: ${fullRow.id}`);
     return res.json(fullRow);
   } catch (err) {
     console.error("uploadScanHandler", err);
@@ -683,7 +672,6 @@ async function uploadImageHandler(req, res) {
     const file = req.file;
     if (!file) return res.status(400).json({ error: "file required" });
 
-    // reuse moveFileToUploads logic (no templateId available here)
     const destName = await moveFileToUploads(
       file.path,
       file.originalname,
@@ -749,23 +737,44 @@ async function listTemplatesHandler(req, res) {
   }
 }
 
-// look for a file under the new BuildTemplates/orgId/[/templateId] hierarchy
 async function findFileInOrg(orgId, filename) {
-  if (!orgId || !filename) return null;
-  const orgBase = getUploadDir(orgId);
-  try {
-    const candidate = path.join(orgBase, filename);
-    if (await fs.pathExists(candidate)) return candidate;
-
-    const entries = await fs.readdir(orgBase).catch(() => []);
-    for (const entry of entries) {
-      const p = path.join(orgBase, entry, filename);
-      if (await fs.pathExists(p)) return p;
-    }
-  } catch (e) {
-    // ignore
+  if (!orgId || !filename) {
+    console.log(`❌ findFileInOrg: Missing orgId or filename`);
+    return null;
   }
-  return null;
+
+  const orgBase = getUploadDir(orgId);
+  console.log(`🔍 Looking for file: ${filename}`);
+  console.log(`🔍 In directory: ${orgBase}`);
+
+  try {
+    const dirExists = await fs.pathExists(orgBase);
+    if (!dirExists) {
+      console.log(`❌ Org directory does not exist: ${orgBase}`);
+      return null;
+    }
+
+    const entries = await fs.readdir(orgBase);
+    console.log(`📂 Found ${entries.length} entries in org directory`);
+
+    for (const entry of entries) {
+      const subdir = path.join(orgBase, entry);
+      const filePath = path.join(subdir, filename);
+
+      console.log(`  ↳ Checking: ${filePath}`);
+
+      if (await fs.pathExists(filePath)) {
+        console.log(`✅ Found file at: ${filePath}`);
+        return filePath;
+      }
+    }
+
+    console.log(`❌ File not found in any template folder: ${filename}`);
+    return null;
+  } catch (err) {
+    console.error(`❌ findFileInOrg error: ${err.message}`);
+    return null;
+  }
 }
 
 async function serveUploadedFileHandler(req, res) {
@@ -776,48 +785,35 @@ async function serveUploadedFileHandler(req, res) {
       return res.status(400).json({ error: "Filename required" });
     }
 
-    let filePath = null;
-
-    // first check the new structure
-    if (orgId) {
-      filePath = await findFileInOrg(orgId, filename);
-      if (filePath) {
-        console.log(`✅ Found file in BuildTemplates: ${filePath}`);
-      }
+    if (!orgId) {
+      return res.status(400).json({ error: "Organization ID required" });
     }
 
-    // if the file didn't exist in the new hierarchy, try the old global uploads
+    console.log(`\n🔎 serveUploadedFileHandler REQUEST`);
+    console.log(`   orgId: ${orgId}`);
+    console.log(`   filename: ${filename}`);
+
+    let filePath = await findFileInOrg(orgId, filename);
+
     if (!filePath) {
-      const legacy = path.join(
-        __dirname,
-        "..",
-        "..",
-        "public",
-        "uploads",
-        filename,
+      console.warn(
+        `❌ File not found for orgId ${orgId}, filename ${filename}`,
       );
-      if (await fs.pathExists(legacy)) {
-        filePath = legacy;
-        console.log(`✅ Found file in legacy uploads: ${legacy}`);
-      }
-    }
-
-    if (!filePath) {
-      // nothing found using any layout
-      console.warn(`❌ File not found for orgId ${orgId}: ${filename}`);
       return res.status(404).json({
         error: "File not found",
-        filename: filename,
+        details: `File ${filename} not found in organization ${orgId}`,
       });
     }
 
+    console.log(`✅ Serving file: ${filePath}`);
     res.setHeader("Cache-Control", "public, max-age=3600");
     return res.sendFile(filePath);
   } catch (err) {
-    console.error("serveUploadedFileHandler", err);
-    return res
-      .status(500)
-      .json({ error: "Failed to serve file", details: err.message });
+    console.error("serveUploadedFileHandler error:", err);
+    return res.status(500).json({
+      error: "Failed to serve file",
+      details: err.message,
+    });
   }
 }
 

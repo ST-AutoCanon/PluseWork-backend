@@ -9,17 +9,43 @@ router.use((req, res, next) => {
   next();
 });
 
-router.get("/attachments/:filename", (req, res) => {
+router.get("/empquery/attachments/:filename", (req, res) => {
   const { filename } = req.params;
-  const orgId =
+  let orgId =
     req.headers["x-org-id"] ||
     req.query?.orgId ||
     req.body?.orgId ||
     (req.user && req.user.orgId) ||
     null;
 
+  // Fallback: try to get orgId from Express session
+  if (!orgId && req.session && req.session.user) {
+    orgId =
+      req.session.user.orgId ||
+      req.session.user.org_id ||
+      req.session.user.organization_id ||
+      null;
+  }
+
+  console.log(
+    `[attachments] download attempt filename=${filename} orgId=${orgId}`,
+  );
+
+  if (!orgId) {
+    console.error(
+      `[attachments] orgId missing for download: ${filename}. Sources checked:`,
+      {
+        header: req.headers["x-org-id"],
+        query: req.query?.orgId,
+        user: req.user?.orgId,
+        session: req.session?.user?.orgId,
+      },
+    );
+    return res.status(400).json({ message: "orgId is required" });
+  }
+
   if (filename.includes("..") || filename.includes("/")) {
-    console.error(`Invalid filename attempt: ${filename}`);
+    console.error(`[attachments] Invalid filename attempt: ${filename}`);
     return res.status(400).json({ message: "Invalid filename" });
   }
 
@@ -29,26 +55,46 @@ router.get("/attachments/:filename", (req, res) => {
     "..",
     "..",
     "EmpQueryUploads",
-    orgId,
-    filename
+    String(orgId),
+    filename,
   );
 
+  console.log(`[attachments] resolved path: ${filePath}`);
+
   if (fs.existsSync(filePath)) {
+    console.log(`[attachments] file exists, streaming: ${filePath}`);
     const mimeType =
       {
         ".jpg": "image/jpeg",
         ".jpeg": "image/jpeg",
         ".png": "image/png",
         ".pdf": "application/pdf",
+        ".doc": "application/msword",
+        ".docx":
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ".xls": "application/vnd.ms-excel",
+        ".xlsx":
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       }[path.extname(filename).toLowerCase()] || "application/octet-stream";
 
     res.setHeader("Content-Type", mimeType);
-    res.setHeader("Content-Disposition", `inline; filename=${filename}`);
+    res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
 
     const fileStream = fs.createReadStream(filePath);
+    fileStream.on("error", (err) => {
+      console.error(`[attachments] stream error for ${filePath}:`, err);
+      if (!res.headersSent) {
+        res.status(500).json({ message: "Error reading file" });
+      }
+    });
     fileStream.pipe(res);
   } else {
-    console.error(`File not found: ${filename}`);
+    console.error(
+      `[attachments] File not found at: ${filePath}. Directory contents:`,
+      fs.existsSync(path.dirname(filePath))
+        ? fs.readdirSync(path.dirname(filePath))
+        : "directory does not exist",
+    );
     res.status(404).json({ message: "File not found" });
   }
 });
@@ -58,7 +104,7 @@ router.post(
   (req, res, next) => {
     next();
   },
-  employeeQueriesHandler.startThread
+  employeeQueriesHandler.startThread,
 );
 
 router.post(
@@ -72,7 +118,7 @@ router.post(
     }
     next();
   },
-  employeeQueriesHandler.addMessage
+  employeeQueriesHandler.addMessage,
 );
 
 router.get(
@@ -80,7 +126,7 @@ router.get(
   (req, res, next) => {
     next();
   },
-  employeeQueriesHandler.getThreadMessages
+  employeeQueriesHandler.getThreadMessages,
 );
 
 router.put(
@@ -88,7 +134,7 @@ router.put(
   (req, res, next) => {
     next();
   },
-  employeeQueriesHandler.closeThread
+  employeeQueriesHandler.closeThread,
 );
 
 router.get(
@@ -96,7 +142,7 @@ router.get(
   (req, res, next) => {
     next();
   },
-  employeeQueriesHandler.getAllThreads
+  employeeQueriesHandler.getAllThreads,
 );
 
 router.get(
@@ -104,7 +150,7 @@ router.get(
   (req, res, next) => {
     next();
   },
-  employeeQueriesHandler.getThreadsByEmployee
+  employeeQueriesHandler.getThreadsByEmployee,
 );
 
 router.put(
@@ -112,7 +158,7 @@ router.put(
   (req, res, next) => {
     next();
   },
-  employeeQueriesHandler.markMessagesAsRead
+  employeeQueriesHandler.markMessagesAsRead,
 );
 
 module.exports = router;
