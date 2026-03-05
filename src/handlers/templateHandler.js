@@ -319,6 +319,14 @@ async function uploadScanHandler(req, res) {
     let htmlBuilt = null;
     let thumbnailName = headerName || footerName || null;
 
+    console.log(
+      `📋 uploadScanHandler: Processing with fileMap:`,
+      incomingFileMap,
+    );
+    console.log(
+      `📋 uploadScanHandler: QR uploaded: ${!!qrName}, Seal uploaded: ${!!sealName}`,
+    );
+
     if (incomingGrapesJson) {
       grapesJsonBuilt = incomingGrapesJson;
     } else {
@@ -459,6 +467,53 @@ async function uploadScanHandler(req, res) {
       } catch (e) {
         console.warn("Failed to embed layout into grapes_json", e);
       }
+
+      // FALLBACK: Ensure all QR/Seal boxes have the correct URLs assigned
+      // This catches any boxes that weren't matched by explicit or heuristic methods
+      const ensureQrSealUrls = (boxes) => {
+        if (!Array.isArray(boxes)) return;
+        for (const b of boxes) {
+          const isQr =
+            (b.fieldName && /(qr|qrcode|qr_code)/i.test(b.fieldName)) ||
+            (b.id && /(qr|qrcode|qr_code)/i.test(b.id)) ||
+            (b.name && /(qr|qrcode|qr_code)/i.test(b.name));
+          const isSeal =
+            (b.fieldName &&
+              /(seal|stamp|companyseal|logo)/i.test(b.fieldName)) ||
+            (b.id && /(seal|stamp|companyseal|logo)/i.test(b.id)) ||
+            (b.name && /(seal|stamp|companyseal|logo)/i.test(b.name));
+
+          // If it's a QR box and doesn't have a proper URL (or has blob), assign the URL
+          if (
+            isQr &&
+            uploadedUrls.qr &&
+            (!b.imageUrl || b.imageUrl.startsWith("blob:"))
+          ) {
+            console.log(
+              `⚠️  FALLBACK: Assigning QR URL to box ${b.fieldName || b.id}`,
+            );
+            b.imageUrl = uploadedUrls.qr;
+            b.content = uploadedUrls.qr;
+          }
+          // If it's a Seal box and doesn't have a proper URL (or has blob), assign the URL
+          if (
+            isSeal &&
+            uploadedUrls.seal &&
+            (!b.imageUrl || b.imageUrl.startsWith("blob:"))
+          ) {
+            console.log(
+              `⚠️  FALLBACK: Assigning Seal URL to box ${b.fieldName || b.id}`,
+            );
+            b.imageUrl = uploadedUrls.seal;
+            b.content = uploadedUrls.seal;
+          }
+        }
+      };
+
+      // Apply fallback to both layouts
+      if (finalLayout) ensureQrSealUrls(finalLayout);
+      if (grapesJsonBuilt && Array.isArray(grapesJsonBuilt.layout))
+        ensureQrSealUrls(grapesJsonBuilt.layout);
     }
 
     try {
@@ -565,6 +620,38 @@ async function uploadScanHandler(req, res) {
       userId,
       savePayload,
     );
+
+    // if we just created a template, relocate any files we uploaded into a template-specific folder
+    const newTemplateId = saved.id || saved.insertId;
+    if (newTemplateId) {
+      const allNames = [
+        headerName,
+        bodyName,
+        footerName,
+        watermarkName,
+        qrName,
+        sealName,
+      ].filter(Boolean);
+      if (allNames.length) {
+        const orgDir = getUploadDir(orgId);
+        const targetDir = getUploadDir(orgId, newTemplateId);
+        try {
+          await fs.ensureDir(targetDir);
+          for (const fname of allNames) {
+            const src = path.join(orgDir, fname);
+            const dst = path.join(targetDir, fname);
+            if (await fs.pathExists(src)) {
+              await fs.move(src, dst, { overwrite: true });
+              console.log(
+                `📦 Moved upload ${fname} into template folder ${newTemplateId}`,
+              );
+            }
+          }
+        } catch (e) {
+          console.warn("Failed to relocate uploads into template directory", e);
+        }
+      }
+    }
 
     const fullRow = await templateService.getTemplateById(
       orgId,
