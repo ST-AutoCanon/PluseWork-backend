@@ -1,7 +1,8 @@
 const express = require("express");
 const router = express.Router();
+const employeeService = require("../services/employeeService");
 
-router.get("/me", (req, res) => {
+router.get("/me", async (req, res) => {
   try {
     if (!req.session || !req.session.user) {
       return res
@@ -11,12 +12,48 @@ router.get("/me", (req, res) => {
 
     const sessUser = req.session.user;
 
+    // Attempt to refresh the session user information from the latest profile data.
+    // This ensures that updates (e.g., profile photo changes) are reflected immediately.
+    let photoUrl = sessUser.photoUrl ?? sessUser.photo_url ?? null;
+    let department = sessUser.department ?? null;
+
+    if (sessUser.employeeId && sessUser.orgId) {
+      try {
+        const profile = await employeeService.getFullEmployee(
+          sessUser.employeeId,
+          sessUser.orgId,
+        );
+        if (profile) {
+          if (profile.photo_url) {
+            photoUrl = profile.photo_url;
+          }
+          if (profile.department) {
+            department = profile.department;
+          }
+
+          // keep session in sync for subsequent requests
+          req.session.user.photo_url = photoUrl;
+          req.session.user.photoUrl = photoUrl;
+          req.session.user.department = department;
+        }
+      } catch (err) {
+        // If fetching profile fails, fall back to what is in session
+      }
+    }
+
     const payload = {
       role: sessUser.role,
       name: sessUser.name,
       org_id: sessUser.orgId,
       gender: sessUser.gender ?? null,
-      dashboard: sessUser.dashboard ?? {},
+      photo_url: photoUrl,
+      photoUrl: photoUrl,
+      department_id: sessUser.department_id ?? null,
+      department,
+      dashboard: {
+        ...(sessUser.dashboard ?? {}),
+        department,
+      },
       sidebarMenu: sessUser.sidebarMenu ?? [],
       email: sessUser.email ?? null,
       employeeId: sessUser.employeeId ?? null,

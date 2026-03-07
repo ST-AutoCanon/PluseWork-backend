@@ -17,8 +17,8 @@ class LoginHandler {
           .json(
             ErrorHandler.generateErrorResponse(
               400,
-              "email and password required"
-            )
+              "email and password required",
+            ),
           );
       }
 
@@ -28,8 +28,8 @@ class LoginHandler {
           .json(
             ErrorHandler.generateErrorResponse(
               400,
-              "Either orgId (tenant login) or loginAsSuperAdmin=true is required."
-            )
+              "Either orgId (tenant login) or loginAsSuperAdmin=true is required.",
+            ),
           );
       }
 
@@ -48,39 +48,39 @@ class LoginHandler {
         if (svcErr && svcErr.code === "TENANT_SCHEMA") {
           console.error(
             "Tenant schema error:",
-            svcErr.original || svcErr.message
+            svcErr.original || svcErr.message,
           );
           return res
             .status(503)
             .json(
               ErrorHandler.generateErrorResponse(
                 503,
-                "Tenant is not provisioned or unavailable. Please contact administrator."
-              )
+                "Tenant is not provisioned or unavailable. Please contact administrator.",
+              ),
             );
         }
         if (svcErr && svcErr.code === "TENANT_LOOKUP_FAILED") {
           console.error(
             "Tenant lookup failed:",
-            svcErr.original || svcErr.message
+            svcErr.original || svcErr.message,
           );
           return res
             .status(500)
             .json(
               ErrorHandler.generateErrorResponse(
                 500,
-                "Failed to perform tenant lookup. Please try again later."
-              )
+                "Failed to perform tenant lookup. Please try again later.",
+              ),
             );
         }
         console.error(
           "Login service error:",
-          svcErr && (svcErr.stack || svcErr)
+          svcErr && (svcErr.stack || svcErr),
         );
         return res
           .status(500)
           .json(
-            ErrorHandler.generateErrorResponse(500, "Internal server error")
+            ErrorHandler.generateErrorResponse(500, "Internal server error"),
           );
       }
 
@@ -96,8 +96,8 @@ class LoginHandler {
           .json(
             ErrorHandler.generateErrorResponse(
               403,
-              "Account is Inactive. Please contact your administrator."
-            )
+              "Account is Inactive. Please contact your administrator.",
+            ),
           );
       }
 
@@ -119,8 +119,8 @@ class LoginHandler {
               .json(
                 ErrorHandler.generateErrorResponse(
                   403,
-                  "Your subscription ended. To renew, please contact Administrator."
-                )
+                  "Your subscription ended. To renew, please contact Administrator.",
+                ),
               );
           }
         }
@@ -138,9 +138,15 @@ class LoginHandler {
         orgId: user.Org_id,
         name: user.name,
         gender: user.gender,
+        photo_url: user.photo_url || null,
+        photoUrl: user.photoUrl ?? user.photo_url ?? null,
         email: user.email || null,
         employeeId: user.employee_id || null,
         department_id: user.department_id || null,
+        department: user.department || null,
+        dashboard: {
+          department: user.department || null,
+        },
       };
 
       if (redisClient && typeof redisClient.sadd === "function") {
@@ -157,7 +163,7 @@ class LoginHandler {
               type: "login",
               userId: user.employee_id,
               role: user.role,
-            })
+            }),
           )
           .catch((err) => console.error("Redis publish error:", err));
       }
@@ -174,8 +180,11 @@ class LoginHandler {
             name: user.name,
             org_id: user.Org_id,
             gender: user.gender,
+            photo_url: user.photo_url || null,
+            photoUrl: user.photoUrl ?? user.photo_url ?? null,
             employeeId: user.employee_id,
             department_id: user.department_id || null,
+            department: user.department || null,
           },
         });
       });
@@ -220,7 +229,7 @@ class LoginHandler {
             await redisClient.srem(`user_sessions:${uid}`, req.sessionID);
             await redisClient.publish(
               "auth:changes",
-              JSON.stringify({ type: "logout", userId: uid })
+              JSON.stringify({ type: "logout", userId: uid }),
             );
           }
         } catch (cleanupErr) {
@@ -284,7 +293,7 @@ class LoginHandler {
             cacheKey,
             JSON.stringify(sidebarMenu),
             "EX",
-            300
+            300,
           );
         }
       } catch (cacheErr) {
@@ -335,9 +344,8 @@ class LoginHandler {
           .status(401)
           .json(ErrorHandler.generateErrorResponse(401, "Unauthorized"));
 
-      const loginDataCount = await LoginService.fetchEmployeeLoginDataCount(
-        orgId
-      );
+      const loginDataCount =
+        await LoginService.fetchEmployeeLoginDataCount(orgId);
 
       if (!loginDataCount || loginDataCount.length === 0) {
         return res.status(200).json({
@@ -361,7 +369,7 @@ class LoginHandler {
         aggregatedData[label].daily_count += parseInt(item.daily_count || 0);
         aggregatedData[label].weekly_count += parseInt(item.weekly_count || 0);
         aggregatedData[label].monthly_count += parseInt(
-          item.monthly_count || 0
+          item.monthly_count || 0,
         );
       });
 
@@ -369,7 +377,7 @@ class LoginHandler {
       const daily = labels.map((label) => aggregatedData[label].daily_count);
       const weekly = labels.map((label) => aggregatedData[label].weekly_count);
       const monthly = labels.map(
-        (label) => aggregatedData[label].monthly_count
+        (label) => aggregatedData[label].monthly_count,
       );
 
       return res.status(200).json({
@@ -427,7 +435,7 @@ class LoginHandler {
 
       const totalEmployees = categories.reduce(
         (sum, item) => sum + (item.count || 0),
-        0
+        0,
       );
 
       return res.status(200).json({

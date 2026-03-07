@@ -20,6 +20,7 @@ module.exports = {
       e.org_id,
       CONCAT(e.first_name, ' ', e.last_name) AS name,
       p.gender,
+      p.photo_url,
       e.email,
       e.password,
       pr.position,

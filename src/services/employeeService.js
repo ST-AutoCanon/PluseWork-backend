@@ -503,6 +503,35 @@ exports.editFullEmployee = async (data) => {
 
     const hasKey = (k) => Object.prototype.hasOwnProperty.call(data, k);
 
+    const toUrlArray = (val) => {
+      if (val == null) return [];
+      if (Array.isArray(val)) return val.filter(Boolean).map(String);
+      if (typeof val === "string") {
+        const s = val.trim();
+        if (!s) return [];
+        try {
+          const parsed = JSON.parse(s);
+          if (Array.isArray(parsed)) return parsed.filter(Boolean).map(String);
+        } catch {}
+        return [s];
+      }
+      return [String(val)];
+    };
+
+    const diffUrls = (oldVal, newVal) => {
+      const oldArr = toUrlArray(oldVal);
+      const newArr = toUrlArray(newVal);
+      return oldArr.filter((u) => !newArr.includes(u));
+    };
+
+    const resolveFieldValue = (field, ...alts) => {
+      if (hasKey(field)) return data[field];
+      for (const alt of alts) {
+        if (hasKey(alt)) return data[alt];
+      }
+      return existing[field];
+    };
+
     if (hasKey("resume_url") && typeof data.resume_url === "string") {
       const parsed = tryParseJSON(data.resume_url);
       if (Array.isArray(parsed)) data.resume_url = parsed;
@@ -537,27 +566,45 @@ exports.editFullEmployee = async (data) => {
     ];
 
     for (const field of personalFileFields) {
-      if (hasKey(field)) {
-        deleteFilesByUrlsMixed(existing[field]);
-      }
+      if (!hasKey(field)) continue;
+      const removed = diffUrls(existing[field], data[field]);
+      if (removed.length) deleteFilesByUrlsMixed(removed);
     }
 
-    if (hasKey("resume_url") || hasKey("resume") || hasKey("resume_urls")) {
-      deleteFilesByUrlsMixed(existing.resume_url);
-    }
+    const resumeValue = resolveFieldValue(
+      "resume_url",
+      "resume",
+      "resume_urls",
+    );
+    const resumeRemoved = diffUrls(existing.resume_url, resumeValue);
+    if (resumeRemoved.length) deleteFilesByUrlsMixed(resumeRemoved);
 
-    if (hasKey("other_docs") || hasKey("other_docs_urls")) {
-      deleteFilesByUrlsMixed(existing.other_docs);
-    }
+    const otherDocsValue = resolveFieldValue("other_docs", "other_docs_urls");
+    const otherDocsRemoved = diffUrls(existing.other_docs, otherDocsValue);
+    if (otherDocsRemoved.length) deleteFilesByUrlsMixed(otherDocsRemoved);
 
     if (hasKey("additional_certs")) {
       try {
         const oldAdditional = tryParseJSON(existing.additional_certs) || [];
+        const newAdditional = hasKey("additional_certs")
+          ? data.additional_certs || []
+          : oldAdditional;
+
+        const newUrls = new Set(
+          (newAdditional || [])
+            .flatMap((cert) =>
+              toUrlArray(cert && (cert.file_urls || cert.files || cert.file)),
+            )
+            .map(String),
+        );
+
         if (Array.isArray(oldAdditional) && oldAdditional.length) {
           for (const cert of oldAdditional) {
-            deleteFilesByUrlsMixed(
+            const oldUrls = toUrlArray(
               cert && (cert.file_urls || cert.files || cert.file),
             );
+            const removed = oldUrls.filter((u) => !newUrls.has(u));
+            if (removed.length) deleteFilesByUrlsMixed(removed);
           }
         }
       } catch (e) {
@@ -571,9 +618,23 @@ exports.editFullEmployee = async (data) => {
     if (hasKey("experience")) {
       try {
         const oldExp = tryParseJSON(existing.experience) || [];
+        const newExp = hasKey("experience") ? data.experience || [] : oldExp;
+
+        const newUrls = new Set(
+          (newExp || [])
+            .flatMap((ex) =>
+              toUrlArray(ex && (ex.doc_urls || ex.files || ex.doc)),
+            )
+            .map(String),
+        );
+
         if (Array.isArray(oldExp) && oldExp.length) {
           for (const ex of oldExp) {
-            deleteFilesByUrlsMixed(ex && (ex.doc_urls || ex.files || ex.doc));
+            const oldUrls = toUrlArray(
+              ex && (ex.doc_urls || ex.files || ex.doc),
+            );
+            const removed = oldUrls.filter((u) => !newUrls.has(u));
+            if (removed.length) deleteFilesByUrlsMixed(removed);
           }
         }
       } catch (e) {
