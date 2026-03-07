@@ -15,7 +15,7 @@ const generateLetterheadCode = async (orgId, connection) => {
   try {
     await connection.query("LOCK TABLES letterhead READ");
     const [rows] = await connection.query(
-      "SELECT letterhead_code FROM letterhead WHERE letterhead_code LIKE 'LHT-%' ORDER BY CAST(SUBSTRING(letterhead_code, 5) AS UNSIGNED) DESC LIMIT 1"
+      "SELECT letterhead_code FROM letterhead WHERE letterhead_code LIKE 'LHT-%' ORDER BY CAST(SUBSTRING(letterhead_code, 5) AS UNSIGNED) DESC LIMIT 1",
     );
     let nextCode = "LHT-00001";
     if (rows.length > 0 && rows[0].letterhead_code) {
@@ -64,6 +64,7 @@ const insertLetterhead = async (orgId, letterheadData, retries = 3) => {
     const letterhead_code = await generateLetterheadCode(orgId, connection);
 
     const values = [
+      orgId,
       letterhead_code,
       template_name,
       letter_type,
@@ -83,7 +84,6 @@ const insertLetterhead = async (orgId, letterheadData, retries = 3) => {
       date_of_appointment || null,
       attachment || null,
       place || null,
-      orgId,
     ];
 
     const [result] = await connection.query(queries.INSERT_LETTERHEAD, values);
@@ -162,7 +162,10 @@ const updateLetterheadById = async (orgId, letterheadData, id) => {
       orgId,
     ];
 
-    const [result] = await tenantPool.query(queries.UPDATE_LETTERHEAD_BY_ID, values);
+    const [result] = await tenantPool.query(
+      queries.UPDATE_LETTERHEAD_BY_ID,
+      values,
+    );
     return result;
   } catch (error) {
     console.error("Error updating letterhead:", error);
@@ -173,7 +176,10 @@ const updateLetterheadById = async (orgId, letterheadData, id) => {
 const getLetterheadById = async (orgId, id) => {
   const tenantPool = await getTenantPoolForOrgId(orgId);
   try {
-    const [rows] = await tenantPool.query(queries.GET_LETTERHEAD_BY_ID, [id, orgId]);
+    const [rows] = await tenantPool.query(queries.GET_LETTERHEAD_BY_ID, [
+      id,
+      orgId,
+    ]);
     return rows[0] || null;
   } catch (error) {
     console.error("Error fetching letterhead by ID:", error);
