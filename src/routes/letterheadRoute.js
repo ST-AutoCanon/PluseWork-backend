@@ -12,7 +12,13 @@ const {
 
 const router = express.Router();
 
-const LETTERHEAD_BASE_DIR = path.join(__dirname, "..", "letterheadfiles");
+const LETTERHEAD_BASE_DIR = path.join(
+  __dirname,
+  "..",
+  "..",
+  "..",
+  "letterheadfiles",
+);
 
 if (!fs.existsSync(LETTERHEAD_BASE_DIR)) {
   fs.mkdirSync(LETTERHEAD_BASE_DIR, { recursive: true });
@@ -213,7 +219,7 @@ router.get("/letterheads/download/:filename", (req, res) => {
   const filePath = path.join(
     LETTERHEAD_BASE_DIR,
     `org_${String(orgId)}`,
-    path.basename(filename)
+    path.basename(filename),
   );
 
   if (fs.existsSync(filePath)) {
@@ -239,7 +245,7 @@ router.get("/letterheads/view/:filename", (req, res) => {
   const filePath = path.join(
     LETTERHEAD_BASE_DIR,
     `org_${String(orgId)}`,
-    path.basename(filename)
+    path.basename(filename),
   );
 
   if (fs.existsSync(filePath)) {

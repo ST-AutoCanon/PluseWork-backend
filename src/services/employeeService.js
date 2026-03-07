@@ -571,11 +571,11 @@ exports.editFullEmployee = async (data) => {
       if (removed.length) deleteFilesByUrlsMixed(removed);
     }
 
-    const resumeValue = resolveFieldValue(
-      "resume_url",
-      "resume",
-      "resume_urls",
-    );
+    const resumeValue = (() => {
+      const raw = resolveFieldValue("resume_url", "resume", "resume_urls");
+      const urls = toUrlArray(raw);
+      return urls.length ? urls[urls.length - 1] : null;
+    })();
     const resumeRemoved = diffUrls(existing.resume_url, resumeValue);
     if (resumeRemoved.length) deleteFilesByUrlsMixed(resumeRemoved);
 
@@ -780,6 +780,15 @@ exports.editFullEmployee = async (data) => {
       return existing.resume_url;
     })();
 
+    const normalizeToSingleUrl = (val) => {
+      const urls = toUrlArray(val);
+      if (!urls || !urls.length) return null;
+      // When updating, use only the most recently provided resume.
+      return urls[urls.length - 1];
+    };
+
+    const normalizedResume = normalizeToSingleUrl(chosenResume);
+
     await conn.execute(queries.UPDATE_EMPLOYEE_PRO, [
       pick("domain") || null,
       pick("employee_type") || null,
@@ -789,7 +798,7 @@ exports.editFullEmployee = async (data) => {
       pick("position") || null,
       pick("supervisor_id") || null,
       pick("salary") || null,
-      arrayToJsonOrNull(chosenResume),
+      arrayToJsonOrNull(normalizedResume),
       eid,
     ]);
 
