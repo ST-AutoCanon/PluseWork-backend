@@ -63,7 +63,7 @@ function mapFilesToBody(req, res, next) {
     }
 
     const publicPaths = req.files.map(
-      (f) => `/pjattachments/${orgId}/${path.basename(f.filename)}`
+      (f) => `/pjattachments/${orgId}/${path.basename(f.filename)}`,
     );
 
     req.body.attachment_url = JSON.stringify(publicPaths);
@@ -79,14 +79,14 @@ router.post(
   "/projects",
   upload.array("attachment_url"),
   mapFilesToBody,
-  projectHandler.createProject
+  projectHandler.createProject,
 );
 
 router.put(
   "/projects/:id",
   upload.array("attachment_url"),
   mapFilesToBody,
-  projectHandler.updateProject
+  projectHandler.updateProject,
 );
 
 router.get("/projects", projectHandler.getProjects);
@@ -117,17 +117,19 @@ router.get("/pjattachments/:orgId/:filename", (req, res) => {
 router.get("/projects/:id/attachments/download", async (req, res) => {
   try {
     const projectId = req.params.id;
-    const project = await projectService.getProjectById(projectId);
+    const headerOrg = req.headers["x-org-id"] || req.query.orgId;
+    const orgIdHeader = headerOrg ? path.basename(String(headerOrg)) : null;
+
+    const project = await projectService.getProjectById(orgIdHeader, projectId);
     if (!project) {
       return res.status(404).send("Project not found");
     }
 
-    const headerOrg = req.headers["x-org-id"] || req.query.orgId;
-    const orgId = headerOrg
-      ? path.basename(String(headerOrg))
-      : project.orgId
-      ? path.basename(String(project.orgId))
-      : "unknown-org";
+    const orgId = orgIdHeader
+      ? orgIdHeader
+      : project.org_id
+        ? path.basename(String(project.org_id))
+        : "unknown-org";
 
     let attachments = [];
     if (typeof project.attachment_url === "string") {
