@@ -883,47 +883,98 @@ class LeaveHandler {
 
       const files = Array.isArray(req.files) ? req.files : [];
 
-      let attachments = [];
+      // Keep track of which attachments the client still wants to keep.
+      // If the request supplies keep_attachment_ids (even an empty array), we
+      // treat it as the authoritative set of attachments to retain.
+      let keepAttachmentIds = [];
+      let keepAttachmentIdsProvided = false;
+      try {
+        const raw =
+          req.body?.keep_attachment_ids ||
+          req.body?.keepAttachmentIds ||
+          req.body?.keep_attachments;
+        if (raw !== undefined && raw !== null) {
+          keepAttachmentIdsProvided = true;
+          if (typeof raw === "string") keepAttachmentIds = JSON.parse(raw);
+          else keepAttachmentIds = raw;
+        }
+      } catch {
+        keepAttachmentIds = [];
+      }
+      if (!Array.isArray(keepAttachmentIds)) {
+        keepAttachmentIds = [];
+      }
+      keepAttachmentIds = keepAttachmentIds.map((id) => String(id));
 
+      let attachments = [];
+      let existingAttachments = [];
+
+      try {
+        existingAttachments =
+          (await LeaveService.getAttachmentsForLeave(leaveId, orgId)) || [];
+      } catch (err) {
+        console.warn(
+          "[editLeaveRequestHandler] failed to fetch existing attachments:",
+          err?.message || err,
+        );
+      }
+
+      // Delete attachments that the client removed.
+      const existingIds = existingAttachments
+        .map((a) => (a && a.id ? String(a.id) : null))
+        .filter(Boolean);
+      const idsToDelete = existingIds.filter(
+        (id) => keepAttachmentIdsProvided && !keepAttachmentIds.includes(id),
+      );
+
+      if (idsToDelete.length > 0) {
+        await Promise.all(
+          idsToDelete.map(async (attId) => {
+            try {
+              await LeaveService.deleteAttachmentById(attId, orgId);
+            } catch (delErr) {
+              console.warn(
+                "[editLeaveRequestHandler] failed to delete attachment:",
+                attId,
+                delErr?.message || delErr,
+              );
+            }
+          }),
+        );
+      }
+
+      const keptAttachments = existingAttachments.filter(
+        (a) =>
+          !keepAttachmentIdsProvided ||
+          keepAttachmentIds.includes(String(a.id)),
+      );
+
+      // When new files are uploaded, persist them and include in response.
       if (files.length > 0) {
         try {
           moveUploadedFilesToTenant(files, orgId, employeeId);
 
-          const result = await LeaveService.replaceAttachmentsForLeave(
+          const inserted = await LeaveService.saveLeaveAttachments(
             leaveId,
             files,
             orgId,
           );
 
-          const inserted =
-            result && Array.isArray(result.inserted) ? result.inserted : [];
-
-          attachments = inserted.map((a) =>
-            buildPublicAttachment(a, orgId, req),
-          );
+          attachments = [...keptAttachments, ...(inserted || [])];
         } catch (attachErr) {
           console.warn(
-            "[editLeaveRequestHandler] replaceAttachments failed:",
+            "[editLeaveRequestHandler] failed to save new attachments:",
             attachErr?.message || attachErr,
           );
+          attachments = keptAttachments;
         }
       } else {
-        try {
-          const atts = await LeaveService.getAttachmentsForLeave(
-            leaveId,
-            orgId,
-          );
-
-          attachments = Array.isArray(atts)
-            ? atts.map((a) => buildPublicAttachment(a, orgId, req))
-            : [];
-        } catch (err) {
-          console.warn(
-            "[editLeaveRequestHandler] failed to fetch attachments:",
-            err?.message || err,
-          );
-        }
+        attachments = keptAttachments;
       }
+
+      attachments = attachments.map((a) =>
+        buildPublicAttachment(a, orgId, req),
+      );
 
       const responseData = {
         ...updatedLeaveRequest,
