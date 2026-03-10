@@ -15,7 +15,7 @@ const generateLetterheadCode = async (orgId, connection) => {
   try {
     await connection.query("LOCK TABLES letterhead READ");
     const [rows] = await connection.query(
-      "SELECT letterhead_code FROM letterhead WHERE letterhead_code LIKE 'LHT-%' ORDER BY CAST(SUBSTRING(letterhead_code, 5) AS UNSIGNED) DESC LIMIT 1",
+      "SELECT letterhead_code FROM letterhead WHERE letterhead_code LIKE 'LHT-%' ORDER BY CAST(SUBSTRING(letterhead_code, 5) AS UNSIGNED) DESC LIMIT 1"
     );
     let nextCode = "LHT-00001";
     if (rows.length > 0 && rows[0].letterhead_code) {
@@ -59,6 +59,11 @@ const insertLetterhead = async (orgId, letterheadData, retries = 3) => {
       date_of_appointment,
       attachment,
       place,
+      company_name,
+      company_address,
+      company_address_line2,
+      gstin_number,
+      cin_number,
     } = letterheadData;
 
     const letterhead_code = await generateLetterheadCode(orgId, connection);
@@ -84,6 +89,11 @@ const insertLetterhead = async (orgId, letterheadData, retries = 3) => {
       date_of_appointment || null,
       attachment || null,
       place || null,
+      company_name || null,
+      company_address || null,
+      company_address_line2 || null,
+      gstin_number || null,
+      cin_number || null,
     ];
 
     const [result] = await connection.query(queries.INSERT_LETTERHEAD, values);
@@ -136,10 +146,14 @@ const updateLetterheadById = async (orgId, letterheadData, id) => {
       date_of_appointment,
       attachment,
       place,
+      company_name,
+      company_address,
+      company_address_line2,
+      gstin_number,
+      cin_number,
     } = letterheadData;
 
     const values = [
-      letterhead_code || null,
       template_name,
       letter_type,
       subject,
@@ -158,14 +172,16 @@ const updateLetterheadById = async (orgId, letterheadData, id) => {
       date_of_appointment || null,
       attachment || null,
       place || null,
+      company_name || null,
+      company_address || null,
+      company_address_line2 || null,
+      gstin_number || null,
+      cin_number || null,
       id,
       orgId,
     ];
 
-    const [result] = await tenantPool.query(
-      queries.UPDATE_LETTERHEAD_BY_ID,
-      values,
-    );
+    const [result] = await tenantPool.query(queries.UPDATE_LETTERHEAD_BY_ID, values);
     return result;
   } catch (error) {
     console.error("Error updating letterhead:", error);
@@ -176,10 +192,7 @@ const updateLetterheadById = async (orgId, letterheadData, id) => {
 const getLetterheadById = async (orgId, id) => {
   const tenantPool = await getTenantPoolForOrgId(orgId);
   try {
-    const [rows] = await tenantPool.query(queries.GET_LETTERHEAD_BY_ID, [
-      id,
-      orgId,
-    ]);
+    const [rows] = await tenantPool.query(queries.GET_LETTERHEAD_BY_ID, [id, orgId]);
     return rows[0] || null;
   } catch (error) {
     console.error("Error fetching letterhead by ID:", error);

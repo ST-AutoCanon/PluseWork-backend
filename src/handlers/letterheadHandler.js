@@ -20,6 +20,111 @@ const addLetterheadHandler = async (req, res) => {
 
   try {
     const {
+      letterhead_code,
+      template_name,
+      letter_type,
+      subject,
+      body,
+      recipient_name,
+      title,
+      mobile_number,
+      email,
+      address,
+      date,
+      signature,
+      employee_name,
+      position,
+      annual_salary,
+      effective_date,
+      date_of_appointment,
+      place,
+      company_name,
+      company_address,
+      company_address_line2,
+      gstin_number,
+      cin_number,
+    } = req.body;
+
+    if (!letter_type || !body) {
+      return res.status(400).json({ error: "Required fields missing" });
+    }
+
+    const files = req.files || {};
+    let attachment = null;
+    if (files.letterhead_file) {
+      attachment = files.letterhead_file[0].filename;
+    }
+
+    const letterheadData = {
+      letterhead_code,
+      template_name,
+      letter_type,
+      subject,
+      body,
+      recipient_name,
+      title,
+      mobile_number,
+      email,
+      address,
+      date,
+      signature,
+      employee_name,
+      position,
+      annual_salary,
+      effective_date,
+      date_of_appointment,
+      attachment,
+      place,
+      company_name,
+      company_address,
+      company_address_line2,
+      gstin_number,
+      cin_number,
+    };
+
+    const result = await letterheadService.insertLetterhead(
+      orgId,
+      letterheadData
+    );
+    res.status(201).json({
+      message: "Letterhead created successfully",
+      id: result.insertId,
+      letterhead_code: result.letterhead_code,
+    });
+  } catch (error) {
+    console.error("Error in addLetterheadHandler:", error);
+    res
+      .status(500)
+      .json({ error: "Failed to create letterhead", details: error.message });
+  }
+};
+
+const getAllLetterheadsHandler = async (req, res) => {
+  const orgId = getOrgId(req);
+  if (!orgId) return res.status(400).json({ error: "org_id is required" });
+
+  try {
+    const letterheads = await letterheadService.getAllLetterheads(orgId);
+    res.status(200).json({ success: true, data: letterheads });
+  } catch (error) {
+    console.error("Error:", error);
+    res.status(500).json({ error: "Failed to fetch letterheads" });
+  }
+};
+
+const updateLetterheadHandler = async (req, res) => {
+  const orgId = getOrgId(req);
+  if (!orgId) {
+    return res.status(400).json({ error: "org_id is required" });
+  }
+
+  const { id } = req.params;
+  if (!id) {
+    return res.status(400).json({ error: "letterhead id is required" });
+  }
+
+  try {
+    const {
       template_name,
       letter_type,
       subject,
@@ -80,39 +185,26 @@ const addLetterheadHandler = async (req, res) => {
       cin_number,
     };
 
-    const result = await letterheadService.insertLetterhead(
+    const result = await letterheadService.updateLetterheadById(
       orgId,
-      letterheadData
+      letterheadData,
+      id
     );
-    res.status(201).json({
-      message: "Letterhead created successfully",
-      id: result.insertId,
-      letterhead_code: result.letterhead_code,
-    });
+    
+    if (result && result.affectedRows > 0) {
+      res.status(200).json({
+        message: "Letterhead updated successfully",
+        id: parseInt(id),
+      });
+    } else {
+      res.status(404).json({ error: "Letterhead not found" });
+    }
   } catch (error) {
-    console.error("Error in addLetterheadHandler:", error);
+    console.error("Error in updateLetterheadHandler:", error);
     res
       .status(500)
-      .json({ error: "Failed to create letterhead", details: error.message });
+      .json({ error: "Failed to update letterhead", details: error.message });
   }
-};
-
-const getAllLetterheadsHandler = async (req, res) => {
-  const orgId = getOrgId(req);
-  if (!orgId) return res.status(400).json({ error: "org_id is required" });
-
-  try {
-    const letterheads = await letterheadService.getAllLetterheads(orgId);
-    res.status(200).json({ success: true, data: letterheads });
-  } catch (error) {
-    console.error("Error:", error);
-    res.status(500).json({ error: "Failed to fetch letterheads" });
-  }
-};
-
-const updateLetterheadHandler = async (req, res) => {
-  const orgId = getOrgId(req);
-  if (!orgId) return res.status(400).json({ error: "org_id is required" });
 };
 
 const getLetterheadByIdHandler = async (req, res) => {
