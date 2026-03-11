@@ -1,4 +1,5 @@
 const reportService = require("../services/reportIndex");
+const { fetchRows } = require("../services/reportUtils");
 const {
   coerceToString,
   parseDates,
@@ -10,55 +11,6 @@ const {
   isPreviewRequest,
   sendPreviewResponse,
 } = require("../services/reportFilters");
-
-const db = require("../config");
-
-async function dbExec(sql, params = []) {
-  try {
-    if (!Array.isArray(params)) params = [params];
-    params = params.map((p) => (typeof p === "undefined" ? null : p));
-
-    if (db && typeof db.query === "function") {
-      const maybePromise = db.query(sql, params);
-      if (maybePromise && typeof maybePromise.then === "function") {
-        const result = await maybePromise;
-        if (Array.isArray(result)) return result;
-        return [result, null];
-      } else {
-        return await new Promise((resolve, reject) => {
-          db.query(sql, params, (err, rows, fields) => {
-            if (err) return reject(err);
-            resolve([rows, fields]);
-          });
-        });
-      }
-    }
-
-    if (db && typeof db.execute === "function") {
-      const maybePromise = db.execute(sql, params);
-      if (maybePromise && typeof maybePromise.then === "function") {
-        const result = await maybePromise;
-        if (Array.isArray(result)) return result;
-        return [result, null];
-      } else {
-        return await new Promise((resolve, reject) => {
-          db.execute(sql, params, (err, rows, fields) => {
-            if (err) return reject(err);
-            resolve([rows, fields]);
-          });
-        });
-      }
-    }
-
-    throw new Error("DB client has no execute/query method");
-  } catch (e) {
-    console.error(
-      "[reportReimbursementsHandler][dbExec] error:",
-      e && (e.stack || e.message)
-    );
-    throw e;
-  }
-}
 
 function findEmployeeIdInRequest(req) {
   const safe = (v) =>
@@ -75,7 +27,7 @@ function findEmployeeIdInRequest(req) {
     if (v) return v;
   }
   const r1 = safe(
-    req.employeeId ?? req.employee_id ?? req.userId ?? req.user_id
+    req.employeeId ?? req.employee_id ?? req.userId ?? req.user_id,
   );
   if (r1) return r1;
   const user = req.user || req.authUser || req.auth || req.session?.user;
@@ -94,7 +46,7 @@ function findEmployeeIdInRequest(req) {
     try {
       if (token.split(".").length === 3) {
         const payload = JSON.parse(
-          Buffer.from(token.split(".")[1], "base64").toString("utf8")
+          Buffer.from(token.split(".")[1], "base64").toString("utf8"),
         );
         const cand =
           safe(payload.employee_id) ||
@@ -116,13 +68,13 @@ async function lookupDeptForEmployee(employeeId) {
   try {
     if (!employeeId) return null;
     const sql = `SELECT department_id FROM employee_professional WHERE employee_id = ? LIMIT 1`;
-    const [rows] = await dbExec(sql, [employeeId]);
+    const rows = await fetchRows(sql, [employeeId]);
     if (Array.isArray(rows) && rows[0] && rows[0].department_id != null)
       return String(rows[0].department_id);
   } catch (e) {
     console.warn(
       "[reportReimbursementsHandler] lookupDeptForEmployee failed:",
-      e && e.message
+      e && e.message,
     );
   }
   return null;
@@ -133,12 +85,12 @@ async function findDepartmentsManagedBy(managerEmpId) {
   const out = [];
 
   try {
-    const [cols] = await dbExec("SHOW COLUMNS FROM departments");
+    const cols = await fetchRows("SHOW COLUMNS FROM departments");
     const colNames = Array.isArray(cols)
       ? cols
           .map((c) => {
             return String(
-              c.Field || c.field || c.COLUMN_NAME || c.column_name || ""
+              c.Field || c.field || c.COLUMN_NAME || c.column_name || "",
             ).trim();
           })
           .filter(Boolean)
@@ -146,9 +98,9 @@ async function findDepartmentsManagedBy(managerEmpId) {
 
     if (colNames.includes("manager_employee_id")) {
       try {
-        const [rows] = await dbExec(
+        const rows = await fetchRows(
           "SELECT id FROM departments WHERE manager_employee_id = ?",
-          [managerEmpId]
+          [managerEmpId],
         );
         if (Array.isArray(rows)) {
           for (const r of rows) if (r && r.id != null) out.push(String(r.id));
@@ -157,16 +109,16 @@ async function findDepartmentsManagedBy(managerEmpId) {
       } catch (e) {
         console.warn(
           "[reportReimbursementsHandler] query on manager_employee_id failed:",
-          e && e.message
+          e && e.message,
         );
       }
     }
 
     if (colNames.includes("manager_id")) {
       try {
-        const [rows] = await dbExec(
+        const rows = await fetchRows(
           "SELECT id FROM departments WHERE manager_id = ?",
-          [managerEmpId]
+          [managerEmpId],
         );
         if (Array.isArray(rows)) {
           for (const r of rows) if (r && r.id != null) out.push(String(r.id));
@@ -175,21 +127,21 @@ async function findDepartmentsManagedBy(managerEmpId) {
       } catch (e) {
         console.warn(
           "[reportReimbursementsHandler] query on manager_id failed:",
-          e && e.message
+          e && e.message,
         );
       }
     }
   } catch (e) {
     console.warn(
       "[reportReimbursementsHandler] SHOW COLUMNS failed:",
-      e && e.message
+      e && e.message,
     );
   }
 
   try {
-    const [rows] = await dbExec(
+    const rows = await fetchRows(
       "SELECT DISTINCT department_id AS id FROM employee_professional WHERE supervisor_id = ? AND department_id IS NOT NULL",
-      [managerEmpId]
+      [managerEmpId],
     );
     if (Array.isArray(rows) && rows.length) {
       for (const r of rows) {
@@ -200,7 +152,7 @@ async function findDepartmentsManagedBy(managerEmpId) {
   } catch (e) {
     console.warn(
       "[reportReimbursementsHandler] fallback department query failed:",
-      e && e.message
+      e && e.message,
     );
   }
 
@@ -277,7 +229,7 @@ async function buildMetaFromReqQuery(query = {}) {
               (d) =>
                 d &&
                 (String(d.id) === String(deptId) ||
-                  String(d.department_id || d.id) === String(deptId))
+                  String(d.department_id || d.id) === String(deptId)),
             );
             meta.department =
               (found &&
@@ -311,7 +263,7 @@ async function downloadReimbursementsReport(req, res) {
         departmentId = derived;
         console.debug(
           "[reportReimbursementsHandler] derived department for requester:",
-          departmentId
+          departmentId,
         );
       }
     }
@@ -332,7 +284,7 @@ async function downloadReimbursementsReport(req, res) {
             (req.query.forceManager ||
               req.query.manager_scope ||
               req.query.managerScope)) ||
-          ""
+          "",
       ).toLowerCase();
       const wantsMgrScope =
         explicitManager === "1" || explicitManager === "true" || isManagerRole;
@@ -341,7 +293,7 @@ async function downloadReimbursementsReport(req, res) {
         managerEmpId = requesterEmpId;
         console.debug(
           "[reportReimbursementsHandler] manager scoping enabled for:",
-          managerEmpId
+          managerEmpId,
         );
       }
     }
@@ -353,7 +305,7 @@ async function downloadReimbursementsReport(req, res) {
 
     if (typeof reportService.getReimbursementRows !== "function") {
       console.error(
-        "[reportReimbursementsHandler] reportService.getReimbursementRows missing"
+        "[reportReimbursementsHandler] reportService.getReimbursementRows missing",
       );
       return res.status(500).json({ message: "Server misconfiguration" });
     }
@@ -365,7 +317,7 @@ async function downloadReimbursementsReport(req, res) {
         status,
         null,
         employeeId,
-        departmentId
+        departmentId,
       );
       let rows = Array.isArray(rawReimbursements) ? rawReimbursements : [];
 
@@ -399,7 +351,7 @@ async function downloadReimbursementsReport(req, res) {
           r.status,
           r.payment_status,
           r.approval_status,
-        ])
+        ]),
       );
 
       if (!filtered.length)
@@ -418,16 +370,16 @@ async function downloadReimbursementsReport(req, res) {
             .json({ message: "Excel renderer not available" });
         const buf = await reportService.renderExcelBuffer(
           reimbursementsToExport,
-          null
+          null,
         );
         const filename = safeFilename("reimbursements_report", "xlsx");
         res.setHeader(
           "Content-Type",
-          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         );
         res.setHeader(
           "Content-Disposition",
-          `attachment; filename="${filename}"`
+          `attachment; filename="${filename}"`,
         );
         res.setHeader("Content-Length", buf.length);
         return res.send(buf);
@@ -439,13 +391,13 @@ async function downloadReimbursementsReport(req, res) {
         const pdfBuf = await reportService.renderPdfBuffer(
           "Reimbursements Report",
           reimbursementsToExport,
-          { meta }
+          { meta },
         );
         const filename = safeFilename("reimbursements_report", "pdf");
         res.setHeader("Content-Type", "application/pdf");
         res.setHeader(
           "Content-Disposition",
-          `attachment; filename="${filename}"`
+          `attachment; filename="${filename}"`,
         );
         res.setHeader("Content-Length", pdfBuf.length);
         return res.send(pdfBuf);
@@ -460,7 +412,7 @@ async function downloadReimbursementsReport(req, res) {
       } catch (e) {
         console.warn(
           "[reportReimbursementsHandler] findDepartmentsManagedBy attempt failed:",
-          e && e.message
+          e && e.message,
         );
       }
 
@@ -474,14 +426,14 @@ async function downloadReimbursementsReport(req, res) {
               status,
               null,
               null,
-              d
+              d,
             );
             if (Array.isArray(part) && part.length) merged.push(...part);
           } catch (e) {
             console.warn(
               "[reportReimbursementsHandler] per-dept getReimbursementRows failed for dept",
               d,
-              e && e.message
+              e && e.message,
             );
           }
         }
@@ -498,17 +450,17 @@ async function downloadReimbursementsReport(req, res) {
             status,
             null,
             null,
-            null
+            null,
           );
           const allArr = Array.isArray(all) ? all : [];
           const empIds = Array.from(
-            new Set(allArr.map((x) => x.employee_id).filter(Boolean))
+            new Set(allArr.map((x) => x.employee_id).filter(Boolean)),
           );
           if (empIds.length) {
             const placeholders = empIds.map(() => "?").join(",");
-            const [profRows] = await dbExec(
+            const profRows = await fetchRows(
               `SELECT employee_id, supervisor_id FROM employee_professional WHERE employee_id IN (${placeholders})`,
-              empIds
+              empIds,
             );
             const supMap = {};
             for (const pr of Array.isArray(profRows) ? profRows : []) {
@@ -524,7 +476,7 @@ async function downloadReimbursementsReport(req, res) {
         } catch (e) {
           console.error(
             "[reportReimbursementsHandler] fallback JS filtering failed:",
-            e && e.message
+            e && e.message,
           );
           rows = [];
         }
@@ -536,18 +488,18 @@ async function downloadReimbursementsReport(req, res) {
         status,
         null,
         null,
-        null
+        null,
       );
       rows = Array.isArray(rawReimbursements) ? rawReimbursements : [];
     }
 
     const explicitDept = coerceToString(
       req.query && (req.query.department_id ?? req.query.departmentId),
-      null
+      null,
     );
     const explicitEmp = coerceToString(
       req.query && (req.query.employee_id ?? req.query.employeeId),
-      null
+      null,
     );
     if (explicitDept) {
       rows = rows.filter((r) => {
@@ -577,7 +529,7 @@ async function downloadReimbursementsReport(req, res) {
         r.status,
         r.payment_status,
         r.approval_status,
-      ])
+      ]),
     );
 
     if (filtered.length === 0)
@@ -596,16 +548,16 @@ async function downloadReimbursementsReport(req, res) {
           .json({ message: "Excel renderer not available" });
       const buf = await reportService.renderExcelBuffer(
         reimbursementsToExport,
-        null
+        null,
       );
       const filename = safeFilename("reimbursements_report", "xlsx");
       res.setHeader(
         "Content-Type",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       );
       res.setHeader(
         "Content-Disposition",
-        `attachment; filename="${filename}"`
+        `attachment; filename="${filename}"`,
       );
       res.setHeader("Content-Length", buf.length);
       return res.send(buf);
@@ -615,13 +567,13 @@ async function downloadReimbursementsReport(req, res) {
       const pdfBuf = await reportService.renderPdfBuffer(
         "Reimbursements Report",
         reimbursementsToExport,
-        { meta }
+        { meta },
       );
       const filename = safeFilename("reimbursements_report", "pdf");
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader(
         "Content-Disposition",
-        `attachment; filename="${filename}"`
+        `attachment; filename="${filename}"`,
       );
       res.setHeader("Content-Length", pdfBuf.length);
       return res.send(pdfBuf);
@@ -629,14 +581,14 @@ async function downloadReimbursementsReport(req, res) {
   } catch (err) {
     console.error(
       "[reportReimbursementsHandler] Error rendering Reimbursements report:",
-      err && (err.stack || err)
+      err && (err.stack || err),
     );
     return res.status(500).json({ message: "Internal Server Error" });
   } finally {
     console.debug(
       "[reportReimbursementsHandler] finished in",
       Date.now() - startTs,
-      "ms"
+      "ms",
     );
   }
 }

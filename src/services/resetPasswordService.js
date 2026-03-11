@@ -7,7 +7,7 @@ exports.verifyResetToken = async (resetToken) => {
   try {
     const [rows] = await masterDb.query(
       `SELECT org_id FROM password_reset_tokens WHERE token = ?`,
-      [resetToken]
+      [resetToken],
     );
 
     if (!rows.length) {
@@ -20,6 +20,7 @@ exports.verifyResetToken = async (resetToken) => {
 
     const [tokenRows] = await tenantDb.query(queries.VERIFY_RESET_TOKEN, [
       resetToken,
+      orgId,
     ]);
 
     if (!tokenRows.length) {
@@ -34,7 +35,7 @@ exports.verifyResetToken = async (resetToken) => {
     console.error("Error verifying reset token:", error);
     throw ErrorHandler.generateErrorResponse(
       500,
-      "Internal server error while verifying reset token."
+      "Internal server error while verifying reset token.",
     );
   }
 };
@@ -53,7 +54,7 @@ exports.updateEmployeePassword = async (orgId, email, hashedPassword) => {
     console.error("Error updating employee password:", error);
     throw ErrorHandler.generateErrorResponse(
       500,
-      "Internal server error while updating password."
+      "Internal server error while updating password.",
     );
   }
 };

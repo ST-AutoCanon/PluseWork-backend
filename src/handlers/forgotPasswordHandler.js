@@ -5,20 +5,30 @@ const {
 const ErrorHandler = require("../utils/errorHandler");
 const { sendForgotPasswordEmail } = require("../utils/brevoMailer");
 
+const extractOrgId = (req) =>
+  req.headers["x-org-id"] ||
+  req.headers["x_org_id"] ||
+  req.body?.orgId ||
+  req.body?.org_id ||
+  (req.user && (req.user.orgId || req.user.Org_id || req.user.org_id)) ||
+  null;
+
 exports.forgotPassword = async (req, res) => {
   try {
     const { email } = req.body;
+    const orgId = extractOrgId(req);
+
     if (!email || typeof email !== "string") {
       const badReq = ErrorHandler.generateErrorResponse(400, "Invalid email");
       return res.status(400).json(badReq);
     }
 
-    const employee = await getEmployeeByEmail(email);
+    const employee = await getEmployeeByEmail(email, orgId);
     if (!employee) {
-      console.warn("No active user found for:", email);
+      console.warn("No active user found for:", email, "orgId:", orgId);
       const notFound = ErrorHandler.generateErrorResponse(
         404,
-        "No active account found with that email."
+        "No active account found with that email.",
       );
       return res.status(404).json(notFound);
     }
@@ -40,11 +50,11 @@ exports.forgotPassword = async (req, res) => {
     } catch (mailErr) {
       console.error(
         "Failed to send forgot-password email via mailer:",
-        mailErr
+        mailErr,
       );
       const mailErrorResponse = ErrorHandler.generateErrorResponse(
         502,
-        "Failed to send reset email. Please try again later."
+        "Failed to send reset email. Please try again later.",
       );
       return res.status(502).json(mailErrorResponse);
     }
@@ -53,7 +63,7 @@ exports.forgotPassword = async (req, res) => {
       console.error("Mailer did not return reset token info:", sendResult);
       const mailErrorResponse = ErrorHandler.generateErrorResponse(
         502,
-        "Failed to prepare reset email. Please try again later."
+        "Failed to prepare reset email. Please try again later.",
       );
       return res.status(502).json(mailErrorResponse);
     }
@@ -62,20 +72,22 @@ exports.forgotPassword = async (req, res) => {
       await saveResetToken(
         email,
         sendResult.resetToken,
-        sendResult.tokenExpiry
+        sendResult.tokenExpiry,
+        orgId,
       );
     } catch (saveErr) {
       console.error("Failed to save reset token after sending email:", saveErr);
       const serverError = ErrorHandler.generateErrorResponse(
         500,
-        "An error occurred while storing reset information. Please contact support."
+        "An error occurred while storing reset information. Please contact support.",
       );
       return res.status(500).json(serverError);
     }
 
-    const successResponse = ErrorHandler.generateSuccessResponse(200, {
-      message: "Password reset link has been sent to your email.",
-    });
+    const successResponse = ErrorHandler.generateSuccessResponse(
+      200,
+      "Password reset link has been sent to your email.",
+    );
     return res.status(200).json(successResponse);
   } catch (err) {
     console.error("Forgot password error:", err);
@@ -86,7 +98,7 @@ exports.forgotPassword = async (req, res) => {
 
     const serverError = ErrorHandler.generateErrorResponse(
       500,
-      "An internal error occurred. Please try again later."
+      "An internal error occurred. Please try again later.",
     );
     return res.status(500).json(serverError);
   }

@@ -8,23 +8,25 @@ const {
   ensureTwoMonthWindow,
 } = require("../services/reportFilters");
 
-const db = require("../config");
 const mysql = require("mysql2");
+const { getDbPool } = require("../utils/tenantDb");
 
-async function dbExec(sql, params = []) {
+async function dbExec(req, sql, params = []) {
   try {
     if (!Array.isArray(params)) params = [params];
     params = params.map((p) => (typeof p === "undefined" ? null : p));
 
-    if (db && typeof db.query === "function") {
-      const maybePromise = db.query(sql, params);
+    const pool = await getDbPool(req);
+
+    if (pool && typeof pool.query === "function") {
+      const maybePromise = pool.query(sql, params);
       if (maybePromise && typeof maybePromise.then === "function") {
         const result = await maybePromise;
         if (Array.isArray(result)) return result;
         return [result, null];
       } else {
         return await new Promise((resolve, reject) => {
-          db.query(sql, params, (err, rows, fields) => {
+          pool.query(sql, params, (err, rows, fields) => {
             if (err) return reject(err);
             resolve([rows, fields]);
           });
@@ -32,15 +34,15 @@ async function dbExec(sql, params = []) {
       }
     }
 
-    if (db && typeof db.execute === "function") {
-      const maybePromise = db.execute(sql, params);
+    if (pool && typeof pool.execute === "function") {
+      const maybePromise = pool.execute(sql, params);
       if (maybePromise && typeof maybePromise.then === "function") {
         const result = await maybePromise;
         if (Array.isArray(result)) return result;
         return [result, null];
       } else {
         return await new Promise((resolve, reject) => {
-          db.execute(sql, params, (err, rows, fields) => {
+          pool.execute(sql, params, (err, rows, fields) => {
             if (err) return reject(err);
             resolve([rows, fields]);
           });
@@ -52,7 +54,7 @@ async function dbExec(sql, params = []) {
   } catch (e) {
     console.error(
       "[reportAttendanceHandler][dbExec] error:",
-      e && (e.stack || e.message)
+      e && (e.stack || e.message),
     );
     throw e;
   }
@@ -156,7 +158,7 @@ function findEmployeeIdInRequest(req) {
     if (token.split(".").length === 3) {
       try {
         const payloadRaw = Buffer.from(token.split(".")[1], "base64").toString(
-          "utf8"
+          "utf8",
         );
         const payload = JSON.parse(payloadRaw);
         const candidate =
@@ -173,10 +175,10 @@ function findEmployeeIdInRequest(req) {
 
   const qCandidate =
     tryParseCandidate(
-      req.query && (req.query.employee_id || req.query.employeeId)
+      req.query && (req.query.employee_id || req.query.employeeId),
     ) ||
     tryParseCandidate(
-      req.body && (req.body.employee_id || req.body.employeeId)
+      req.body && (req.body.employee_id || req.body.employeeId),
     );
   if (qCandidate) return qCandidate;
 
@@ -259,8 +261,8 @@ async function attachDeptInfoForRows(rows) {
     new Set(
       rows
         .map((r) => (r.employee_id != null ? String(r.employee_id) : null))
-        .filter(Boolean)
-    )
+        .filter(Boolean),
+    ),
   );
 
   if (empIds.length === 0) return;
@@ -268,7 +270,7 @@ async function attachDeptInfoForRows(rows) {
   const placeholders = empIds.map(() => "?").join(",");
   const sql = `SELECT employee_id, department_id FROM employee_professional WHERE employee_id IN (${placeholders})`;
   try {
-    const [dbRows] = await dbExec(sql, empIds);
+    const [dbRows] = await dbExec(req, sql, empIds);
     const map = new Map();
     if (Array.isArray(dbRows)) {
       for (const dr of dbRows) {
@@ -288,7 +290,7 @@ async function attachDeptInfoForRows(rows) {
   } catch (e) {
     console.warn(
       "[reportAttendanceHandler] attachDeptInfoForRows failed:",
-      e && e.message
+      e && e.message,
     );
   }
 }
@@ -335,8 +337,9 @@ async function buildMetaFromReqQuery(query = {}) {
       if (/^\d+$/.test(deptId)) {
         try {
           const [rows] = await dbExec(
+            req,
             `SELECT id, department_name, departmentName, name FROM departments WHERE id = ? LIMIT 1`,
-            [deptId]
+            [deptId],
           );
           if (Array.isArray(rows) && rows[0]) {
             const rec = rows[0];
@@ -352,7 +355,7 @@ async function buildMetaFromReqQuery(query = {}) {
         } catch (e) {
           console.warn(
             "[reportAttendanceHandler] lookup department name failed:",
-            e && e.message
+            e && e.message,
           );
           meta.department = deptId;
         }
@@ -377,11 +380,11 @@ async function downloadAttendanceReport(req, res) {
     if (requesterEmpId) {
       console.debug(
         "[reportAttendanceHandler] requester employee id discovered:",
-        requesterEmpId
+        requesterEmpId,
       );
     } else {
       console.debug(
-        "[reportAttendanceHandler] no requester employee id discovered in request"
+        "[reportAttendanceHandler] no requester employee id discovered in request",
       );
     }
 
@@ -389,15 +392,16 @@ async function downloadAttendanceReport(req, res) {
       const derived = await (async (id) => {
         try {
           const [rows] = await dbExec(
+            req,
             `SELECT department_id FROM employee_professional WHERE employee_id = ? LIMIT 1`,
-            [id]
+            [id],
           );
           if (Array.isArray(rows) && rows[0] && rows[0].department_id != null)
             return String(rows[0].department_id);
         } catch (e) {
           console.warn(
             "[reportAttendanceHandler] lookupDeptForEmployee failed:",
-            e && e.message
+            e && e.message,
           );
         }
         return null;
@@ -407,18 +411,18 @@ async function downloadAttendanceReport(req, res) {
         departmentIdQuery = derived;
         console.debug(
           "[reportAttendanceHandler] derived department for requester:",
-          departmentIdQuery
+          departmentIdQuery,
         );
       } else {
         console.debug(
           "[reportAttendanceHandler] could not derive department for requester:",
-          requesterEmpId
+          requesterEmpId,
         );
       }
     } else if (departmentIdQuery) {
       console.debug(
         "[reportAttendanceHandler] using department_id from query:",
-        departmentIdQuery
+        departmentIdQuery,
       );
     }
 
@@ -429,7 +433,7 @@ async function downloadAttendanceReport(req, res) {
 
     if (typeof reportService.getAttendanceRows !== "function") {
       console.error(
-        "[reportAttendanceHandler] reportService.getAttendanceRows missing"
+        "[reportAttendanceHandler] reportService.getAttendanceRows missing",
       );
       return res.status(500).json({ message: "Server misconfiguration" });
     }
@@ -440,7 +444,7 @@ async function downloadAttendanceReport(req, res) {
       status,
       fields,
       employeeIdQuery,
-      null
+      null,
     );
 
     rows = Array.isArray(rows) ? rows : [];
@@ -451,24 +455,24 @@ async function downloadAttendanceReport(req, res) {
     });
     console.debug(
       "[reportAttendanceHandler] rows returned from service BEFORE filtering:",
-      rows.length
+      rows.length,
     );
     if (rows.length > 0) {
       try {
         console.debug(
           "[reportAttendanceHandler] sample row:",
-          JSON.stringify(rows[0])
+          JSON.stringify(rows[0]),
         );
       } catch (e) {
         console.debug(
           "[reportAttendanceHandler] sample row (stringify failed):",
-          rows[0]
+          rows[0],
         );
       }
     }
 
     const needLocalFiltering = Boolean(
-      employeeIdQuery || departmentIdQuery || requesterEmpId
+      employeeIdQuery || departmentIdQuery || requesterEmpId,
     );
     if (needLocalFiltering && rows.length > 0) {
       const anyHasDept = rows.some(
@@ -476,7 +480,7 @@ async function downloadAttendanceReport(req, res) {
           r.department_id != null ||
           r.pr_department_id != null ||
           r.departmentName != null ||
-          r.department_name != null
+          r.department_name != null,
       );
 
       if (!anyHasDept && departmentIdQuery) {
@@ -486,11 +490,11 @@ async function downloadAttendanceReport(req, res) {
       rows = filterAttendanceRows(
         rows,
         employeeIdQuery || null,
-        departmentIdQuery || null
+        departmentIdQuery || null,
       );
       console.debug(
         "[reportAttendanceHandler] rows after local filtering:",
-        rows.length
+        rows.length,
       );
     }
 
@@ -539,11 +543,11 @@ async function downloadAttendanceReport(req, res) {
       const filename = safeFilename("attendance_report", "xlsx");
       res.setHeader(
         "Content-Type",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       );
       res.setHeader(
         "Content-Disposition",
-        `attachment; filename="${filename}"`
+        `attachment; filename="${filename}"`,
       );
       res.setHeader("Content-Length", buf.length);
       return res.send(buf);
@@ -556,13 +560,13 @@ async function downloadAttendanceReport(req, res) {
       const buffer = await reportService.renderPdfBuffer(
         "Attendance Report",
         rows,
-        { meta }
+        { meta },
       );
       const filename = safeFilename("attendance_report", "pdf");
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader(
         "Content-Disposition",
-        `attachment; filename="${filename}"`
+        `attachment; filename="${filename}"`,
       );
       res.setHeader("Content-Length", buffer.length);
       return res.send(buffer);
@@ -572,7 +576,7 @@ async function downloadAttendanceReport(req, res) {
   } catch (err) {
     console.error(
       "[reportAttendanceHandler] Error rendering Attendance report:",
-      err && (err.stack || err)
+      err && (err.stack || err),
     );
     return res.status(500).json({ message: "Internal Server Error" });
   }

@@ -1,5 +1,5 @@
 const reportService = require("../services/reportIndex");
-const db = require("../config");
+const { getDbPool } = require("../utils/tenantDb");
 
 async function getDepartments(req, res) {
   try {
@@ -13,9 +13,10 @@ async function getDepartments(req, res) {
       return res.json(out);
     }
 
-    if (!db || typeof db.execute !== "function") {
+    const pool = await getDbPool(req);
+    if (!pool || typeof pool.execute !== "function") {
       console.error(
-        "[departmentsHandler] No DB available for departments fallback"
+        "[departmentsHandler] No DB available for departments fallback",
       );
       return res
         .status(501)
@@ -32,7 +33,7 @@ async function getDepartments(req, res) {
     let rows = null;
     for (const q of queries) {
       try {
-        const [r] = await db.execute(q);
+        const [r] = await pool.execute(q);
         if (Array.isArray(r)) {
           rows = r;
           break;
@@ -42,7 +43,7 @@ async function getDepartments(req, res) {
 
     if (!Array.isArray(rows)) {
       console.warn(
-        "[departmentsHandler] Departments fallback returned no rows"
+        "[departmentsHandler] Departments fallback returned no rows",
       );
       return res.json([]);
     }
@@ -58,7 +59,7 @@ async function getDepartments(req, res) {
   } catch (err) {
     console.error(
       "[departmentsHandler] getDepartments error:",
-      err && err.stack ? err.stack : err
+      err && err.stack ? err.stack : err,
     );
     return res.status(500).json({ message: "Failed to fetch departments" });
   }

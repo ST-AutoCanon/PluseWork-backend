@@ -8,19 +8,22 @@ const {
   safeFilename,
   pickFields,
 } = require("../services/reportFilters");
-const db = require("../config");
+const { getDbPool } = require("../utils/tenantDb");
 
-async function dbExecRaw(sql, params = []) {
+async function dbExecRaw(req, sql, params = []) {
+  const pool = await getDbPool(req);
   if (!Array.isArray(params)) params = [params];
-  if (db && typeof db.execute === "function") {
-    return await db.execute(sql, params);
+
+  if (pool && typeof pool.execute === "function") {
+    return await pool.execute(sql, params);
   }
-  if (db && typeof db.query === "function") {
-    return await db.query(sql, params);
+  if (pool && typeof pool.query === "function") {
+    return await pool.query(sql, params);
   }
+
   return new Promise((resolve, reject) => {
-    if (db && typeof db.query === "function") {
-      db.query(sql, params, (err, rows, fields) => {
+    if (pool && typeof pool.query === "function") {
+      pool.query(sql, params, (err, rows, fields) => {
         if (err) return reject(err);
         resolve([rows, fields]);
       });
@@ -91,28 +94,28 @@ function findEmployeeIdInRequest(req) {
     const qCandidate =
       tryParseCandidate(
         req.query &&
-          (req.query.employee_id || req.query.employeeId || req.query.employee)
+          (req.query.employee_id || req.query.employeeId || req.query.employee),
       ) ||
       tryParseCandidate(
         req.body &&
-          (req.body.employee_id || req.body.employeeId || req.body.employee)
+          (req.body.employee_id || req.body.employeeId || req.body.employee),
       );
     if (qCandidate) return qCandidate;
   } catch (e) {}
   return null;
 }
 
-async function findDepartmentsManagedBy(managerEmpId) {
+async function findDepartmentsManagedBy(req, managerEmpId) {
   if (!managerEmpId) return [];
   const out = [];
   try {
-    const [cols] = await dbExecRaw("SHOW COLUMNS FROM departments");
+    const [cols] = await dbExecRaw(req, "SHOW COLUMNS FROM departments");
     const colNames = Array.isArray(cols)
       ? cols
           .map((c) =>
             String(
-              c.Field || c.field || c.COLUMN_NAME || c.column_name || ""
-            ).trim()
+              c.Field || c.field || c.COLUMN_NAME || c.column_name || "",
+            ).trim(),
           )
           .filter(Boolean)
       : [];
@@ -120,8 +123,9 @@ async function findDepartmentsManagedBy(managerEmpId) {
     if (colNames.includes("manager_employee_id")) {
       try {
         const [rows] = await dbExecRaw(
+          req,
           "SELECT id FROM departments WHERE manager_employee_id = ?",
-          [managerEmpId]
+          [managerEmpId],
         );
         if (Array.isArray(rows) && rows.length) {
           for (const r of rows) if (r && r.id != null) out.push(String(r.id));
@@ -130,7 +134,7 @@ async function findDepartmentsManagedBy(managerEmpId) {
       } catch (e) {
         console.warn(
           "[reportEmployeesHandler] query on manager_employee_id failed:",
-          e && e.message
+          e && e.message,
         );
       }
     }
@@ -138,8 +142,9 @@ async function findDepartmentsManagedBy(managerEmpId) {
     if (colNames.includes("manager_id")) {
       try {
         const [rows] = await dbExecRaw(
+          req,
           "SELECT id FROM departments WHERE manager_id = ?",
-          [managerEmpId]
+          [managerEmpId],
         );
         if (Array.isArray(rows) && rows.length) {
           for (const r of rows) if (r && r.id != null) out.push(String(r.id));
@@ -148,21 +153,22 @@ async function findDepartmentsManagedBy(managerEmpId) {
       } catch (e) {
         console.warn(
           "[reportEmployeesHandler] query on manager_id failed:",
-          e && e.message
+          e && e.message,
         );
       }
     }
   } catch (e) {
     console.warn(
       "[reportEmployeesHandler] SHOW COLUMNS failed:",
-      e && e.message
+      e && e.message,
     );
   }
 
   try {
     const [rows] = await dbExecRaw(
+      req,
       "SELECT DISTINCT department_id AS id FROM employee_professional WHERE supervisor_id = ? AND department_id IS NOT NULL",
-      [managerEmpId]
+      [managerEmpId],
     );
     if (Array.isArray(rows) && rows.length) {
       for (const r of rows) {
@@ -173,7 +179,7 @@ async function findDepartmentsManagedBy(managerEmpId) {
   } catch (e) {
     console.warn(
       "[reportEmployeesHandler] fallback department query failed:",
-      e && e.message
+      e && e.message,
     );
   }
   return Array.from(new Set(out));
@@ -261,8 +267,9 @@ async function buildMetaFromReqQuery(query = {}) {
       if (idCandidate) {
         try {
           const [rows] = await dbExecRaw(
+            req,
             "SELECT employee_id, first_name, last_name, email FROM employees WHERE employee_id = ? LIMIT 1",
-            [idCandidate]
+            [idCandidate],
           );
           const er = Array.isArray(rows) && rows[0] ? rows[0] : null;
           if (er) {
@@ -303,8 +310,9 @@ async function buildMetaFromReqQuery(query = {}) {
       if (deptIdStr && /^\d+$/.test(String(deptIdStr))) {
         try {
           const [drows] = await dbExecRaw(
+            req,
             "SELECT id, name FROM departments WHERE id = ? LIMIT 1",
-            [deptIdStr]
+            [deptIdStr],
           );
           const dr = Array.isArray(drows) && drows[0] ? drows[0] : null;
           if (dr) {
@@ -313,7 +321,7 @@ async function buildMetaFromReqQuery(query = {}) {
           } else {
             meta.department = normalizeToPlainString(
               deptCandidate,
-              "department"
+              "department",
             );
             meta.filters.push(`Department: ${meta.department}`);
           }
@@ -331,7 +339,7 @@ async function buildMetaFromReqQuery(query = {}) {
   } catch (e) {
     console.warn(
       "[reportEmployeesHandler] buildMetaFromReqQuery failed:",
-      e && e.message
+      e && e.message,
     );
     if (meta.filters.length === 0)
       meta.filters.push("No explicit filters (meta build failed)");
@@ -342,7 +350,7 @@ async function buildMetaFromReqQuery(query = {}) {
 function isExplicitManagerScope(req) {
   try {
     const header = String(
-      (req.headers && (req.headers["x-force-manager-scope"] || "")) || ""
+      (req.headers && (req.headers["x-force-manager-scope"] || "")) || "",
     ).toLowerCase();
     const q1 = String(
       (req.query &&
@@ -350,7 +358,7 @@ function isExplicitManagerScope(req) {
           req.query.manager_scope ||
           req.query.managerScope ||
           "")) ||
-        ""
+        "",
     ).toLowerCase();
     if (header === "1" || header === "true") return true;
     if (q1 === "1" || q1 === "true") return true;
@@ -368,18 +376,18 @@ async function downloadEmployeesReport(req, res) {
 
     const employeeIdQuery = coerceToString(
       req.query.employee_id ?? req.query.employeeId ?? req.query.employee,
-      null
+      null,
     );
     let departmentIdQuery = coerceToString(
       req.query.department_id ?? req.query.departmentId ?? req.query.department,
-      null
+      null,
     );
 
     const requesterEmpId = findEmployeeIdInRequest(req);
     if (requesterEmpId)
       console.debug(
         "[reportEmployeesHandler] requester employee id discovered:",
-        requesterEmpId
+        requesterEmpId,
       );
 
     let isAdmin = false;
@@ -401,13 +409,13 @@ async function downloadEmployeesReport(req, res) {
       try {
         const [r] = await dbExecRaw(
           "SELECT department_id FROM employee_professional WHERE employee_id = ? LIMIT 1",
-          [requesterEmpId]
+          [requesterEmpId],
         );
         if (Array.isArray(r) && r[0] && r[0].department_id != null) {
           departmentIdQuery = String(r[0].department_id);
           console.debug(
             "[reportEmployeesHandler] derived department for requester:",
-            departmentIdQuery
+            departmentIdQuery,
           );
         } else {
           if (
@@ -418,11 +426,11 @@ async function downloadEmployeesReport(req, res) {
             managerEmpId = requesterEmpId;
             console.debug(
               "[reportEmployeesHandler] explicit manager scoping enabled via flag/role:",
-              managerEmpId
+              managerEmpId,
             );
           } else {
             console.debug(
-              "[reportEmployeesHandler] skipping manager scoping for requester (no explicit scope or admin/preview)"
+              "[reportEmployeesHandler] skipping manager scoping for requester (no explicit scope or admin/preview)",
             );
           }
         }
@@ -431,11 +439,11 @@ async function downloadEmployeesReport(req, res) {
           managerEmpId = requesterEmpId;
           console.debug(
             "[reportEmployeesHandler] fallback: explicit manager scoping enabled via flag/role:",
-            managerEmpId
+            managerEmpId,
           );
         } else {
           console.debug(
-            "[reportEmployeesHandler] skipping manager scoping for requester (derivation failed)"
+            "[reportEmployeesHandler] skipping manager scoping for requester (derivation failed)",
           );
         }
       }
@@ -455,17 +463,17 @@ async function downloadEmployeesReport(req, res) {
         status,
         fields,
         employeeIdQuery,
-        departmentIdQuery
+        departmentIdQuery,
       );
       rows = Array.isArray(rows) ? rows : [];
     } else if (managerEmpId) {
       let managedDeptIds = [];
       try {
-        managedDeptIds = await findDepartmentsManagedBy(managerEmpId);
+        managedDeptIds = await findDepartmentsManagedBy(req, managerEmpId);
       } catch (e) {
         console.warn(
           "[reportEmployeesHandler] findDepartmentsManagedBy attempt failed:",
-          e && e.message
+          e && e.message,
         );
       }
 
@@ -479,14 +487,14 @@ async function downloadEmployeesReport(req, res) {
               status,
               fields,
               null,
-              d
+              d,
             );
             if (Array.isArray(part) && part.length) merged.push(...part);
           } catch (e) {
             console.warn(
               "[reportEmployeesHandler] per-dept getEmployeeRows failed for dept",
               d,
-              e && e.message
+              e && e.message,
             );
           }
         }
@@ -500,17 +508,18 @@ async function downloadEmployeesReport(req, res) {
             startDate,
             endDate,
             status,
-            fields
+            fields,
           );
           const allArr = Array.isArray(all) ? all : [];
           const ids = Array.from(
-            new Set(allArr.map((x) => x.employee_id).filter(Boolean))
+            new Set(allArr.map((x) => x.employee_id).filter(Boolean)),
           );
           if (ids.length) {
             const placeholders = ids.map(() => "?").join(",");
             const [profRows] = await dbExecRaw(
+              req,
               `SELECT employee_id, supervisor_id FROM employee_professional WHERE employee_id IN (${placeholders})`,
-              ids
+              ids,
             );
             const supMap = {};
             for (const pr of Array.isArray(profRows) ? profRows : []) {
@@ -526,7 +535,7 @@ async function downloadEmployeesReport(req, res) {
         } catch (e) {
           console.error(
             "[reportEmployeesHandler] fallback filtering failed:",
-            e && e.message
+            e && e.message,
           );
           rows = [];
         }
@@ -536,7 +545,7 @@ async function downloadEmployeesReport(req, res) {
         startDate,
         endDate,
         status,
-        fields
+        fields,
       );
       rows = Array.isArray(rows) ? rows : [];
     }
@@ -546,7 +555,7 @@ async function downloadEmployeesReport(req, res) {
         "[reportEmployeesHandler] preview rows:",
         rows.length,
         "status param:",
-        status
+        status,
       );
       const msg =
         rows.length === 0
@@ -574,11 +583,11 @@ async function downloadEmployeesReport(req, res) {
       const filename = safeFilename("employees_report", "xlsx");
       res.setHeader(
         "Content-Type",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       );
       res.setHeader(
         "Content-Disposition",
-        `attachment; filename="${filename}"`
+        `attachment; filename="${filename}"`,
       );
       res.setHeader("Content-Length", buf.length);
       return res.send(buf);
@@ -588,13 +597,13 @@ async function downloadEmployeesReport(req, res) {
       const pdfBuf = await reportService.renderPdfBuffer(
         "Employees Report",
         rowsToExport,
-        { meta }
+        { meta },
       );
       const filename = safeFilename("employees_report", "pdf");
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader(
         "Content-Disposition",
-        `attachment; filename="${filename}"`
+        `attachment; filename="${filename}"`,
       );
       res.setHeader("Content-Length", pdfBuf.length);
       return res.send(pdfBuf);
@@ -604,7 +613,7 @@ async function downloadEmployeesReport(req, res) {
   } catch (err) {
     console.error(
       "[reportEmployeesHandler] Error rendering Employees report:",
-      err && (err.stack || err.message)
+      err && (err.stack || err.message),
     );
     return res.status(500).json({ message: "Internal Server Error" });
   }

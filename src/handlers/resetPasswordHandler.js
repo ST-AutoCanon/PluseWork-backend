@@ -15,8 +15,8 @@ exports.resetPassword = async (req, res) => {
         .json(
           ErrorHandler.generateErrorResponse(
             400,
-            "resetToken and newPassword are required."
-          )
+            "resetToken and newPassword are required.",
+          ),
         );
     }
 
@@ -26,7 +26,7 @@ exports.resetPassword = async (req, res) => {
       return res
         .status(400)
         .json(
-          ErrorHandler.generateErrorResponse(400, "Invalid or expired token.")
+          ErrorHandler.generateErrorResponse(400, "Invalid or expired token."),
         );
     }
 
@@ -36,11 +36,14 @@ exports.resetPassword = async (req, res) => {
 
     await updateEmployeePassword(orgId, email, hashedPassword);
 
-    return res.status(200).json(
-      ErrorHandler.generateSuccessResponse({
-        message: "Password reset successful. You can now log in.",
-      })
-    );
+    return res
+      .status(200)
+      .json(
+        ErrorHandler.generateSuccessResponse(
+          200,
+          "Password reset successful. You can now log in.",
+        ),
+      );
   } catch (error) {
     console.error("Error resetting password:", error);
 
@@ -49,8 +52,8 @@ exports.resetPassword = async (req, res) => {
       .json(
         ErrorHandler.generateErrorResponse(
           500,
-          error.message || "An error occurred while resetting your password."
-        )
+          error.message || "An error occurred while resetting your password.",
+        ),
       );
   }
 };
