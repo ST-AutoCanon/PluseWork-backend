@@ -18,7 +18,7 @@ const taskMessagesRoutes = require("./routes/taskMessagesRoutes");
 const employeeTaskRoutes = require("./routes/employeeTaskUpdateRoutes");
 const weeklyTaskSupervisorRoutes = require("./routes/weekly_task_supervisor");
 const weekTaskRoutes = require("./routes/weekTaskRoutes");
-
+const reportsRoutes = require("./routes/reportRoutes");
 const compensationRoutes = require("./routes/compensationRoutes");
 const assignCompensationRoutes = require("./routes/assignCompensationRoute");
 const employeeRoutesforsalarybreakup = require("./routes/compensationRoutes");
@@ -296,7 +296,7 @@ app.use((req, res, next) => {
     app.use("/api/salary-prefe", salaryPreferenceRoutes);
     app.use("/api", sidebarRoutes);
     app.use("/api", configRoutes);
-
+    app.use("/api/report", reportsRoutes);
     app.use("/api/org", visibilityRoutes);
     app.use("/api/weekly_task_supervisor", weeklyTaskSupervisorRoutes);
     app.use("/api/week_tasks", weekTaskRoutes);

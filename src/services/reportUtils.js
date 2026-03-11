@@ -1,4 +1,20 @@
 const db = require("../config");
+const { getOrgId } = require("../utils/requestContext");
+const { getTenantPoolByOrgId } = require("../db/tenantPoolManager");
+
+async function getDbForOrgId(orgId) {
+  if (!orgId) return db;
+  try {
+    return await getTenantPoolByOrgId(orgId);
+  } catch (err) {
+    console.error(
+      "[reportUtils] failed to resolve tenant DB for orgId",
+      orgId,
+      err,
+    );
+    throw err;
+  }
+}
 
 function countPlaceholders(sql) {
   if (!sql || typeof sql !== "string") return 0;
@@ -88,16 +104,23 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function fetchRows(rawSql, rawParams = []) {
+async function fetchRows(rawSql, rawParams = [], options = {}) {
   if (!rawSql || typeof rawSql !== "string") {
     console.error("[reportUtils] fetchRows called with invalid SQL:", rawSql);
     throw new Error(
-      "reportService: SQL query is missing or invalid. Check ../constants/reportQueries.js for missing keys."
+      "reportService: SQL query is missing or invalid. Check ../constants/reportQueries.js for missing keys.",
     );
   }
+
+  const orgId =
+    options.orgId ||
+    (typeof options === "string" ? options : null) ||
+    getOrgId();
+
+  const pool = await getDbForOrgId(orgId);
   if (
-    !db ||
-    (typeof db.query !== "function" && typeof db.execute !== "function")
+    !pool ||
+    (typeof pool.query !== "function" && typeof pool.execute !== "function")
   ) {
     throw new Error("DB not available. Check ../config export.");
   }
@@ -124,7 +147,7 @@ async function fetchRows(rawSql, rawParams = []) {
       const toPad = placeholderCount - params.length;
       for (let i = 0; i < toPad; i++) params.push(null);
       console.debug(
-        `[reportUtils] padded params to match placeholders { placeholderCount: ${placeholderCount}, paramsLength: ${before} }`
+        `[reportUtils] padded params to match placeholders { placeholderCount: ${placeholderCount}, paramsLength: ${before} }`,
       );
     }
   } catch (e) {}
@@ -138,25 +161,25 @@ async function fetchRows(rawSql, rawParams = []) {
       const t0 = Date.now();
 
       let res;
-      if (typeof db.query === "function") {
-        const maybePromise = db.query(sql, params);
+      if (typeof pool.query === "function") {
+        const maybePromise = pool.query(sql, params);
         if (maybePromise && typeof maybePromise.then === "function") {
           res = await maybePromise;
         } else {
           res = await new Promise((resolve, reject) => {
-            db.query(sql, params, (err, rows, fields) => {
+            pool.query(sql, params, (err, rows, fields) => {
               if (err) return reject(err);
               resolve([rows, fields]);
             });
           });
         }
-      } else if (typeof db.execute === "function") {
-        const maybePromise = db.execute(sql, params);
+      } else if (typeof pool.execute === "function") {
+        const maybePromise = pool.execute(sql, params);
         if (maybePromise && typeof maybePromise.then === "function") {
           res = await maybePromise;
         } else {
           res = await new Promise((resolve, reject) => {
-            db.execute(sql, params, (err, rows, fields) => {
+            pool.execute(sql, params, (err, rows, fields) => {
               if (err) return reject(err);
               resolve([rows, fields]);
             });
@@ -201,7 +224,7 @@ async function fetchRows(rawSql, rawParams = []) {
         const enriched = new Error(
           `[reportUtils] fetchRows error: ${
             err && err.message ? err.message : String(err)
-          }\nSQL: \n${sql}\n -- params: ${JSON.stringify(safeParams)}`
+          }\nSQL: \n${sql}\n -- params: ${JSON.stringify(safeParams)}`,
         );
         enriched.stack = err && err.stack ? err.stack : enriched.stack;
         console.error(enriched.message);
@@ -209,7 +232,7 @@ async function fetchRows(rawSql, rawParams = []) {
       } else {
         const backoff = 200 * attempt;
         console.warn(
-          `[reportUtils] transient DB error (${msg}), retrying ${attempt}/${maxRetries} after ${backoff}ms`
+          `[reportUtils] transient DB error (${msg}), retrying ${attempt}/${maxRetries} after ${backoff}ms`,
         );
         await sleep(backoff);
         continue;

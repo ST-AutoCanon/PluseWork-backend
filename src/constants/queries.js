@@ -5,16 +5,23 @@ module.exports = {
     AND status = 'Active';
   `,
   SAVE_RESET_TOKEN: `
-  INSERT INTO password_resets (email, token, expiry_time) 
-  VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 1 HOUR))
+  INSERT INTO password_resets (email, token, expiry_time, org_id) 
+  VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 1 HOUR), ?)
   ON DUPLICATE KEY UPDATE 
     token = VALUES(token), 
-    expiry_time = VALUES(expiry_time)
+    expiry_time = VALUES(expiry_time),
+    org_id = VALUES(org_id)
+`,
+  SAVE_RESET_TOKEN_MASTER: `
+  INSERT INTO password_reset_tokens (token, org_id, created_at)
+  VALUES (?, ?, NOW())
+  ON DUPLICATE KEY UPDATE
+    created_at = VALUES(created_at)
 `,
   VERIFY_RESET_TOKEN: `
   SELECT email 
   FROM password_resets 
-  WHERE token = ? AND expiry_time > NOW();
+  WHERE token = ? AND org_id = ? AND expiry_time > NOW();
   `,
   UPDATE_EMPLOYEE_PASSWORD: `
     UPDATE employees 
