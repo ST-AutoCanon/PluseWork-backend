@@ -1,7 +1,11 @@
 module.exports = (req, res, next) => {
   const idleLimit = 5 * 60 * 1000;
 
-  if (req.path === "/login" || req.path === "/orgs") {
+  if (
+    req.path === "/login" ||
+    req.path === "/orgs" ||
+    req.path === "/forgot-password"
+  ) {
     return next();
   }
 

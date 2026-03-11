@@ -6,7 +6,7 @@ module.exports = {
   `,
   SAVE_RESET_TOKEN: `
   INSERT INTO password_resets (email, token, expiry_time, org_id) 
-  VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 1 HOUR), ?)
+  VALUES (?, ?, ?, ?)
   ON DUPLICATE KEY UPDATE 
     token = VALUES(token), 
     expiry_time = VALUES(expiry_time),
