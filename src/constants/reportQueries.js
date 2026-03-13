@@ -40,23 +40,22 @@ SELECT
 
   r.claim_type,
   r.transport_type,
-  DATE_FORMAT(r.from_date, '%Y-%m-%d') AS from_date,
-  DATE_FORMAT(r.to_date, '%Y-%m-%d') AS to_date,
-  DATE_FORMAT(r.date, '%Y-%m-%d') AS date,
-  r.travel_from,
-  r.travel_to,
-  r.purpose,
-  r.purchasing_item,
-  r.accommodation_fees,
-  r.no_of_days,
-  r.total_amount,
-  r.meal_type,
-  r.service_provider,
-  r.da,
-  r.transport_amount,
-  r.stationary,
+  MIN(DATE_FORMAT(rl.from_date, '%Y-%m-%d')) AS from_date,
+  MAX(DATE_FORMAT(rl.to_date, '%Y-%m-%d')) AS to_date,
+  MIN(DATE_FORMAT(rl.date, '%Y-%m-%d')) AS date,
+  MAX(rl.travel_from) AS travel_from,
+  MAX(rl.travel_to) AS travel_to,
+  MAX(rl.purpose) AS purpose,
+  MAX(rl.purchasing_item) AS purchasing_item,
+  SUM(rl.accommodation_fees) AS accommodation_fees,
+  SUM(rl.total_amount) AS line_total_amount,
+  MAX(rl.meal_type) AS meal_type,
+  MAX(rl.service_provider) AS service_provider,
+  SUM(rl.da) AS da,
+  SUM(rl.transport_amount) AS transport_amount,
+  MAX(rl.stationairy_item) AS stationary,
   r.project,
-  r.meals_objective,
+  MAX(rl.meals_objective) AS meals_objective,
 
   r.status AS approval_status,
   COALESCE(NULLIF(r.payment_status, ''), NULLIF(r.status, '')) AS payment_status,
@@ -70,14 +69,16 @@ SELECT
   DATE_FORMAT(r.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
   DATE_FORMAT(r.approved_date, '%Y-%m-%d') AS approved_date,
   DATE_FORMAT(r.paid_date, '%Y-%m-%d') AS paid_date,
-  DATE_FORMAT(r.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+  DATE_FORMAT(r.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at,
+  r.aggregated_total AS total_amount
 FROM reimbursement r
+LEFT JOIN reimbursement_lines rl ON r.id = rl.reimbursement_id
 LEFT JOIN employees e ON r.employee_id = e.employee_id
 LEFT JOIN employee_professional pr ON e.employee_id = pr.employee_id
 LEFT JOIN departments d ON pr.department_id = d.id
 WHERE ( ? IS NULL OR (COALESCE(r.approved_date, r.created_at) >= ? ) )
   AND ( ? IS NULL OR (COALESCE(r.approved_date, r.created_at) < DATE_ADD(?, INTERVAL 1 DAY) ) )
-  AND ( ? IS NULL OR LOWER(COALESCE(r.payment_status, r.status, '')) = LOWER(?) )
+GROUP BY r.id
 ORDER BY r.created_at DESC
 `,
 
@@ -324,14 +325,9 @@ ORDER BY e.created_at DESC
     DATE_FORMAT(wt.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
     DATE_FORMAT(wt.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
   FROM weekly_tasks wt
-  LEFT JOIN employees e ON wt.employee_id = e.employee_id
+  LEFT JOIN employees e ON wt.employee_id COLLATE utf8mb4_general_ci = e.employee_id COLLATE utf8mb4_general_ci
   WHERE ( ? IS NULL OR (wt.task_date >= ? ) )
     AND ( ? IS NULL OR (wt.task_date < DATE_ADD(?, INTERVAL 1 DAY) ) )
-    AND ( ? IS NULL OR (
-      LOWER(COALESCE(wt.emp_status, '')) = LOWER(?) OR
-      LOWER(COALESCE(wt.sup_status, '')) = LOWER(?) OR
-      LOWER(COALESCE(wt.sup_review_status, '')) = LOWER(?)
-    ))
   ORDER BY wt.task_date DESC, wt.task_id ASC
 `,
 

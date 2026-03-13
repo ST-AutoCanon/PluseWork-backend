@@ -209,7 +209,7 @@ function formatTimestampAsiaKolkata(d = new Date()) {
       const [dd, mm, yyyy] = dp;
       return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(
         2,
-        "0"
+        "0",
       )} ${timePart} (Asia/Kolkata)`;
     }
     return `${s} (Asia/Kolkata)`;
@@ -276,39 +276,39 @@ function generateMetaHeaderHtml(headerInfo) {
     if (employee)
       leftItems.push(
         `<div class="meta-item"><strong>Employee:</strong> ${escapeHtml(
-          employee
-        )}</div>`
+          employee,
+        )}</div>`,
       );
     if (dept)
       leftItems.push(
         `<div class="meta-item"><strong>Department:</strong> ${escapeHtml(
-          dept
-        )}</div>`
+          dept,
+        )}</div>`,
       );
     if (status)
       leftItems.push(
         `<div class="meta-item"><strong>Status:</strong> ${escapeHtml(
-          status
-        )}</div>`
+          status,
+        )}</div>`,
       );
   } else {
     if (status)
       leftItems.push(
         `<div class="meta-item"><strong>Status:</strong> ${escapeHtml(
-          status
-        )}</div>`
+          status,
+        )}</div>`,
       );
     if (dept)
       leftItems.push(
         `<div class="meta-item"><strong>Department:</strong> ${escapeHtml(
-          dept
-        )}</div>`
+          dept,
+        )}</div>`,
       );
     if (employee)
       leftItems.push(
         `<div class="meta-item"><strong>Employee:</strong> ${escapeHtml(
-          employee
-        )}</div>`
+          employee,
+        )}</div>`,
       );
   }
 
@@ -389,13 +389,13 @@ function rowsToHtml(title, rows) {
   if (smallTableMode) {
     const tightColPx = Math.max(
       80,
-      Math.ceil((pageContentWidthPx - 160) / colCount)
+      Math.ceil((pageContentWidthPx - 160) / colCount),
     );
     tableWidthPx = Math.min(tightColPx * colCount, maxTableWidthPx);
   } else {
     tableWidthPx = Math.min(
       Math.max(computedColPx * Math.max(1, colCount), pageContentWidthPx),
-      maxTableWidthPx
+      maxTableWidthPx,
     );
   }
 
@@ -407,7 +407,7 @@ function rowsToHtml(title, rows) {
             ? i === headerCols.length - 1
               ? Math.max(
                   minColPx,
-                  tableWidthPx - computedColPx * (headerCols.length - 1)
+                  tableWidthPx - computedColPx * (headerCols.length - 1),
                 )
               : computedColPx
             : computedColPx;
@@ -482,7 +482,7 @@ function rowsToHtml(title, rows) {
         ? ""
         : ` width:${Math.round(computedColPx)}px;`;
       return `<th style="${thInlineBase}${widthAttr}">${escapeHtml(
-        breakLongWords(String(label), 40)
+        breakLongWords(String(label), 40),
       )}</th>`;
     })
     .join("");
@@ -509,7 +509,7 @@ function rowsToHtml(title, rows) {
                   ? ""
                   : ` width:${Math.round(computedColPx)}px;`;
                 return `<td style="${tdInlineBase}; background:${bg};${widthAttr}">${escapeHtml(
-                  cell
+                  cell,
                 )}</td>`;
               })
               .join("");
@@ -534,12 +534,12 @@ function rowsToHtml(title, rows) {
     }; margin: 12mm; }
     html, body { height: 100%; margin: 0; padding: 0; }
     body { font-family: ${tableFont}; color:${
-    colors.tableText
-  }; margin:0; padding:0; -webkit-print-color-adjust: exact; }
+      colors.tableText
+    }; margin:0; padding:0; -webkit-print-color-adjust: exact; }
     .wrap { box-sizing: border-box; width: 100%; padding: 6px; margin: 0; overflow: visible; display:block; }
     .meta { margin-bottom:8px; font-size:9px; color:${colors.metaColor}; ${
-    smallTableMode ? "text-align:center;" : "text-align:left;"
-  } }
+      smallTableMode ? "text-align:center;" : "text-align:left;"
+    } }
     thead { display: table-header-group; }
     tfoot { display: table-footer-group; }
     tr { page-break-inside: avoid; }
@@ -589,6 +589,9 @@ function findLibreOfficeBinary() {
   if (process.env.LIBREOFFICE_PATH)
     candidates.push(process.env.LIBREOFFICE_PATH);
   candidates.push("soffice", "libreoffice", "soffice.exe", "libreoffice.exe");
+  // Add common Windows paths
+  candidates.push("C:\\Program Files\\LibreOffice\\program\\soffice.exe");
+  candidates.push("C:\\Program Files (x86)\\LibreOffice\\program\\soffice.exe");
   for (const bin of candidates) {
     if (!bin) continue;
     try {
@@ -613,7 +616,7 @@ async function renderHtmlStringToPdfBuffer(htmlString) {
     throw new Error("Empty HTML passed to HTML->PDF converter");
   }
   const tmpBase = await fs.promises.mkdtemp(
-    path.join(os.tmpdir(), "report-html-")
+    path.join(os.tmpdir(), "report-html-"),
   );
   const htmlFilename = `report_${Date.now()}.html`;
   const htmlPath = path.join(tmpBase, htmlFilename);
@@ -631,13 +634,13 @@ async function renderHtmlStringToPdfBuffer(htmlString) {
       await fs.promises.rm(tmpBase, { recursive: true, force: true });
     } catch (e) {}
     throw new Error(
-      "LibreOffice binary not found. Install LibreOffice and ensure 'soffice' in PATH or set LIBREOFFICE_PATH."
+      "LibreOffice binary not found. Install LibreOffice and ensure 'soffice' in PATH or set LIBREOFFICE_PATH.",
     );
   }
   const args = [
     "--headless",
     "--convert-to",
-    "pdf:writer_pdf_Export",
+    "pdf",
     htmlPath,
     "--outdir",
     tmpBase,
@@ -653,7 +656,7 @@ async function renderHtmlStringToPdfBuffer(htmlString) {
       const debugFiles = await fs.promises.readdir(tmpBase);
       console.error(
         "[reportRenders] LibreOffice conversion error, tmp files:",
-        debugFiles
+        debugFiles,
       );
     } catch (e) {}
     try {
@@ -661,12 +664,12 @@ async function renderHtmlStringToPdfBuffer(htmlString) {
     } catch (e) {}
     throw new Error(
       "LibreOffice conversion failed: " +
-        (convErr && convErr.message ? convErr.message : String(convErr))
+        (convErr && convErr.message ? convErr.message : String(convErr)),
     );
   }
   const pdfPath = path.join(
     tmpBase,
-    path.basename(htmlPath, path.extname(htmlPath)) + ".pdf"
+    path.basename(htmlPath, path.extname(htmlPath)) + ".pdf",
   );
   const maxWait = 5000;
   const step = 200;
@@ -684,7 +687,7 @@ async function renderHtmlStringToPdfBuffer(htmlString) {
     } catch (e) {}
     throw new Error(
       "Converted PDF missing or unreadable: " +
-        (readErr && readErr.message ? readErr.message : String(readErr))
+        (readErr && readErr.message ? readErr.message : String(readErr)),
     );
   }
   try {
@@ -700,7 +703,7 @@ async function renderHtmlStringToPdfBuffer(htmlString) {
 
 async function renderXlsxBufferToPdfBuffer(xlsxBuffer, title, meta) {
   const tmpBase = await fs.promises.mkdtemp(
-    path.join(os.tmpdir(), "report-xlsx-")
+    path.join(os.tmpdir(), "report-xlsx-"),
   );
   const xlsxFilename = `report_${Date.now()}.xlsx`;
   const xlsxPath = path.join(tmpBase, xlsxFilename);
@@ -718,7 +721,7 @@ async function renderXlsxBufferToPdfBuffer(xlsxBuffer, title, meta) {
       await fs.promises.rm(tmpBase, { recursive: true, force: true });
     } catch (e) {}
     throw new Error(
-      "LibreOffice/soffice not found. Install LibreOffice and ensure 'soffice' in PATH or set LIBREOFFICE_PATH."
+      "LibreOffice/soffice not found. Install LibreOffice and ensure 'soffice' in PATH or set LIBREOFFICE_PATH.",
     );
   }
   const args = [
@@ -740,7 +743,7 @@ async function renderXlsxBufferToPdfBuffer(xlsxBuffer, title, meta) {
       const debugFiles = await fs.promises.readdir(tmpBase);
       console.error(
         "[reportRenders] LibreOffice conversion error, tmp files:",
-        debugFiles
+        debugFiles,
       );
     } catch (e) {}
     try {
@@ -748,12 +751,12 @@ async function renderXlsxBufferToPdfBuffer(xlsxBuffer, title, meta) {
     } catch (e) {}
     throw new Error(
       "LibreOffice conversion failed: " +
-        (convErr && convErr.message ? convErr.message : String(convErr))
+        (convErr && convErr.message ? convErr.message : String(convErr)),
     );
   }
   const pdfPath = path.join(
     tmpBase,
-    path.basename(xlsxPath, path.extname(xlsxPath)) + ".pdf"
+    path.basename(xlsxPath, path.extname(xlsxPath)) + ".pdf",
   );
   const maxWait = 5000;
   const step = 200;
@@ -771,7 +774,7 @@ async function renderXlsxBufferToPdfBuffer(xlsxBuffer, title, meta) {
     } catch (e) {}
     throw new Error(
       "Converted PDF missing or unreadable: " +
-        (readErr && readErr.message ? readErr.message : String(readErr))
+        (readErr && readErr.message ? readErr.message : String(readErr)),
     );
   }
   try {
@@ -796,7 +799,7 @@ async function renderXlsxBufferToPdfBuffer(xlsxBuffer, title, meta) {
   } catch (e) {
     console.error(
       "[reportRenders] failed to attach meta cover page:",
-      e && e.message
+      e && e.message,
     );
     return pdfBuf;
   }
@@ -814,7 +817,7 @@ async function mergePdfBuffers(buffers) {
     } catch (e) {
       console.warn(
         "[reportRenders] skipping invalid PDF while merging:",
-        e && e.message
+        e && e.message,
       );
     }
   }
