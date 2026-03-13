@@ -209,7 +209,7 @@ async function attachEmployeeNames(rows) {
       (!r.employee_type ||
         !r.role ||
         !r.position ||
-        (!r.joining_date && !r.joiningdate))
+        (!r.joining_date && !r.joiningdate)),
   );
   if (!needName && !needProf) return;
 
@@ -217,10 +217,10 @@ async function attachEmployeeNames(rows) {
     new Set(
       rows
         .map((r) =>
-          r.employee_id != null ? String(r.employee_id).trim() : null
+          r.employee_id != null ? String(r.employee_id).trim() : null,
         )
-        .filter(Boolean)
-    )
+        .filter(Boolean),
+    ),
   );
   if (empIds.length === 0) return;
 
@@ -309,7 +309,7 @@ async function attachEmployeeNames(rows) {
 async function attachDeptNames(rows) {
   if (!Array.isArray(rows) || rows.length === 0) return;
   const missing = rows.some(
-    (r) => (r.department_id || r.pr_department_id) && !r.department_name
+    (r) => (r.department_id || r.pr_department_id) && !r.department_name,
   );
   if (!missing) return;
 
@@ -321,8 +321,8 @@ async function attachDeptNames(rows) {
           if (r.pr_department_id != null) return String(r.pr_department_id);
           return null;
         })
-        .filter(Boolean)
-    )
+        .filter(Boolean),
+    ),
   );
   if (deptIds.length === 0) return;
 
@@ -341,8 +341,8 @@ async function attachDeptNames(rows) {
         r.department_id != null
           ? String(r.department_id)
           : r.pr_department_id != null
-          ? String(r.pr_department_id)
-          : null;
+            ? String(r.pr_department_id)
+            : null;
       if (did && !r.department_name)
         r.department_name = map.get(did) || r.department_name || "";
     }
@@ -359,10 +359,10 @@ async function forceFilterByEmployeeProfessional(rows, departmentId) {
     new Set(
       rows
         .map((r) =>
-          r.employee_id != null ? String(r.employee_id).trim() : null
+          r.employee_id != null ? String(r.employee_id).trim() : null,
         )
-        .filter(Boolean)
-    )
+        .filter(Boolean),
+    ),
   );
   if (empIds.length === 0) return [];
 
@@ -407,7 +407,7 @@ async function forceFilterByEmployeeProfessional(rows, departmentId) {
   } catch (e) {
     console.warn(
       "[reports] forceFilterByEmployeeProfessional failed (DB lookup); returning original rows. Error:",
-      e && e.message
+      e && e.message,
     );
     return rows;
   }
@@ -419,12 +419,12 @@ async function getLeaveRows(
   status,
   fields,
   employeeId = null,
-  departmentId = null
+  departmentId = null,
 ) {
   const sql = queries.GET_LEAVE_REPORT;
   if (!sql) {
     console.error(
-      "[getLeaveRows] ❌ Missing GET_LEAVE_REPORT in reportQueries"
+      "[getLeaveRows] ❌ Missing GET_LEAVE_REPORT in reportQueries",
     );
     throw new Error("Missing GET_LEAVE_REPORT SQL definition");
   }
@@ -456,12 +456,12 @@ async function getLeaveRows(
           return await fetchRows(queries.GET_DEPARTMENT_NAME_BY_ID, [deptId]);
         }
         return [];
-      }
+      },
     );
   } catch (e) {
     console.warn(
       "⚠️ [getLeaveRows] Warning applying emp/dept filters:",
-      e && e.message
+      e && e.message,
     );
   }
 
@@ -472,7 +472,7 @@ async function getLeaveRows(
     if (Array.isArray(strict) && strict.length >= 0) {
       rows = strict;
       console.debug(
-        `[getLeaveRows] ✅ Strict dept filter applied: ${before} -> ${rows.length}`
+        `[getLeaveRows] ✅ Strict dept filter applied: ${before} -> ${rows.length}`,
       );
     }
   }
@@ -483,17 +483,17 @@ async function getLeaveRows(
       const before = rows.length;
 
       rows = rows.filter((r) =>
-        filters.statusMatches(statusCandidate, [r.status])
+        filters.statusMatches(statusCandidate, [r.status]),
       );
       const after = rows.length;
       console.debug(
-        `[getLeaveRows] ✅ Status filter '${statusCandidate}' applied: ${before} -> ${after}`
+        `[getLeaveRows] ✅ Status filter '${statusCandidate}' applied: ${before} -> ${after}`,
       );
     }
   } catch (e) {
     console.warn(
       "⚠️ [getLeaveRows] Status safety filter failed:",
-      e && e.message
+      e && e.message,
     );
   }
 
@@ -532,12 +532,12 @@ async function getReimbursementRows(
   status,
   fields,
   employeeId = null,
-  departmentId = null
+  departmentId = null,
 ) {
   const rawSql = queries.GET_REIMBURSEMENT_REPORT;
   if (!rawSql || typeof rawSql !== "string") {
     console.error(
-      "[reports] GET_REIMBURSEMENT_REPORT missing in reportQueries"
+      "[reports] GET_REIMBURSEMENT_REPORT missing in reportQueries",
     );
     throw new Error("Missing GET_REIMBURSEMENT_REPORT SQL definition");
   }
@@ -623,12 +623,12 @@ async function getReimbursementRows(
           return await fetchRows(queries.GET_DEPARTMENT_NAME_BY_ID, [deptId]);
         }
         return [];
-      }
+      },
     );
   } catch (e) {
     console.warn(
       "[reports] Warning applying emp/dept filters:",
-      e && e.message
+      e && e.message,
     );
   }
 
@@ -636,12 +636,12 @@ async function getReimbursementRows(
     const beforeCount = normalized.length;
     const strict = await forceFilterByEmployeeProfessional(
       normalized,
-      departmentId
+      departmentId,
     );
     if (Array.isArray(strict)) {
       normalized = strict;
       console.debug(
-        `[reports] getReimbursementRows strict dept filter: ${beforeCount} -> ${normalized.length}`
+        `[reports] getReimbursementRows strict dept filter: ${beforeCount} -> ${normalized.length}`,
       );
     }
   }
@@ -655,17 +655,17 @@ async function getReimbursementRows(
           r.status,
           r.payment_status,
           r.approval_status,
-        ])
+        ]),
       );
       const after = normalized.length;
       console.debug(
-        `[reports] getReimbursementRows status filter '${statusCandidate}': ${before} -> ${after}`
+        `[reports] getReimbursementRows status filter '${statusCandidate}': ${before} -> ${after}`,
       );
     }
   } catch (e) {
     console.warn(
       "[reports] getReimbursementRows status safety filter failed:",
-      e && e.message
+      e && e.message,
     );
   }
 
@@ -716,12 +716,12 @@ async function getAttendanceRows(
   status,
   fields,
   employeeId = null,
-  departmentId = null
+  departmentId = null,
 ) {
   const sql = queries.GET_EMPLOYEE_ATTENDANCE_REPORT;
   if (!sql) {
     console.error(
-      "[reports] GET_EMPLOYEE_ATTENDANCE_REPORT missing in reportQueries"
+      "[reports] GET_EMPLOYEE_ATTENDANCE_REPORT missing in reportQueries",
     );
     throw new Error("Missing GET_EMPLOYEE_ATTENDANCE_REPORT SQL definition");
   }
@@ -737,7 +737,7 @@ async function getAttendanceRows(
   } catch (err) {
     console.error(
       "[reports] getAttendanceRows SQL error:",
-      err && (err.stack || err)
+      err && (err.stack || err),
     );
     throw err;
   }
@@ -755,12 +755,12 @@ async function getAttendanceRows(
           return await fetchRows(queries.GET_DEPARTMENT_NAME_BY_ID, [deptId]);
         }
         return [];
-      }
+      },
     );
   } catch (e) {
     console.warn(
       "[reports] Warning applying emp/dept filters (attendance):",
-      e && e.message
+      e && e.message,
     );
   }
 
@@ -770,7 +770,7 @@ async function getAttendanceRows(
     if (Array.isArray(strict)) {
       rows = strict;
       console.debug(
-        `[reports] getAttendanceRows strict dept filter: ${before} -> ${rows.length}`
+        `[reports] getAttendanceRows strict dept filter: ${before} -> ${rows.length}`,
       );
     }
   }
@@ -780,17 +780,17 @@ async function getAttendanceRows(
     if (statusCandidate) {
       const before = rows.length;
       rows = rows.filter((r) =>
-        filters.statusMatches(statusCandidate, [r.punch_status, r.status])
+        filters.statusMatches(statusCandidate, [r.punch_status, r.status]),
       );
       const after = rows.length;
       console.debug(
-        `[reports] getAttendanceRows status filter '${statusCandidate}': ${before} -> ${after}`
+        `[reports] getAttendanceRows status filter '${statusCandidate}': ${before} -> ${after}`,
       );
     }
   } catch (e) {
     console.warn(
       "[reports] getAttendanceRows status safety filter failed:",
-      e && e.message
+      e && e.message,
     );
   }
 
@@ -818,7 +818,7 @@ async function getTaskRows(
   status,
   fields,
   employeeId = null,
-  departmentId = null
+  departmentId = null,
 ) {
   const sql = queries.GET_TASK_REPORT;
   if (!sql) {
@@ -837,7 +837,7 @@ async function getTaskRows(
   } catch (err) {
     console.error(
       "[reports] getTaskRows SQL error:",
-      (err && err.stack) || err
+      (err && err.stack) || err,
     );
     throw err;
   }
@@ -859,13 +859,13 @@ async function getTaskRows(
           return await fetchRows(queries.GET_DEPARTMENT_NAME_BY_ID, [deptId]);
         }
         return [];
-      }
+      },
     );
     if (Array.isArray(afterFilter)) rows = afterFilter;
   } catch (e) {
     console.warn(
       "[reports] Warning applying emp/dept filters (tasks):",
-      e && e.message
+      e && e.message,
     );
   }
 
@@ -875,7 +875,7 @@ async function getTaskRows(
     if (Array.isArray(strict)) {
       rows = strict;
       console.debug(
-        `[reports] getTaskRows strict dept filter: ${beforeStrict} -> ${rows.length}`
+        `[reports] getTaskRows strict dept filter: ${beforeStrict} -> ${rows.length}`,
       );
     }
   }
@@ -885,11 +885,11 @@ async function getTaskRows(
     try {
       const before = rows.length;
       rows = (Array.isArray(rows) ? rows : []).filter((r) =>
-        filters.statusMatches(st, [r.status])
+        filters.statusMatches(st, [r.status]),
       );
       const after = rows.length;
       console.debug(
-        `[reports] getTaskRows status filter '${st}': ${before} -> ${after}`
+        `[reports] getTaskRows status filter '${st}': ${before} -> ${after}`,
       );
     } catch (e) {
       console.warn("[reports] status matching error (tasks):", e && e.message);
@@ -919,12 +919,12 @@ async function getWeeklyTaskRows(
   status,
   fields,
   employeeId = null,
-  departmentId = null
+  departmentId = null,
 ) {
   const sql = queries.GET_EMPLOYEE_TASK_REPORT;
   if (!sql) {
     console.error(
-      "[reports] GET_EMPLOYEE_TASK_REPORT missing in reportQueries"
+      "[reports] GET_EMPLOYEE_TASK_REPORT missing in reportQueries",
     );
     throw new Error("Missing GET_EMPLOYEE_TASK_REPORT SQL definition");
   }
@@ -937,51 +937,7 @@ async function getWeeklyTaskRows(
   let finalSql = sql;
   let params = [s, s, e, e];
 
-  try {
-    const hasBuiltInStatusPlaceholder = /\?\s*IS\s*NULL\s*OR/i.test(finalSql);
-
-    if (hasBuiltInStatusPlaceholder) {
-      params = [...params, st, st, st, st];
-    } else {
-      if (st && st !== "all") {
-        const statusClause = `
-          AND (
-            LOWER(COALESCE(wt.emp_status, '')) = LOWER(?) OR
-            LOWER(COALESCE(wt.sup_status, '')) = LOWER(?) OR
-            LOWER(COALESCE(wt.sup_review_status, '')) = LOWER(?)
-          )
-        `;
-        const orderByMatch = /ORDER\s+BY/i;
-        const idx = finalSql.search(orderByMatch);
-        if (idx >= 0) {
-          finalSql =
-            finalSql.slice(0, idx) + statusClause + " " + finalSql.slice(idx);
-        } else {
-          finalSql = finalSql + " " + statusClause;
-        }
-        params = [...params, st, st, st];
-      }
-    }
-  } catch (e) {
-    console.warn(
-      "[reports] Warning preparing weekly task SQL status clause:",
-      e && (e.message || e)
-    );
-    if (st && st !== "all") {
-      finalSql =
-        finalSql +
-        `
-        AND (
-          LOWER(COALESCE(wt.emp_status, '')) = LOWER(?) OR
-          LOWER(COALESCE(wt.sup_status, '')) = LOWER(?) OR
-          LOWER(COALESCE(wt.sup_review_status, '')) = LOWER(?)
-        )
-      `;
-      params = [...params, st, st, st];
-    } else if (/\?\s*IS\s*NULL\s*OR/i.test(finalSql)) {
-      params = [...params, null, null, null, null];
-    }
-  }
+  // No status clause in SQL, filter in code later
 
   let rows;
   try {
@@ -998,8 +954,30 @@ async function getWeeklyTaskRows(
   } catch (e) {
     console.warn(
       "[reports] attach names/dept failed (weekly tasks):",
-      e && e.message
+      e && e.message,
     );
+  }
+
+  if (st && String(st).trim().toLowerCase() !== "all") {
+    try {
+      const before = rows.length;
+      rows = (Array.isArray(rows) ? rows : []).filter((r) =>
+        filters.statusMatches(st, [
+          r.emp_status,
+          r.sup_status,
+          r.sup_review_status,
+        ]),
+      );
+      const after = rows.length;
+      console.debug(
+        `[reports] getWeeklyTaskRows status filter '${st}': ${before} -> ${after}`,
+      );
+    } catch (e) {
+      console.warn(
+        "[reports] status matching error (weekly tasks):",
+        e && e.message,
+      );
+    }
   }
 
   try {
@@ -1012,13 +990,13 @@ async function getWeeklyTaskRows(
           return await fetchRows(queries.GET_DEPARTMENT_NAME_BY_ID, [deptId]);
         }
         return [];
-      }
+      },
     );
     if (Array.isArray(afterFilter)) rows = afterFilter;
   } catch (e) {
     console.warn(
       "[reports] Warning applying emp/dept filters (weekly tasks):",
-      e && e.message
+      e && e.message,
     );
   }
 
@@ -1028,7 +1006,7 @@ async function getWeeklyTaskRows(
     if (Array.isArray(strict)) {
       rows = strict;
       console.debug(
-        `[reports] getWeeklyTaskRows strict dept filter: ${beforeStrict} -> ${rows.length}`
+        `[reports] getWeeklyTaskRows strict dept filter: ${beforeStrict} -> ${rows.length}`,
       );
     }
   }
@@ -1062,7 +1040,7 @@ async function getEmployeeRows(
   status,
   fields,
   employeeId = null,
-  departmentId = null
+  departmentId = null,
 ) {
   const sql = queries.GET_EMPLOYEE_REPORT;
   if (!sql) {
@@ -1105,12 +1083,12 @@ async function getEmployeeRows(
           return await fetchRows(queries.GET_DEPARTMENT_NAME_BY_ID, [deptId]);
         }
         return [];
-      }
+      },
     );
   } catch (e) {
     console.warn(
       "[reports] Warning applying emp/dept filters (employees):",
-      e && e.message
+      e && e.message,
     );
   }
 
@@ -1120,7 +1098,7 @@ async function getEmployeeRows(
     if (Array.isArray(strict)) {
       rows = strict;
       console.debug(
-        `[reports] getEmployeeRows strict dept filter: ${beforeStrict} -> ${rows.length}`
+        `[reports] getEmployeeRows strict dept filter: ${beforeStrict} -> ${rows.length}`,
       );
     }
   }
@@ -1134,17 +1112,17 @@ async function getEmployeeRows(
           r.status,
           r.emp_status,
           r.approval_status,
-        ])
+        ]),
       );
       const after = rows.length;
       console.debug(
-        `[reports] getEmployeeRows status filter '${statusCandidate}': ${before} -> ${after}`
+        `[reports] getEmployeeRows status filter '${statusCandidate}': ${before} -> ${after}`,
       );
     }
   } catch (e) {
     console.warn(
       "[reports] getEmployeeRows status safety filter failed:",
-      e && e.message
+      e && e.message,
     );
   }
 
@@ -1174,7 +1152,7 @@ async function getVendorRows(
   status,
   fields,
   employeeId = null,
-  departmentId = null
+  departmentId = null,
 ) {
   const sql = queries.GET_VENDOR_REPORT;
   if (!sql) {
@@ -1200,12 +1178,12 @@ async function getVendorRows(
           return await fetchRows(queries.GET_DEPARTMENT_NAME_BY_ID, [deptId]);
         }
         return [];
-      }
+      },
     );
   } catch (e) {
     console.warn(
       "[reports] Warning applying emp/dept filters (vendors):",
-      e && e.message
+      e && e.message,
     );
   }
   const defaultOrder = [
@@ -1238,7 +1216,7 @@ async function getAssetRows(
   status,
   fields,
   employeeId = null,
-  departmentId = null
+  departmentId = null,
 ) {
   const sql = queries.GET_ASSET_REPORT;
   if (!sql) {
@@ -1329,7 +1307,7 @@ async function getAssetRows(
   } catch (e) {
     console.warn(
       "[reports] attach names/dept failed (assets):",
-      e && e.message
+      e && e.message,
     );
   }
 
@@ -1379,13 +1357,13 @@ async function getAssetRows(
             return await fetchRows(queries.GET_DEPARTMENT_NAME_BY_ID, [deptId]);
           }
           return [];
-        }
+        },
       );
     }
   } catch (e) {
     console.warn(
       "[reports] Warning applying emp/dept filters (assets):",
-      e && e.message
+      e && e.message,
     );
   }
 
@@ -1394,18 +1372,18 @@ async function getAssetRows(
     try {
       const strict = await forceFilterByEmployeeProfessional(
         rows,
-        departmentId
+        departmentId,
       );
       if (Array.isArray(strict)) {
         rows = strict;
         console.debug(
-          `[reports] getAssetRows strict dept filter: ${before} -> ${rows.length}`
+          `[reports] getAssetRows strict dept filter: ${before} -> ${rows.length}`,
         );
       }
     } catch (e) {
       console.warn(
         "[reports] getAssetRows forceFilterByEmployeeProfessional failed:",
-        e && e.message
+        e && e.message,
       );
     }
   }
@@ -1415,17 +1393,17 @@ async function getAssetRows(
     if (statusCandidate) {
       const before = rows.length;
       rows = rows.filter((r) =>
-        filters.statusMatches(statusCandidate, [r.status])
+        filters.statusMatches(statusCandidate, [r.status]),
       );
       const after = rows.length;
       console.debug(
-        `[reports] getAssetRows status filter '${statusCandidate}': ${before} -> ${after}`
+        `[reports] getAssetRows status filter '${statusCandidate}': ${before} -> ${after}`,
       );
     }
   } catch (e) {
     console.warn(
       "[reports] getAssetRows status safety filter failed:",
-      e && e.message
+      e && e.message,
     );
   }
 
@@ -1568,7 +1546,7 @@ async function searchEmployees(arg) {
       } catch (e) {
         console.warn(
           "[reports] queries.SEARCH_EMPLOYEES failed, falling back:",
-          e && e.message
+          e && e.message,
         );
       }
     }
@@ -1638,7 +1616,7 @@ async function searchEmployees(arg) {
   } catch (err) {
     console.error(
       "[reports] searchEmployees error:",
-      err && (err.stack || err)
+      err && (err.stack || err),
     );
     throw err;
   }
@@ -1652,10 +1630,10 @@ async function forceFilterByEmployeeProfessional(rows, departmentId) {
     new Set(
       rows
         .map((r) =>
-          r.employee_id != null ? String(r.employee_id).trim() : null
+          r.employee_id != null ? String(r.employee_id).trim() : null,
         )
-        .filter(Boolean)
-    )
+        .filter(Boolean),
+    ),
   );
   if (empIds.length === 0) return rows;
 
@@ -1665,7 +1643,7 @@ async function forceFilterByEmployeeProfessional(rows, departmentId) {
     const profRows = await fetchRows(sql, empIds);
     if (!Array.isArray(profRows) || profRows.length === 0) {
       console.warn(
-        "[reports] forceFilterByEmployeeProfessional: no mappings returned; skipping strict filter"
+        "[reports] forceFilterByEmployeeProfessional: no mappings returned; skipping strict filter",
       );
       return rows;
     }
@@ -1677,7 +1655,7 @@ async function forceFilterByEmployeeProfessional(rows, departmentId) {
     }
     if (Object.keys(empToDept).length === 0) {
       console.warn(
-        "[reports] forceFilterByEmployeeProfessional: mapping empty after lookup; skipping strict filter"
+        "[reports] forceFilterByEmployeeProfessional: mapping empty after lookup; skipping strict filter",
       );
       return rows;
     }
@@ -1696,7 +1674,7 @@ async function forceFilterByEmployeeProfessional(rows, departmentId) {
   } catch (e) {
     console.warn(
       "[reports] forceFilterByEmployeeProfessional failed (will skip strict filter):",
-      e && e.message
+      e && e.message,
     );
     return rows;
   }
@@ -1737,7 +1715,7 @@ async function buildMetaFromReqQuery(query) {
       try {
         const rows = await fetchRows(
           `SELECT employee_id, first_name, last_name, email FROM employees WHERE employee_id = ? LIMIT 1`,
-          [String(employeeId)]
+          [String(employeeId)],
         ).catch(() => []);
         if (Array.isArray(rows) && rows[0]) {
           const r = rows[0];
@@ -1764,7 +1742,7 @@ async function buildMetaFromReqQuery(query) {
       try {
         const drows = await fetchRows(
           `SELECT id, name FROM departments WHERE id = ? LIMIT 1`,
-          [String(departmentId)]
+          [String(departmentId)],
         ).catch(() => []);
         if (Array.isArray(drows) && drows[0]) {
           meta.department = { id: drows[0].id, name: drows[0].name };
