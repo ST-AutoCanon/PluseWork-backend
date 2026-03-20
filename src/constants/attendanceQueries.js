@@ -175,20 +175,32 @@ WITH RECURSIVE Days AS (
 DailyData AS (
     SELECT 
         DATE(punchin_time) AS work_date,
+
+        MIN(punchin_time) AS first_punchin,
+
+        MAX(punchout_time) AS last_punchout,
+
         SUM(TIMESTAMPDIFF(SECOND, punchin_time, punchout_time) / 3600) AS total_hours
+
     FROM emp_attendence
     WHERE employee_id = ?
         AND punch_status = 'Punch Out'
         AND punchin_time >= DATE_SUB(CURRENT_DATE(), INTERVAL 6 DAY)
+
     GROUP BY work_date
 ),
 FinalDailyData AS (
     SELECT 
-        d.work_date, 
-        COALESCE(dd.total_hours, 0) AS total_hours
+        d.work_date,
+
+        dd.first_punchin,
+
+        dd.last_punchout,
+
+        COALESCE(dd.total_hours,0) AS total_hours
+
     FROM Days d
     LEFT JOIN DailyData dd ON d.work_date = dd.work_date
-    ORDER BY d.work_date DESC
 ),
  Weeks AS (
     -- Start from week 1
@@ -200,24 +212,37 @@ FinalDailyData AS (
     WHERE week_number < 
         TIMESTAMPDIFF(WEEK, DATE_SUB(CURRENT_DATE(), INTERVAL DAY(CURRENT_DATE()) - 1 DAY), LAST_DAY(CURRENT_DATE())) + 1
 ),
-WeeklyData AS (
-    -- Calculate work hours per week, resetting week numbers for each month
-    SELECT 
-        TIMESTAMPDIFF(WEEK, DATE_SUB(CURRENT_DATE(), INTERVAL DAY(CURRENT_DATE()) - 1 DAY), DATE(punchin_time)) + 1 AS week_number,
+CurrentMonthDays AS (
+    SELECT DATE_SUB(CURRENT_DATE(), INTERVAL DAY(CURRENT_DATE()) - 1 DAY) AS work_date
+    UNION ALL
+    SELECT DATE_ADD(work_date, INTERVAL 1 DAY)
+    FROM CurrentMonthDays
+    WHERE work_date < CURRENT_DATE()
+),
+CurrentMonthData AS (
+    SELECT
+        DATE(punchin_time) AS work_date,
+
+         MIN(punchin_time) AS first_punchin,   -- ✅ ADD
+        MAX(punchout_time) AS last_punchout,  -- ✅ ADD
         SUM(TIMESTAMPDIFF(SECOND, punchin_time, punchout_time) / 3600) AS total_hours
     FROM emp_attendence
     WHERE employee_id = ?
         AND punch_status = 'Punch Out'
         AND punchin_time >= DATE_SUB(CURRENT_DATE(), INTERVAL DAY(CURRENT_DATE()) - 1 DAY)
-    GROUP BY week_number
+    GROUP BY work_date
 ),
 FinalWeeklyData AS (
-    -- Ensure all weeks exist in the dataset
     SELECT 
-        w.week_number, 
-        COALESCE(wd.total_hours, 0) AS total_hours
-    FROM Weeks w
-    LEFT JOIN WeeklyData wd ON w.week_number = wd.week_number
+        cmd.work_date,
+        DAY(cmd.work_date) AS day_of_month,
+
+         cmd_data.first_punchin,   -- ✅ ADD
+        cmd_data.last_punchout,
+        COALESCE(cmd_data.total_hours, 0) AS total_hours
+    FROM CurrentMonthDays cmd
+    LEFT JOIN CurrentMonthData cmd_data 
+        ON cmd.work_date = cmd_data.work_date
 ),
 PreviousMonthDays AS (
     SELECT DATE_SUB(DATE_SUB(CURRENT_DATE(), INTERVAL DAY(CURRENT_DATE())-1 DAY), INTERVAL 1 MONTH) AS work_date
@@ -229,6 +254,8 @@ PreviousMonthDays AS (
 PreviousMonthData AS (
     SELECT
         DATE(punchin_time) AS work_date,
+          MIN(punchin_time) AS first_punchin,   -- ✅ ADD
+        MAX(punchout_time) AS last_punchout,  -- ✅ ADD
         SUM(TIMESTAMPDIFF(SECOND, punchin_time, punchout_time) / 3600) AS total_hours
     FROM emp_attendence
     WHERE employee_id = ?
@@ -241,23 +268,34 @@ FinalMonthlyData AS (
     SELECT 
         pmd.work_date, 
         DAY(pmd.work_date) AS day_of_month, 
+         pmd_prev.first_punchin,   -- ✅ ADD
+        pmd_prev.last_punchout, 
         COALESCE(pmd_prev.total_hours, 0) AS total_hours
     FROM PreviousMonthDays pmd
     LEFT JOIN PreviousMonthData pmd_prev ON pmd.work_date = pmd_prev.work_date
 )
 SELECT 'Daily' AS view, JSON_OBJECT(
     'labels', (SELECT JSON_ARRAYAGG(work_date) FROM FinalDailyData),
-    'values', (SELECT JSON_ARRAYAGG(total_hours) FROM FinalDailyData)
+    'values', (SELECT JSON_ARRAYAGG(total_hours) FROM FinalDailyData),
+    'firstPunchIn', (SELECT JSON_ARRAYAGG(first_punchin) FROM FinalDailyData),
+    'lastPunchOut', (SELECT JSON_ARRAYAGG(last_punchout) FROM FinalDailyData)
 ) AS data
+
 UNION ALL
 SELECT 'Weekly' AS view, JSON_OBJECT(
-    'labels', (SELECT JSON_ARRAYAGG(CONCAT('Week ', week_number)) FROM FinalWeeklyData),
-    'values', (SELECT JSON_ARRAYAGG(total_hours) FROM FinalWeeklyData)
+    'labels', (SELECT JSON_ARRAYAGG(day_of_month) FROM FinalWeeklyData),
+    'values', (SELECT JSON_ARRAYAGG(total_hours) FROM FinalWeeklyData),
+
+    'firstPunchIn', (SELECT JSON_ARRAYAGG(first_punchin) FROM FinalWeeklyData),   -- ✅ ADD
+    'lastPunchOut', (SELECT JSON_ARRAYAGG(last_punchout) FROM FinalWeeklyData)    -- ✅ ADD
 ) AS data
 UNION ALL
 SELECT 'Monthly' AS view, JSON_OBJECT(
     'labels', (SELECT JSON_ARRAYAGG(day_of_month) FROM FinalMonthlyData),
-    'values', (SELECT JSON_ARRAYAGG(total_hours) FROM FinalMonthlyData)
+    'values', (SELECT JSON_ARRAYAGG(total_hours) FROM FinalMonthlyData),
+
+    'firstPunchIn', (SELECT JSON_ARRAYAGG(first_punchin) FROM FinalMonthlyData),   -- ✅ ADD
+    'lastPunchOut', (SELECT JSON_ARRAYAGG(last_punchout) FROM FinalMonthlyData)    -- ✅ ADD
 ) AS data;
 
 `,
