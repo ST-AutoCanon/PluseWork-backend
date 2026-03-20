@@ -501,7 +501,6 @@ app.use((req, res, next) => {
       );
 
       let socketOrgId = resolveOrgIdFromSocket(socket);
-      // fallback to session user org id if present
       try {
         if (
           !socketOrgId &&
@@ -516,9 +515,7 @@ app.use((req, res, next) => {
             null;
           if (sessOrg) socketOrgId = String(sessOrg);
         }
-      } catch (e) {
-        // ignore
-      }
+      } catch (e) {}
 
       console.log(
         `[socket] connected ${socket.id} userId=${socket.userId} via=${socket.authenticatedBy} orgId=${socketOrgId}`,

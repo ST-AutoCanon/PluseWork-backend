@@ -343,7 +343,7 @@ SELECT employee_id
   GET_ALL_EMPLOYEES: `
   SELECT
     e.employee_id,
-    CONCAT(e.first_name, ' ', e.last_name) AS name,
+    CONCAT(e.first_name, ' ', e.middle_name, ' ', e.last_name) AS name,
     e.email,
     DATE_FORMAT(e.dob, '%Y-%m-%d') AS dob,
     e.phone_number,

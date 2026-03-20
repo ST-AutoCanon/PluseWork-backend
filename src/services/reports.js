@@ -557,49 +557,7 @@ async function getReimbursementRows(
   }
 
   const params = [s, s, e, e];
-  let statusSql = "";
-  if (!st) {
-  } else if (st === "approved/paid") {
-    statusSql =
-      " AND LOWER(COALESCE(r.status, '')) = ? AND LOWER(COALESCE(r.payment_status, '')) = ? ";
-    params.push("approved", "paid");
-  } else if (st === "approved/pending") {
-    statusSql =
-      " AND LOWER(COALESCE(r.status, '')) = ? AND LOWER(COALESCE(r.payment_status, '')) = ? ";
-    params.push("approved", "pending");
-  } else if (st === "approved/unpaid") {
-    statusSql =
-      " AND LOWER(COALESCE(r.status, '')) = ? AND (r.payment_status IS NULL OR r.payment_status = '' OR LOWER(r.payment_status) = ?) ";
-    params.push("approved", "unpaid");
-  } else if (st === "paid" || st === "unpaid") {
-    if (st === "unpaid") {
-      statusSql =
-        " AND (r.payment_status IS NULL OR r.payment_status = '' OR LOWER(r.payment_status) = ?) ";
-      params.push("unpaid");
-    } else {
-      statusSql = " AND LOWER(COALESCE(r.payment_status, '')) = ? ";
-      params.push("paid");
-    }
-  } else if (["approved", "pending", "rejected"].includes(st)) {
-    statusSql = " AND LOWER(COALESCE(r.status, '')) = ? ";
-    params.push(st);
-  } else {
-    statusSql = " AND LOWER(COALESCE(r.payment_status, r.status, '')) = ? ";
-    params.push(st);
-  }
-
   let finalSql = baseSql;
-  try {
-    const orderByMatch = /ORDER\s+BY/i;
-    const idx = finalSql.search(orderByMatch);
-    if (idx >= 0) {
-      finalSql = finalSql.slice(0, idx) + statusSql + " " + finalSql.slice(idx);
-    } else {
-      finalSql = finalSql + " " + statusSql;
-    }
-  } catch (e) {
-    finalSql = finalSql + " " + statusSql;
-  }
 
   let rawRows;
   try {
@@ -650,13 +608,45 @@ async function getReimbursementRows(
     const statusCandidate = filters.normalizeStatusForQuery(status);
     if (statusCandidate) {
       const before = normalized.length;
-      normalized = normalized.filter((r) =>
-        filters.statusMatches(statusCandidate, [
-          r.status,
-          r.payment_status,
-          r.approval_status,
-        ]),
-      );
+      if (statusCandidate === "approved/paid") {
+        normalized = normalized.filter(
+          (r) =>
+            String(r.approval_status || "").toLowerCase() === "approved" &&
+            String(r.payment_status || "").toLowerCase() === "paid",
+        );
+      } else if (statusCandidate === "approved/pending") {
+        normalized = normalized.filter(
+          (r) =>
+            String(r.approval_status || "").toLowerCase() === "approved" &&
+            String(r.payment_status || "").toLowerCase() === "pending",
+        );
+      } else if (statusCandidate === "approved/unpaid") {
+        normalized = normalized.filter(
+          (r) =>
+            String(r.approval_status || "").toLowerCase() === "approved" &&
+            (!r.payment_status ||
+              String(r.payment_status).toLowerCase() === "unpaid" ||
+              String(r.payment_status).trim() === ""),
+        );
+      } else if (statusCandidate === "paid") {
+        normalized = normalized.filter(
+          (r) => String(r.payment_status || "").toLowerCase() === "paid",
+        );
+      } else if (statusCandidate === "unpaid") {
+        normalized = normalized.filter(
+          (r) =>
+            !r.payment_status ||
+            String(r.payment_status).toLowerCase() === "unpaid" ||
+            String(r.payment_status).trim() === "",
+        );
+      } else {
+        normalized = normalized.filter((r) =>
+          filters.statusMatches(statusCandidate, [
+            r.approval_status,
+            r.payment_status,
+          ]),
+        );
+      }
       const after = normalized.length;
       console.debug(
         `[reports] getReimbursementRows status filter '${statusCandidate}': ${before} -> ${after}`,
@@ -779,9 +769,15 @@ async function getAttendanceRows(
     const statusCandidate = filters.normalizeStatusForQuery(status);
     if (statusCandidate) {
       const before = rows.length;
-      rows = rows.filter((r) =>
-        filters.statusMatches(statusCandidate, [r.punch_status, r.status]),
-      );
+      if (statusCandidate === "punch in") {
+        rows = rows.filter((r) => r.punch_status === "Punch In");
+      } else if (statusCandidate === "punch out") {
+        rows = rows.filter((r) => r.punch_status === "Punch Out");
+      } else if (statusCandidate !== "all") {
+        rows = rows.filter((r) =>
+          filters.statusMatches(statusCandidate, [r.punch_status]),
+        );
+      }
       const after = rows.length;
       console.debug(
         `[reports] getAttendanceRows status filter '${statusCandidate}': ${before} -> ${after}`,

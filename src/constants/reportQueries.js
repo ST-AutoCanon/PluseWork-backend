@@ -175,6 +175,7 @@ ORDER BY r.created_at DESC
 SELECT
   e.employee_id,
   e.first_name,
+  e.middle_name,
   e.last_name,
   CONCAT(COALESCE(e.first_name, ''), ' ', COALESCE(e.last_name, '')) AS employee_name,
   e.email,
@@ -184,6 +185,7 @@ SELECT
   pr.employee_type,
   pr.role,
   pr.position,
+  DATE_FORMAT(pr.joining_date, '%Y-%m-%d') AS joining_date,
   pr.department_id,
   COALESCE(d.name, '') AS department_name,
   pr.supervisor_id,

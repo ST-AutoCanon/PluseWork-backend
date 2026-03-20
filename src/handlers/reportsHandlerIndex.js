@@ -40,7 +40,7 @@ async function deriveDepartmentForEmployee(employeeId) {
     } catch (err) {
       console.warn(
         "[deriveDepartmentForEmployee] Try1 failed:",
-        err && err.message
+        err && err.message,
       );
       rows = [];
     }
@@ -65,7 +65,7 @@ async function deriveDepartmentForEmployee(employeeId) {
       } catch (err2) {
         console.warn(
           "[deriveDepartmentForEmployee] Try2 failed:",
-          err2 && err2.message
+          err2 && err2.message,
         );
         rows = rows || [];
       }
@@ -77,7 +77,7 @@ async function deriveDepartmentForEmployee(employeeId) {
           SELECT employee_id AS emp_id, employee_code, department AS department_col, dept_id
           FROM employees
           WHERE employee_id IN (${placeholders(
-            candidates.length
+            candidates.length,
           )}) OR employee_code IN (${placeholders(candidates.length)})
           LIMIT 1
         `;
@@ -88,7 +88,7 @@ async function deriveDepartmentForEmployee(employeeId) {
       } catch (err3) {
         console.warn(
           "[deriveDepartmentForEmployee] Try3 failed:",
-          err3 && err3.message
+          err3 && err3.message,
         );
         rows = rows || [];
       }
@@ -119,12 +119,12 @@ async function deriveDepartmentForEmployee(employeeId) {
 
     const looksLikeManager =
       /(^|[^a-z])(manager|lead|supervisor|head|team ?lead)($|[^a-z])/.test(
-        roleCandidates
+        roleCandidates,
       );
 
     const hasSupervisorIdField = Object.prototype.hasOwnProperty.call(
       row,
-      "supervisor_id"
+      "supervisor_id",
     );
     const supervisorIdVal = hasSupervisorIdField ? row.supervisor_id : null;
 
@@ -143,7 +143,7 @@ async function deriveDepartmentForEmployee(employeeId) {
   } catch (e) {
     console.error(
       "[deriveDepartmentForEmployee] ERROR:",
-      e && e.stack ? e.stack : e.message
+      e && e.stack ? e.stack : e.message,
     );
     return null;
   } finally {
@@ -178,14 +178,14 @@ function wrapHandlerWithDerivedDept(originalHandler) {
 
         console.debug(
           "[reportsHandlerIndex] wrapHandlerWithDerivedDept: header/x-user ids:",
-          { headerEmp: empId, reqUserEmp: userEmpId }
+          { headerEmp: empId, reqUserEmp: userEmpId },
         );
 
         if (candidateEmpId) {
           const derived = await deriveDepartmentForEmployee(candidateEmpId);
           console.debug(
             "[reportsHandlerIndex] wrapHandlerWithDerivedDept: derived dept:",
-            derived
+            derived,
           );
           if (derived) {
             if (!req.query) req.query = {};
@@ -198,7 +198,7 @@ function wrapHandlerWithDerivedDept(originalHandler) {
     } catch (e) {
       console.warn(
         "[reportsHandlerIndex] wrapHandlerWithDerivedDept error:",
-        e && e.message
+        e && e.message,
       );
     }
     try {
@@ -206,7 +206,7 @@ function wrapHandlerWithDerivedDept(originalHandler) {
     } catch (err) {
       console.error(
         "[reportsHandlerIndex] wrapped handler threw:",
-        err && (err.stack || err.message)
+        err && (err.stack || err.message),
       );
       if (!res.headersSent)
         return res.status(500).json({ message: "Internal Server Error" });
@@ -234,12 +234,12 @@ async function searchEmployees(req, res) {
 
     const limit = Math.min(
       100,
-      Math.max(1, parseInt(req.query.limit || "10", 10) || 10)
+      Math.max(1, parseInt(req.query.limit || "10", 10) || 10),
     );
 
     let dept =
       req.query && (req.query.department_id ?? req.query.departmentId)
-        ? req.query.department_id ?? req.query.departmentId
+        ? (req.query.department_id ?? req.query.departmentId)
         : null;
 
     if (typeof dept === "string") {
@@ -266,7 +266,7 @@ async function getDepartments(req, res) {
   } catch (e) {
     console.error(
       "[reportsHandlerIndex] getDepartments failed:",
-      e && (e.stack || e.message)
+      e && (e.stack || e.message),
     );
     return res.status(500).json({ message: "Failed to fetch departments" });
   }
@@ -295,7 +295,7 @@ async function downloadEmployeesReport(req, res) {
 
     let dept = coerceToString(
       req.query.department_id ?? req.query.departmentId ?? null,
-      null
+      null,
     );
     if (dept && dept.toLowerCase && dept.toLowerCase() === "null") dept = null;
 
@@ -315,7 +315,7 @@ async function downloadEmployeesReport(req, res) {
     } catch (primaryErr) {
       console.error(
         "[reportsHandlerIndex] GET_EMPLOYEE_REPORT failed — will try compact fallback. Error:",
-        primaryErr && (primaryErr.stack || primaryErr.message)
+        primaryErr && (primaryErr.stack || primaryErr.message),
       );
 
       const compactQuery =
@@ -344,7 +344,7 @@ async function downloadEmployeesReport(req, res) {
       } catch (fallbackErr) {
         console.error(
           "[reportsHandlerIndex] Compact fallback also failed:",
-          fallbackErr && (fallbackErr.stack || fallbackErr.message)
+          fallbackErr && (fallbackErr.stack || fallbackErr.message),
         );
         return res.status(500).json({
           message:
@@ -370,7 +370,7 @@ async function downloadEmployeesReport(req, res) {
       } catch (e) {
         console.warn(
           "[reportsHandlerIndex] pickFields failed for employees:",
-          e && e.message
+          e && e.message,
         );
       }
     }
@@ -385,11 +385,11 @@ async function downloadEmployeesReport(req, res) {
       const filename = "employees_report.xlsx";
       res.setHeader(
         "Content-Type",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       );
       res.setHeader(
         "Content-Disposition",
-        `attachment; filename="${filename}"`
+        `attachment; filename="${filename}"`,
       );
       res.setHeader("Content-Length", buf.length);
       return res.send(buf);
@@ -399,13 +399,13 @@ async function downloadEmployeesReport(req, res) {
       const pdfBuf = await reportService.renderPdfBuffer(
         "Employees Report",
         toExport,
-        { meta: {} }
+        { meta: {} },
       );
       const filename = "employees_report.pdf";
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader(
         "Content-Disposition",
-        `attachment; filename="${filename}"`
+        `attachment; filename="${filename}"`,
       );
       res.setHeader("Content-Length", pdfBuf.length);
       return res.send(pdfBuf);
@@ -415,7 +415,7 @@ async function downloadEmployeesReport(req, res) {
   } catch (e) {
     console.error(
       "[reportsHandlerIndex] downloadEmployeesReport failed:",
-      e && (e.stack || e.message)
+      e && (e.stack || e.message),
     );
     return res.status(500).json({ message: "Failed to fetch employee report" });
   }
@@ -444,7 +444,7 @@ async function downloadVendorsReport(req, res) {
       } catch (e) {
         console.warn(
           "[reportsHandlerIndex] pickFields failed for vendors:",
-          e && e.message
+          e && e.message,
         );
       }
     }
@@ -459,11 +459,11 @@ async function downloadVendorsReport(req, res) {
       const filename = "vendors_report.xlsx";
       res.setHeader(
         "Content-Type",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       );
       res.setHeader(
         "Content-Disposition",
-        `attachment; filename="${filename}"`
+        `attachment; filename="${filename}"`,
       );
       res.setHeader("Content-Length", buf.length);
       return res.send(buf);
@@ -473,13 +473,13 @@ async function downloadVendorsReport(req, res) {
       const pdfBuf = await reportService.renderPdfBuffer(
         "Vendors Report",
         toExport,
-        { meta: {} }
+        { meta: {} },
       );
       const filename = "vendors_report.pdf";
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader(
         "Content-Disposition",
-        `attachment; filename="${filename}"`
+        `attachment; filename="${filename}"`,
       );
       res.setHeader("Content-Length", pdfBuf.length);
       return res.send(pdfBuf);
@@ -489,7 +489,7 @@ async function downloadVendorsReport(req, res) {
   } catch (e) {
     console.error(
       "[reportsHandlerIndex] downloadVendorsReport failed:",
-      e && (e.stack || e.message)
+      e && (e.stack || e.message),
     );
     return res.status(500).json({ message: "Failed to fetch vendors report" });
   }
@@ -509,33 +509,33 @@ module.exports = {
   downloadAttendanceReport: wrapHandlerWithDerivedDept(
     ensureExport(
       attendanceHandler.downloadAttendanceReport,
-      "downloadAttendanceReport"
-    )
+      "downloadAttendanceReport",
+    ),
   ),
   downloadLeavesReport: wrapHandlerWithDerivedDept(
-    ensureExport(leavesHandler.downloadLeavesReport, "downloadLeavesReport")
+    ensureExport(leavesHandler.downloadLeavesReport, "downloadLeavesReport"),
   ),
   downloadTasksSupervisorReport: wrapHandlerWithDerivedDept(
     ensureExport(
       tasksHandler.downloadTasksSupervisorReport,
-      "downloadTasksSupervisorReport"
-    )
+      "downloadTasksSupervisorReport",
+    ),
   ),
   downloadTasksEmployeeReport: wrapHandlerWithDerivedDept(
     ensureExport(
       tasksHandler.downloadTasksEmployeeReport,
-      "downloadTasksEmployeeReport"
-    )
+      "downloadTasksEmployeeReport",
+    ),
   ),
   downloadAssetsReport: ensureExport(
     assetsHandler.downloadAssetsReport,
-    "downloadAssetsReport"
+    "downloadAssetsReport",
   ),
   downloadReimbursementsReport: wrapHandlerWithDerivedDept(
     ensureExport(
       reimbursementsHandler.downloadReimbursementsReport,
-      "downloadReimbursementsReport"
-    )
+      "downloadReimbursementsReport",
+    ),
   ),
 
   searchEmployees: wrapHandlerWithDerivedDept(searchEmployees),
