@@ -1,7 +1,12 @@
 
 
 const weekTaskService = require("../services/weekTaskService");
+const { getTenantPoolByOrgId } = require("../db/tenantPoolManager");
 
+const {
+  INSERT_NOTIFICATION,
+  GET_SUPERVISOR,
+} = require("../constants/notificationQueries");
 const getOrgIdFromHeaders = (req) =>
   req.headers["x-org-id"] ||
   req.headers["x_org_id"] ||
@@ -11,12 +16,43 @@ const getOrgIdFromHeaders = (req) =>
 exports.createWeekTask = async (req, res) => {
   try {
     const orgId = getOrgIdFromHeaders(req);
+    const employeeId =
+      req.body.employee_id || req.headers["x-employee-id"];
+
     if (!orgId) {
       return res.status(400).json({ error: "org_id is required" });
     }
 
+    // 1️⃣ Create task
     const taskId = await weekTaskService.createWeekTask(orgId, req.body);
-    res.status(201).json({ message: "Week task created", taskId });
+
+    // 2️⃣ 🔔 Notify Supervisor
+    try {
+      const db = await getTenantPoolByOrgId(orgId);
+
+      // Get supervisor
+      const [rows] = await db.query(GET_SUPERVISOR, [employeeId]);
+if (rows.length && rows[0].supervisor_id) {
+  const supervisorId = rows[0].supervisor_id;
+        const message = `Employee ${employeeId} created a new weekly task: "${req.body.task_name}"`;
+
+        await db.query(INSERT_NOTIFICATION, [
+          supervisorId,
+          null,
+          null,
+          message,
+          new Date(),
+        ]);
+      }
+    } catch (notifyErr) {
+      console.error("Notification error:", notifyErr);
+    }
+
+    res.status(201).json({
+      message: "Week task created",
+      taskId,
+    });
+
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to create week task" });

@@ -61,7 +61,12 @@ const MARK_NOTIFICATION_READ = `
   WHERE id = ?
     AND user_id = ?;
 `;
-
+const GET_SUPERVISOR = `
+  SELECT supervisor_id
+  FROM employee_professional
+  WHERE employee_id = ?
+  LIMIT 1
+`;
 module.exports = {
   INSERT_NOTIFICATION,
   INSERT_NOTIFICATION_FOR_POLICY,
@@ -71,4 +76,5 @@ module.exports = {
   CHECK_NOTIFICATION_EXISTS,
   MARK_NOTIFICATION_READ,
   CHECK_RECENT_SIMILAR_NOTIFICATION,
+  GET_SUPERVISOR,
 };
