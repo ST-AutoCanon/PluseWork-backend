@@ -226,7 +226,7 @@ function keepOnlyFields(rows, requestedFields, defaultOrder) {
       } else {
         const lower = f.toLowerCase();
         const foundKey = Object.keys(r).find(
-          (k) => String(k).toLowerCase() === lower
+          (k) => String(k).toLowerCase() === lower,
         );
         if (foundKey) obj[f] = r[foundKey];
         else obj[f] = "";
@@ -282,7 +282,7 @@ function normalizeReimbursementRow(raw) {
 async function applyEmployeeAndDepartmentFilters(
   rows,
   employeeId,
-  departmentId
+  departmentId,
 ) {
   if (!Array.isArray(rows) || rows.length === 0) return [];
 
@@ -294,7 +294,7 @@ async function applyEmployeeAndDepartmentFilters(
       if (r.employee_id != null) return String(r.employee_id).trim() === empStr;
       const keys = Object.keys(r);
       const foundKey = keys.find(
-        (k) => String(k).toLowerCase() === "employee_id"
+        (k) => String(k).toLowerCase() === "employee_id",
       );
       if (foundKey) return String(r[foundKey]).trim() === empStr;
       return Object.values(r).some((v) => String(v || "").trim() === empStr);
@@ -307,7 +307,7 @@ async function applyEmployeeAndDepartmentFilters(
     const didStr = String(departmentId).trim();
 
     const hasDeptIdField = filtered.some((r) =>
-      Object.prototype.hasOwnProperty.call(r, "department_id")
+      Object.prototype.hasOwnProperty.call(r, "department_id"),
     );
     if (hasDeptIdField) {
       filtered = filtered.filter((r) => {
@@ -322,10 +322,10 @@ async function applyEmployeeAndDepartmentFilters(
       new Set(
         filtered
           .map((r) =>
-            r.employee_id != null ? String(r.employee_id).trim() : null
+            r.employee_id != null ? String(r.employee_id).trim() : null,
           )
-          .filter(Boolean)
-      )
+          .filter(Boolean),
+      ),
     );
 
     if (empIds.length > 0) {
@@ -359,7 +359,7 @@ async function applyEmployeeAndDepartmentFilters(
       } catch (e) {
         console.warn(
           "[reportFilters] employee_professional lookup failed, falling back to department_name resolution:",
-          e && (e.message || e)
+          e && (e.message || e),
         );
       }
     }
@@ -370,7 +370,7 @@ async function applyEmployeeAndDepartmentFilters(
         try {
           const nameRows = await reportUtils.fetchRows(
             queries.GET_DEPARTMENT_NAME_BY_ID,
-            [departmentId]
+            [departmentId],
           );
           if (Array.isArray(nameRows) && nameRows[0]) {
             deptName = (
@@ -389,7 +389,7 @@ async function applyEmployeeAndDepartmentFilters(
         try {
           const rowsDept = await reportUtils.fetchRows(
             "SELECT name FROM departments WHERE id = ? LIMIT 1",
-            [departmentId]
+            [departmentId],
           );
           if (Array.isArray(rowsDept) && rowsDept[0] && rowsDept[0].name) {
             deptName = String(rowsDept[0].name).trim().toLowerCase();
@@ -531,7 +531,7 @@ function hasActiveAssignment(assignedArray) {
 
       if (
         ["assigned", "in use", "allocated", "issued", "using"].includes(
-          canonStatus
+          canonStatus,
         )
       ) {
         return true;
@@ -562,8 +562,8 @@ function statusMatches(requestedStatus, rowStatusCandidates = []) {
     const candArr = Array.isArray(rowStatusCandidates)
       ? rowStatusCandidates
       : typeof rowStatusCandidates === "string"
-      ? [rowStatusCandidates]
-      : [];
+        ? [rowStatusCandidates]
+        : [];
 
     const lifecycleTokens = [
       "assigned",
@@ -685,7 +685,7 @@ function statusMatches(requestedStatus, rowStatusCandidates = []) {
         .filter(Boolean);
       if (parts.length === 0) return false;
       const ok = parts.every((part) =>
-        normalizedRowVals.some((rv) => rv === part || rv.includes(part))
+        normalizedRowVals.some((rv) => rv === part || rv.includes(part)),
       );
       if (ok) return true;
     }
@@ -704,7 +704,7 @@ function statusMatches(requestedStatus, rowStatusCandidates = []) {
           normalizedRowVals,
         });
         console.debug(
-          `[reportFilters] statusMatches NO MATCH => ${candidDisplay}`
+          `[reportFilters] statusMatches NO MATCH => ${candidDisplay}`,
         );
       } catch (e) {}
     }
@@ -758,14 +758,14 @@ async function sendPreviewResponse(req, res, rows, message) {
   try {
     const depId = coerceToString(
       req.query && (req.query.department_id || req.query.departmentId),
-      null
+      null,
     );
     if (depId) {
       if (queries && queries.GET_DEPARTMENT_NAME_BY_ID) {
         try {
           const nameRows = await reportUtils.fetchRows(
             queries.GET_DEPARTMENT_NAME_BY_ID,
-            [depId]
+            [depId],
           );
           if (Array.isArray(nameRows) && nameRows[0]) {
             meta.departmentName =
@@ -780,7 +780,7 @@ async function sendPreviewResponse(req, res, rows, message) {
         try {
           const rowsDept = await reportUtils.fetchRows(
             "SELECT name FROM departments WHERE id = ? LIMIT 1",
-            [depId]
+            [depId],
           );
           if (Array.isArray(rowsDept) && rowsDept[0] && rowsDept[0].name) {
             meta.departmentName = String(rowsDept[0].name);
@@ -793,21 +793,21 @@ async function sendPreviewResponse(req, res, rows, message) {
   try {
     const typedEmployeeName = coerceToString(
       req.query && (req.query.employee_name || req.query.employeeName),
-      null
+      null,
     );
     if (typedEmployeeName) {
       meta.employeeName = typedEmployeeName;
     } else {
       const empId = coerceToString(
         req.query && (req.query.employee_id || req.query.employeeId),
-        null
+        null,
       );
       if (empId) {
         if (queries && queries.GET_EMPLOYEE_NAME_BY_ID) {
           try {
             const empRows = await reportUtils.fetchRows(
               queries.GET_EMPLOYEE_NAME_BY_ID,
-              [empId]
+              [empId],
             );
             if (Array.isArray(empRows) && empRows[0]) {
               meta.employeeName =
@@ -822,7 +822,7 @@ async function sendPreviewResponse(req, res, rows, message) {
           try {
             const en = await reportUtils.fetchRows(
               "SELECT CONCAT(COALESCE(first_name,''),' ',COALESCE(last_name,'')) AS employee_name FROM employees WHERE employee_id = ? LIMIT 1",
-              [empId]
+              [empId],
             );
             if (Array.isArray(en) && en[0] && en[0].employee_name) {
               meta.employeeName = String(en[0].employee_name).trim();

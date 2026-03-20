@@ -72,9 +72,8 @@ exports.forgotPassword = async (req, res) => {
 
     try {
       if (String(orgId) === "1") {
-        // For orgId=1 we use the legacy forgot-password email template
         const resetToken = crypto.randomBytes(32).toString("hex");
-        const tokenExpiry = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000); // 3 days
+        const tokenExpiry = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
 
         try {
           await saveResetToken(email, resetToken, tokenExpiry, orgId);
