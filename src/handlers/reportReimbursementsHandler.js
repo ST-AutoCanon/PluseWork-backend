@@ -255,6 +255,14 @@ async function downloadReimbursementsReport(req, res) {
     let employeeId = coerceToString(req.query.employee_id, null);
     let departmentId = coerceToString(req.query.department_id, null);
 
+    console.log("[reportReimbursementsHandler] Query params:", {
+      employee_id: req.query.employee_id,
+      employee: req.query.employee,
+      department_id: req.query.department_id,
+      employeeId,
+      departmentId,
+    });
+
     const requesterEmpId = findEmployeeIdInRequest(req);
 
     if (!departmentId && requesterEmpId) {
@@ -345,14 +353,8 @@ async function downloadReimbursementsReport(req, res) {
         return sendPreviewResponse(req, res, rows, msg);
       }
 
-      const statusCandidate = normalizeStatusForQuery(status);
-      const filtered = rows.filter((r) =>
-        statusMatches(statusCandidate, [
-          r.status,
-          r.payment_status,
-          r.approval_status,
-        ]),
-      );
+      // Status filtering already applied in service, skip additional filtering
+      const filtered = rows;
 
       if (!filtered.length)
         return res

@@ -200,6 +200,10 @@ function filterAttendanceRows(rows, employeeId, departmentId) {
   return rows.filter((r) => {
     const rowEmpId =
       r.employee_id != null ? String(r.employee_id).trim() : null;
+    const rowEmpName =
+      r.employee_name != null
+        ? String(r.employee_name).trim().toLowerCase()
+        : null;
 
     let rowDeptId = null;
     let rowDeptName = null;
@@ -214,7 +218,11 @@ function filterAttendanceRows(rows, employeeId, departmentId) {
     if (!rowDeptName && r.department != null)
       rowDeptName = String(r.department).toLowerCase();
 
-    if (empIdStr && rowEmpId !== empIdStr) return false;
+    if (empIdStr) {
+      const empIdMatch = rowEmpId === empIdStr;
+      const empNameMatch = rowEmpName === empIdStr.toLowerCase();
+      if (!empIdMatch && !empNameMatch) return false;
+    }
 
     if (deptFilterNum !== null) {
       if (rowDeptId == null) return false;
@@ -254,7 +262,7 @@ async function fetchEmployeeProfessionalRowsByIds(dbExecFn, empIds = []) {
   return Array.isArray(rows) ? rows : [];
 }
 
-async function attachDeptInfoForRows(rows) {
+async function attachDeptInfoForRows(rows, req) {
   if (!Array.isArray(rows) || rows.length === 0) return;
 
   const empIds = Array.from(
@@ -376,6 +384,14 @@ async function downloadAttendanceReport(req, res) {
     const employeeIdQuery = coerceToString(req.query.employee_id, null);
     let departmentIdQuery = coerceToString(req.query.department_id, null);
 
+    console.log("[reportAttendanceHandler] Query params:", {
+      employee_id: req.query.employee_id,
+      employee: req.query.employee,
+      department_id: req.query.department_id,
+      employeeIdQuery,
+      departmentIdQuery,
+    });
+
     const requesterEmpId = findEmployeeIdInRequest(req);
     if (requesterEmpId) {
       console.debug(
@@ -444,7 +460,7 @@ async function downloadAttendanceReport(req, res) {
       status,
       fields,
       employeeIdQuery,
-      null,
+      departmentIdQuery,
     );
 
     rows = Array.isArray(rows) ? rows : [];
@@ -484,7 +500,7 @@ async function downloadAttendanceReport(req, res) {
       );
 
       if (!anyHasDept && departmentIdQuery) {
-        await attachDeptInfoForRows(rows);
+        await attachDeptInfoForRows(rows, req);
       }
 
       rows = filterAttendanceRows(

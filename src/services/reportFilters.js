@@ -291,6 +291,15 @@ async function applyEmployeeAndDepartmentFilters(
   employeeId,
   departmentId,
 ) {
+  console.log(
+    "[reportFilters] applyEmployeeAndDepartmentFilters called with:",
+    {
+      employeeId,
+      departmentId,
+      rowsCount: Array.isArray(rows) ? rows.length : "not array",
+    },
+  );
+
   if (!Array.isArray(rows) || rows.length === 0) return [];
 
   let filtered = rows;
