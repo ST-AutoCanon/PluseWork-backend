@@ -89,11 +89,8 @@ ORDER BY r.created_at DESC
     e.last_name,
     CONCAT(COALESCE(e.first_name, ''), ' ', COALESCE(e.last_name, '')) AS employee_name,
     e.email,
-    DATE_FORMAT(e.dob, '%Y-%m-%d') AS dob,
     e.phone_number,
     e.status,
-
-    -- personal (employee_personal)
     p.address,
     p.father_name,
     p.mother_name,
@@ -109,7 +106,6 @@ ORDER BY r.created_at DESC
     p.passport_doc_url,
     p.voter_id,
     p.voter_id_doc_url,
-   
     p.insurance_doc,
     p.alternate_email,
     p.alternate_number,
@@ -136,8 +132,6 @@ ORDER BY r.created_at DESC
     p.uan_number,
     p.pf_number,
     p.esi_number,
-
-    -- professional (employee_professional)
     pr.domain,
     pr.employee_type,
     DATE_FORMAT(pr.joining_date, '%Y-%m-%d') AS joining_date,
@@ -149,13 +143,10 @@ ORDER BY r.created_at DESC
     CONCAT(sup.first_name, ' ', sup.last_name) AS supervisor_name,
     pr.salary,
     pr.resume_url,
-
-    -- bank details (employee_bank_details)
-    bd.bank_name,
-    bd.account_number,
-    bd.ifsc_code,
-    bd.branch_name AS bank_branch,
-
+    MAX(bd.bank_name) AS bank_name,
+    MAX(bd.account_number) AS account_number,
+    MAX(bd.ifsc_code) AS ifsc_code,
+    MAX(bd.branch_name) AS bank_branch,
     DATE_FORMAT(e.created_at, '%Y-%m-%d %H:%i:%s') AS created_at
   FROM employees e
   LEFT JOIN employee_personal p ON e.employee_id = p.employee_id
@@ -168,6 +159,7 @@ ORDER BY r.created_at DESC
     AND ( ? IS NULL OR (e.created_at < DATE_ADD(?, INTERVAL 1 DAY) ) )
     AND ( ? IS NULL OR LOWER(e.status) = LOWER(?) )
     AND ( ? IS NULL OR pr.department_id = ? )
+  GROUP BY e.employee_id
   ORDER BY e.created_at DESC
 `,
 
@@ -191,12 +183,13 @@ SELECT
   pr.supervisor_id,
   CONCAT(COALESCE(sup.first_name, ''), ' ', COALESCE(sup.last_name, '')) AS supervisor_name,
   p.address,
+  p.aadhaar_number,
   p.father_name,
   p.mother_name,
-  bd.bank_name,
-  bd.account_number,
-  bd.ifsc_code,
-  bd.branch_name AS bank_branch,
+  MAX(bd.bank_name) AS bank_name,
+  MAX(bd.account_number) AS account_number,
+  MAX(bd.ifsc_code) AS ifsc_code,
+  MAX(bd.branch_name) AS bank_branch,
   DATE_FORMAT(e.created_at, '%Y-%m-%d %H:%i:%s') AS created_at
 FROM employees e
 LEFT JOIN employee_professional pr ON e.employee_id = pr.employee_id
@@ -208,6 +201,7 @@ WHERE ( ? IS NULL OR (e.created_at >= ? ) )
   AND ( ? IS NULL OR (e.created_at < DATE_ADD(?, INTERVAL 1 DAY) ) )
   AND ( ? IS NULL OR LOWER(e.status) = LOWER(?) )
   AND ( ? IS NULL OR pr.department_id = ? )
+GROUP BY e.employee_id
 ORDER BY e.created_at DESC
 `,
 
@@ -354,7 +348,7 @@ ORDER BY e.created_at DESC
     FROM employees e
     LEFT JOIN employee_professional pr ON e.employee_id = pr.employee_id
     LEFT JOIN departments d ON pr.department_id = d.id
-    WHERE (CONCAT(COALESCE(e.first_name, ''), ' ', COALESCE(e.last_name, '')) LIKE ? OR e.email LIKE ? OR e.employee_id LIKE ?)
+    WHERE (LOWER(CONCAT(COALESCE(e.first_name, ''), ' ', COALESCE(e.last_name, ''))) LIKE LOWER(?) OR LOWER(e.email) LIKE LOWER(?) OR LOWER(e.employee_id) LIKE LOWER(?))
       AND ( ? IS NULL OR pr.department_id = ? )
     ORDER BY employee_name ASC
     LIMIT ?

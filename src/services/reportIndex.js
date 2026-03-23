@@ -4,8 +4,25 @@ const reports = require("./reports");
 const renders = require("./reportRenders");
 const reportMeta = require("./reportMeta");
 
+const queries = require("../constants/reportQueries");
+
 function withDefaultOptions(opts) {
   return opts && typeof opts === "object" ? opts : {};
+}
+
+async function resolveDepartmentName(deptValue) {
+  if (!deptValue) return deptValue;
+  const str = String(deptValue).trim();
+  if (!str || isNaN(str)) return deptValue;
+  try {
+    const rows = await utils.fetchRows(queries.GET_DEPARTMENT_NAME_BY_ID, [
+      str,
+    ]);
+    if (rows && rows[0] && rows[0].name) return rows[0].name;
+  } catch (e) {
+    console.warn("[reportIndex] resolveDepartmentName failed:", e.message);
+  }
+  return deptValue;
 }
 
 function normalizeMetaForRender(raw) {
@@ -17,10 +34,10 @@ function normalizeMetaForRender(raw) {
     raw.meta && typeof raw.meta === "object"
       ? raw.meta
       : raw.query && typeof raw.query === "object"
-      ? raw.query
-      : raw.req && raw.req.query && typeof raw.req.query === "object"
-      ? raw.req.query
-      : raw;
+        ? raw.query
+        : raw.req && raw.req.query && typeof raw.req.query === "object"
+          ? raw.req.query
+          : raw;
 
   const norm = (v) => {
     if (v === undefined || v === null) return null;
@@ -94,7 +111,7 @@ function attachFieldDisplayMapToMeta(meta, options = {}) {
   } catch (e) {
     console.warn(
       "[reportIndex] attachFieldDisplayMapToMeta failed:",
-      e && e.message
+      e && e.message,
     );
   }
   return outMeta;
@@ -164,6 +181,12 @@ module.exports = {
       title,
     });
 
+    if (metaWithMap.department) {
+      metaWithMap.department = await resolveDepartmentName(
+        metaWithMap.department,
+      );
+    }
+
     if (
       !metaWithMap.status &&
       !metaWithMap.department &&
@@ -171,7 +194,7 @@ module.exports = {
     ) {
       try {
         console.debug(
-          "[reportIndex] renderPdfBuffer called without meta or query-derived filters."
+          "[reportIndex] renderPdfBuffer called without meta or query-derived filters.",
         );
       } catch (e) {}
     }
@@ -199,7 +222,7 @@ module.exports = {
       rows,
       headers,
       opts.title,
-      metaWithMap
+      metaWithMap,
     );
   },
 
@@ -224,7 +247,7 @@ module.exports = {
     return await renders.renderXlsxBufferToPdfBuffer(
       xlsxBuffer,
       opts.title,
-      metaWithMap
+      metaWithMap,
     );
   },
 
@@ -247,7 +270,7 @@ module.exports = {
     return await renders.renderTasksPdfBuffer(
       tasksRows,
       weeklyRows,
-      metaWithMap
+      metaWithMap,
     );
   },
 
@@ -270,7 +293,7 @@ module.exports = {
     return await renders.renderTasksPdfBufferUsingHtml(
       tasksRows,
       weeklyRows,
-      metaWithMap
+      metaWithMap,
     );
   },
 

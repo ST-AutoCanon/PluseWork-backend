@@ -615,90 +615,147 @@ async function renderHtmlStringToPdfBuffer(htmlString) {
   if (!htmlString || htmlString.length === 0) {
     throw new Error("Empty HTML passed to HTML->PDF converter");
   }
-  const tmpBase = await fs.promises.mkdtemp(
-    path.join(os.tmpdir(), "report-html-"),
-  );
-  const htmlFilename = `report_${Date.now()}.html`;
-  const htmlPath = path.join(tmpBase, htmlFilename);
+
+  // Try LibreOffice conversion first
   try {
-    await fs.promises.writeFile(htmlPath, htmlString, "utf8");
-  } catch (writeErr) {
-    try {
-      await fs.promises.rm(tmpBase, { recursive: true, force: true });
-    } catch (e) {}
-    throw writeErr;
-  }
-  const soffice = findLibreOfficeBinary();
-  if (!soffice) {
-    try {
-      await fs.promises.rm(tmpBase, { recursive: true, force: true });
-    } catch (e) {}
-    throw new Error(
-      "LibreOffice binary not found. Install LibreOffice and ensure 'soffice' in PATH or set LIBREOFFICE_PATH.",
+    const tmpBase = await fs.promises.mkdtemp(
+      path.join(os.tmpdir(), "report-html-"),
     );
-  }
-  const args = [
-    "--headless",
-    "--convert-to",
-    "pdf",
-    htmlPath,
-    "--outdir",
-    tmpBase,
-  ];
-  const timeoutMs = 30000;
-  try {
-    await execFile(soffice, args, {
-      timeout: timeoutMs,
-      maxBuffer: 50 * 1024 * 1024,
-    });
-  } catch (convErr) {
+    const htmlFilename = `report_${Date.now()}.html`;
+    const htmlPath = path.join(tmpBase, htmlFilename);
     try {
-      const debugFiles = await fs.promises.readdir(tmpBase);
-      console.error(
-        "[reportRenders] LibreOffice conversion error, tmp files:",
-        debugFiles,
+      await fs.promises.writeFile(htmlPath, htmlString, "utf8");
+    } catch (writeErr) {
+      try {
+        await fs.promises.rm(tmpBase, { recursive: true, force: true });
+      } catch (e) {}
+      throw writeErr;
+    }
+    const soffice = findLibreOfficeBinary();
+    if (!soffice) {
+      throw new Error(
+        "LibreOffice binary not found. Install LibreOffice and ensure 'soffice' in PATH or set LIBREOFFICE_PATH.",
       );
-    } catch (e) {}
+    }
+    const args = [
+      "--headless",
+      "--convert-to",
+      "pdf",
+      htmlPath,
+      "--outdir",
+      tmpBase,
+    ];
+    const timeoutMs = 30000;
+    try {
+      await execFile(soffice, args, {
+        timeout: timeoutMs,
+        maxBuffer: 50 * 1024 * 1024,
+      });
+    } catch (convErr) {
+      try {
+        const debugFiles = await fs.promises.readdir(tmpBase);
+        console.error(
+          "[reportRenders] LibreOffice conversion error, tmp files:",
+          debugFiles,
+        );
+      } catch (e) {}
+      try {
+        await fs.promises.rm(tmpBase, { recursive: true, force: true });
+      } catch (e) {}
+      throw new Error(
+        "LibreOffice conversion failed: " +
+          (convErr && convErr.message ? convErr.message : String(convErr)),
+      );
+    }
+    const pdfPath = path.join(
+      tmpBase,
+      path.basename(htmlPath, path.extname(htmlPath)) + ".pdf",
+    );
+    const maxWait = 5000;
+    const step = 200;
+    let waited = 0;
+    while (waited < maxWait && !fs.existsSync(pdfPath)) {
+      await new Promise((r) => setTimeout(r, step));
+      waited += step;
+    }
+    let pdfBuf;
+    try {
+      pdfBuf = await fs.promises.readFile(pdfPath);
+    } catch (readErr) {
+      try {
+        await fs.promises.rm(tmpBase, { recursive: true, force: true });
+      } catch (e) {}
+      throw new Error(
+        "Converted PDF missing or unreadable: " +
+          (readErr && readErr.message ? readErr.message : String(readErr)),
+      );
+    }
     try {
       await fs.promises.rm(tmpBase, { recursive: true, force: true });
-    } catch (e) {}
-    throw new Error(
-      "LibreOffice conversion failed: " +
-        (convErr && convErr.message ? convErr.message : String(convErr)),
+    } catch (e) {
+      console.warn(
+        "[reportRenders] failed to cleanup tmp dir:",
+        e && e.message,
+      );
+    }
+    if (!Buffer.isBuffer(pdfBuf) || pdfBuf.length === 0) {
+      throw new Error("Converted PDF is empty");
+    }
+    return pdfBuf;
+  } catch (libreOfficeError) {
+    console.warn(
+      "[reportRenders] LibreOffice conversion failed, falling back to PDFKit:",
+      libreOfficeError.message,
     );
+
+    // Fallback: Create a basic PDF using PDFKit with HTML content as plain text
+    return new Promise((resolve, reject) => {
+      try {
+        const chunks = [];
+        const doc = new PDFDocument({ size: "A4", margin: 50 });
+
+        doc.on("data", (chunk) => chunks.push(chunk));
+        doc.on("end", () => {
+          const pdfBuffer = Buffer.concat(chunks);
+          resolve(pdfBuffer);
+        });
+        doc.on("error", (err) => reject(err));
+
+        // Extract title from HTML
+        const titleMatch = htmlString.match(/<title[^>]*>([^<]+)<\/title>/i);
+        const title = titleMatch ? titleMatch[1] : "Report";
+
+        // Extract basic text content from HTML (simple extraction)
+        const textContent = htmlString
+          .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+          .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+          .replace(/<[^>]+>/g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+
+        // Add title
+        doc
+          .fontSize(18)
+          .font("Helvetica-Bold")
+          .text(title, { align: "center" });
+        doc.moveDown(2);
+
+        // Add content
+        doc.fontSize(10).font("Helvetica").text(textContent, {
+          align: "left",
+          lineGap: 2,
+        });
+
+        doc.end();
+      } catch (fallbackError) {
+        reject(
+          new Error(
+            `Both LibreOffice and PDFKit fallback failed: ${fallbackError.message}`,
+          ),
+        );
+      }
+    });
   }
-  const pdfPath = path.join(
-    tmpBase,
-    path.basename(htmlPath, path.extname(htmlPath)) + ".pdf",
-  );
-  const maxWait = 5000;
-  const step = 200;
-  let waited = 0;
-  while (waited < maxWait && !fs.existsSync(pdfPath)) {
-    await new Promise((r) => setTimeout(r, step));
-    waited += step;
-  }
-  let pdfBuf;
-  try {
-    pdfBuf = await fs.promises.readFile(pdfPath);
-  } catch (readErr) {
-    try {
-      await fs.promises.rm(tmpBase, { recursive: true, force: true });
-    } catch (e) {}
-    throw new Error(
-      "Converted PDF missing or unreadable: " +
-        (readErr && readErr.message ? readErr.message : String(readErr)),
-    );
-  }
-  try {
-    await fs.promises.rm(tmpBase, { recursive: true, force: true });
-  } catch (e) {
-    console.warn("[reportRenders] failed to cleanup tmp dir:", e && e.message);
-  }
-  if (!Buffer.isBuffer(pdfBuf) || pdfBuf.length === 0) {
-    throw new Error("Converted PDF is empty");
-  }
-  return pdfBuf;
 }
 
 async function renderXlsxBufferToPdfBuffer(xlsxBuffer, title, meta) {
@@ -715,93 +772,148 @@ async function renderXlsxBufferToPdfBuffer(xlsxBuffer, title, meta) {
     } catch (e) {}
     throw writeErr;
   }
-  const soffice = findLibreOfficeBinary();
-  if (!soffice) {
-    try {
-      await fs.promises.rm(tmpBase, { recursive: true, force: true });
-    } catch (e) {}
-    throw new Error(
-      "LibreOffice/soffice not found. Install LibreOffice and ensure 'soffice' in PATH or set LIBREOFFICE_PATH.",
-    );
-  }
-  const args = [
-    "--headless",
-    "--convert-to",
-    "pdf:writer_pdf_Export",
-    xlsxPath,
-    "--outdir",
-    tmpBase,
-  ];
-  const timeoutMs = 30000;
+
+  // Try LibreOffice conversion first
   try {
-    await execFile(soffice, args, {
-      timeout: timeoutMs,
-      maxBuffer: 50 * 1024 * 1024,
-    });
-  } catch (convErr) {
-    try {
-      const debugFiles = await fs.promises.readdir(tmpBase);
-      console.error(
-        "[reportRenders] LibreOffice conversion error, tmp files:",
-        debugFiles,
+    const soffice = findLibreOfficeBinary();
+    if (!soffice) {
+      throw new Error(
+        "LibreOffice/soffice not found. Install LibreOffice and ensure 'soffice' in PATH or set LIBREOFFICE_PATH.",
       );
-    } catch (e) {}
+    }
+    const args = [
+      "--headless",
+      "--convert-to",
+      "pdf:writer_pdf_Export",
+      xlsxPath,
+      "--outdir",
+      tmpBase,
+    ];
+    const timeoutMs = 30000;
+    try {
+      await execFile(soffice, args, {
+        timeout: timeoutMs,
+        maxBuffer: 50 * 1024 * 1024,
+      });
+    } catch (convErr) {
+      try {
+        const debugFiles = await fs.promises.readdir(tmpBase);
+        console.error(
+          "[reportRenders] LibreOffice conversion error, tmp files:",
+          debugFiles,
+        );
+      } catch (e) {}
+      try {
+        await fs.promises.rm(tmpBase, { recursive: true, force: true });
+      } catch (e) {}
+      throw new Error(
+        "LibreOffice conversion failed: " +
+          (convErr && convErr.message ? convErr.message : String(convErr)),
+      );
+    }
+    const pdfPath = path.join(
+      tmpBase,
+      path.basename(xlsxPath, path.extname(xlsxPath)) + ".pdf",
+    );
+    const maxWait = 5000;
+    const step = 200;
+    let waited = 0;
+    while (waited < maxWait && !fs.existsSync(pdfPath)) {
+      await new Promise((r) => setTimeout(r, step));
+      waited += step;
+    }
+    let pdfBuf;
+    try {
+      pdfBuf = await fs.promises.readFile(pdfPath);
+    } catch (readErr) {
+      try {
+        await fs.promises.rm(tmpBase, { recursive: true, force: true });
+      } catch (e) {}
+      throw new Error(
+        "Converted PDF missing or unreadable: " +
+          (readErr && readErr.message ? readErr.message : String(readErr)),
+      );
+    }
     try {
       await fs.promises.rm(tmpBase, { recursive: true, force: true });
-    } catch (e) {}
-    throw new Error(
-      "LibreOffice conversion failed: " +
-        (convErr && convErr.message ? convErr.message : String(convErr)),
-    );
-  }
-  const pdfPath = path.join(
-    tmpBase,
-    path.basename(xlsxPath, path.extname(xlsxPath)) + ".pdf",
-  );
-  const maxWait = 5000;
-  const step = 200;
-  let waited = 0;
-  while (waited < maxWait && !fs.existsSync(pdfPath)) {
-    await new Promise((r) => setTimeout(r, step));
-    waited += step;
-  }
-  let pdfBuf;
-  try {
-    pdfBuf = await fs.promises.readFile(pdfPath);
-  } catch (readErr) {
+    } catch (e) {
+      console.warn(
+        "[reportRenders] failed to cleanup tmp dir:",
+        e && e.message,
+      );
+    }
+    if (!Buffer.isBuffer(pdfBuf) || pdfBuf.length === 0) {
+      throw new Error("Converted PDF is empty");
+    }
+
+    if (!meta || Object.keys(meta).length === 0) {
+      return pdfBuf;
+    }
+
     try {
-      await fs.promises.rm(tmpBase, { recursive: true, force: true });
-    } catch (e) {}
-    throw new Error(
-      "Converted PDF missing or unreadable: " +
-        (readErr && readErr.message ? readErr.message : String(readErr)),
+      const headerRow = [{ _is_report_header: true, ...meta }];
+      const coverHtml = rowsToHtml(title || "Report", headerRow);
+      const coverPdf = await renderHtmlStringToPdfBuffer(coverHtml);
+      const merged = await mergePdfBuffers([coverPdf, pdfBuf]);
+      return merged;
+    } catch (e) {
+      console.error(
+        "[reportRenders] failed to attach meta cover page:",
+        e && e.message,
+      );
+      return pdfBuf;
+    }
+  } catch (libreOfficeError) {
+    console.warn(
+      "[reportRenders] LibreOffice XLSX conversion failed, falling back to basic PDF:",
+      libreOfficeError.message,
     );
-  }
-  try {
-    await fs.promises.rm(tmpBase, { recursive: true, force: true });
-  } catch (e) {
-    console.warn("[reportRenders] failed to cleanup tmp dir:", e && e.message);
-  }
-  if (!Buffer.isBuffer(pdfBuf) || pdfBuf.length === 0) {
-    throw new Error("Converted PDF is empty");
-  }
 
-  if (!meta || Object.keys(meta).length === 0) {
-    return pdfBuf;
-  }
+    // Fallback: Create a basic PDF indicating the conversion failed
+    return new Promise((resolve, reject) => {
+      try {
+        const chunks = [];
+        const doc = new PDFDocument({ size: "A4", margin: 50 });
 
-  try {
-    const headerRow = [{ _is_report_header: true, ...meta }];
-    const coverHtml = rowsToHtml(title || "Report", headerRow);
-    const coverPdf = await renderHtmlStringToPdfBuffer(coverHtml);
-    const merged = await mergePdfBuffers([coverPdf, pdfBuf]);
-    return merged;
-  } catch (e) {
-    console.error(
-      "[reportRenders] failed to attach meta cover page:",
-      e && e.message,
-    );
-    return pdfBuf;
+        doc.on("data", (chunk) => chunks.push(chunk));
+        doc.on("end", () => {
+          const pdfBuffer = Buffer.concat(chunks);
+          resolve(pdfBuffer);
+        });
+        doc.on("error", (err) => reject(err));
+
+        // Add title
+        doc
+          .fontSize(18)
+          .font("Helvetica-Bold")
+          .text(title || "Excel Report", { align: "center" });
+        doc.moveDown(2);
+
+        // Add error message
+        doc
+          .fontSize(12)
+          .font("Helvetica")
+          .text("Excel to PDF conversion failed.", {
+            align: "center",
+          });
+        doc.moveDown();
+        doc
+          .fontSize(10)
+          .text("LibreOffice is not available in this environment.", {
+            align: "center",
+          });
+        doc.moveDown();
+        doc.text("Please ensure LibreOffice is installed and accessible.", {
+          align: "center",
+        });
+
+        doc.end();
+      } catch (fallbackError) {
+        reject(
+          new Error(`XLSX to PDF conversion failed: ${fallbackError.message}`),
+        );
+      }
+    });
   }
 }
 
@@ -826,6 +938,9 @@ async function mergePdfBuffers(buffers) {
 }
 
 async function renderPdfBuffer(title, rows, meta) {
+  console.log(
+    `[reportRenders] renderPdfBuffer called with title: "${title}", rows: ${Array.isArray(rows) ? rows.length : "N/A"}`,
+  );
   const rowsCopy = Array.isArray(rows) ? rows.map((r) => ({ ...r })) : [];
   if (meta && Object.keys(meta).length > 0) {
     rowsCopy.unshift({ _is_report_header: true, ...meta });
@@ -834,7 +949,9 @@ async function renderPdfBuffer(title, rows, meta) {
   if (!html || html.length === 0) {
     throw new Error("Empty HTML passed to PDF generator");
   }
+  console.log(`[reportRenders] Generated HTML: ${html.length} characters`);
   const pdfBuf = await renderHtmlStringToPdfBuffer(html);
+  console.log(`[reportRenders] Generated PDF: ${pdfBuf.length} bytes`);
   return pdfBuf;
 }
 
