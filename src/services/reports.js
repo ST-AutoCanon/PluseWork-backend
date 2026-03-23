@@ -1043,7 +1043,11 @@ async function getEmployeeRows(
     console.error("[reports] GET_EMPLOYEE_REPORT missing in reportQueries");
     throw new Error("Missing GET_EMPLOYEE_REPORT SQL definition");
   }
-  const params = filters.buildDateStatusParams(startDate, endDate, status);
+  const params = [
+    ...filters.buildDateStatusParams(startDate, endDate, status),
+    departmentId,
+    departmentId,
+  ];
   let rows;
   try {
     rows = await fetchRows(sql, params);
@@ -1484,7 +1488,7 @@ async function searchEmployees(arg) {
     if (queries && queries.SEARCH_EMPLOYEES) {
       try {
         let sql = queries.SEARCH_EMPLOYEES;
-        const wildcard = `%${trimmed}%`;
+        const wildcard = `%${trimmed.toLowerCase()}%`;
         const params = [wildcard, wildcard, wildcard];
 
         const deptClausePatterns = [

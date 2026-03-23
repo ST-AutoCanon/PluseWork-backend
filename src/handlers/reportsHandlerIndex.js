@@ -299,6 +299,13 @@ async function downloadEmployeesReport(req, res) {
     );
     if (dept && dept.toLowerCase && dept.toLowerCase() === "null") dept = null;
 
+    let employee = coerceToString(
+      req.query.employee_id ?? req.query.employee ?? null,
+      null,
+    );
+    if (employee && employee.toLowerCase && employee.toLowerCase() === "null")
+      employee = null;
+
     const params = [
       startDate,
       startDate,
@@ -308,10 +315,19 @@ async function downloadEmployeesReport(req, res) {
       status,
       dept,
       dept,
+      employee,
+      employee,
     ];
     let rows;
     try {
-      rows = await fetchRows(queries.GET_EMPLOYEE_REPORT, params);
+      rows = await reportService.getEmployeeRows(
+        startDate,
+        endDate,
+        status,
+        null,
+        employee,
+        dept,
+      );
     } catch (primaryErr) {
       console.error(
         "[reportsHandlerIndex] GET_EMPLOYEE_REPORT failed — will try compact fallback. Error:",
@@ -339,8 +355,29 @@ async function downloadEmployeesReport(req, res) {
         ORDER BY e.created_at DESC
         `;
 
+      // Use 8 params for fallback (excludes employee filter from SQL)
+      const fallbackParams = [
+        startDate,
+        startDate,
+        endDate,
+        endDate,
+        status,
+        status,
+        dept,
+        dept,
+      ];
+
       try {
-        rows = await fetchRows(compactQuery, params);
+        rows = await fetchRows(compactQuery, fallbackParams);
+        rows = Array.isArray(rows) ? rows : [];
+        // Apply employee filter in code for flexible matching
+        if (employee) {
+          rows = await filters.applyEmployeeAndDepartmentFilters(
+            rows,
+            employee,
+            dept,
+          );
+        }
       } catch (fallbackErr) {
         console.error(
           "[reportsHandlerIndex] Compact fallback also failed:",
@@ -396,10 +433,44 @@ async function downloadEmployeesReport(req, res) {
     } else if (format === "pdf") {
       if (typeof reportService.renderPdfBuffer !== "function")
         return res.status(500).json({ message: "PDF renderer not available" });
+
+      // Build metadata for PDF header
+      const meta = {
+        filters: [],
+        status: null,
+        employee: null,
+        department: null,
+      };
+
+      if (startDate || endDate) {
+        if (startDate && endDate) {
+          meta.filters.push(`Date: ${startDate} → ${endDate}`);
+        } else if (startDate) {
+          meta.filters.push(`From: ${startDate}`);
+        } else {
+          meta.filters.push(`To: ${endDate}`);
+        }
+      }
+
+      if (status && String(status).trim().toLowerCase() !== "all") {
+        meta.status = String(status).trim();
+        meta.filters.push(`Status: ${meta.status}`);
+      }
+
+      if (employee && String(employee).trim() !== "") {
+        meta.employee = String(employee).trim();
+        meta.filters.push(`Employee: ${meta.employee}`);
+      }
+
+      if (dept && String(dept).trim() !== "") {
+        meta.department = String(dept).trim();
+        meta.filters.push(`Department: ${meta.department}`);
+      }
+
       const pdfBuf = await reportService.renderPdfBuffer(
         "Employees Report",
         toExport,
-        { meta: {} },
+        { meta },
       );
       const filename = "employees_report.pdf";
       res.setHeader("Content-Type", "application/pdf");
@@ -408,6 +479,9 @@ async function downloadEmployeesReport(req, res) {
         `attachment; filename="${filename}"`,
       );
       res.setHeader("Content-Length", pdfBuf.length);
+      console.log(
+        `[reportsHandlerIndex] Generated PDF: ${pdfBuf.length} bytes for ${toExport.length} records`,
+      );
       return res.send(pdfBuf);
     } else {
       return res.json(rowsArr);

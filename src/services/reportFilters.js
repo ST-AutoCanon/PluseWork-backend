@@ -279,6 +279,13 @@ function normalizeReimbursementRow(raw) {
   return r;
 }
 
+function normalizeEmployeeId(id) {
+  if (!id) return id;
+  let s = String(id).trim();
+  s = s.replace(/^STS/i, "");
+  return s;
+}
+
 async function applyEmployeeAndDepartmentFilters(
   rows,
   employeeId,
@@ -289,15 +296,40 @@ async function applyEmployeeAndDepartmentFilters(
   let filtered = rows;
 
   if (employeeId != null && String(employeeId).trim() !== "") {
-    const empStr = String(employeeId).trim();
+    const empRaw = String(employeeId).trim();
+    const normalizedEmpRaw = normalizeForCompare(empRaw);
+
     filtered = filtered.filter((r) => {
-      if (r.employee_id != null) return String(r.employee_id).trim() === empStr;
-      const keys = Object.keys(r);
-      const foundKey = keys.find(
-        (k) => String(k).toLowerCase() === "employee_id",
+      const candidateIds = [];
+      if (r.employee_id != null) candidateIds.push(String(r.employee_id));
+      if (r.employeeId != null) candidateIds.push(String(r.employeeId));
+      if (r.employee_code != null) candidateIds.push(String(r.employee_code));
+      if (r.emp_id != null) candidateIds.push(String(r.emp_id));
+      if (r.id != null) candidateIds.push(String(r.id));
+
+      for (const id of candidateIds) {
+        if (normalizeForCompare(id) === normalizedEmpRaw) return true;
+        if (
+          normalizeForCompare(id) ===
+          normalizeForCompare(normalizeEmployeeId(empRaw))
+        )
+          return true;
+      }
+
+      const candidateNames = [];
+      if (r.employee_name) candidateNames.push(r.employee_name);
+      if (r.employeeName) candidateNames.push(r.employeeName);
+      if (r.name) candidateNames.push(r.name);
+      if (r.full_name) candidateNames.push(r.full_name);
+      if (r.email) candidateNames.push(r.email);
+
+      for (const n of candidateNames) {
+        if (normalizeForCompare(n) === normalizedEmpRaw) return true;
+      }
+
+      return Object.values(r).some(
+        (v) => normalizeForCompare(v || "") === normalizedEmpRaw,
       );
-      if (foundKey) return String(r[foundKey]).trim() === empStr;
-      return Object.values(r).some((v) => String(v || "").trim() === empStr);
     });
   }
 
