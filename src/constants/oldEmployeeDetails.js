@@ -66,6 +66,7 @@ const UPDATE_OLD_EMPLOYEE_DETAILS = `
   WHERE employee_id = ? AND org_id = ?
 `;
 
+
 const GET_EMPLOYEES = `
   SELECT
     e.employee_id,
@@ -78,7 +79,10 @@ const GET_EMPLOYEES = `
     pr.position AS designation,
     pr.department_id,
     d.name AS department_name,
-    DATE(pr.joining_date) AS joining_date,
+    
+    -- THIS IS THE FIX
+    DATE_FORMAT(pr.joining_date, '%Y-%m-%d') AS joining_date,
+    
     b.account_number,
     p.uan_number,
     p.pan_number,
