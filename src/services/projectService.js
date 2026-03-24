@@ -42,7 +42,7 @@ const addMilestone = async (orgId, milestoneData) => {
     const tenantPool = await getTenantPoolForOrgId(orgId);
     const [result] = await tenantPool.query(
       queries.INSERT_MILESTONE,
-      milestoneData
+      milestoneData,
     );
     return result.insertId;
   } catch (err) {
@@ -85,7 +85,7 @@ const getEmployeeProjects = async (employeeId, orgId = null) => {
       const tenantPool = await getTenantPoolForOrgId(orgId);
       const [rows] = await tenantPool.query(
         queries.GET_EMPLOYEE_PROJECTS_BY_ORG,
-        [jsonEmployeeId, orgId]
+        [jsonEmployeeId, orgId],
       );
       return rows;
     } else {
@@ -232,6 +232,38 @@ const updateMilestone = async (orgId, id, milestoneData) => {
   }
 };
 
+const deleteMilestone = async (orgId, id) => {
+  try {
+    if (orgId && String(orgId).trim() !== "") {
+      const tenantPool = await getTenantPoolForOrgId(orgId);
+      await tenantPool.query(queries.DELETE_MILESTONE, [id]);
+    } else {
+      await db.execute(queries.DELETE_MILESTONE, [id]);
+    }
+  } catch (err) {
+    console.error("❌ deleteMilestone error:", err);
+    throw err;
+  }
+};
+
+const deleteFinancialDetailsByMilestone = async (orgId, milestoneId) => {
+  try {
+    if (orgId && String(orgId).trim() !== "") {
+      const tenantPool = await getTenantPoolForOrgId(orgId);
+      await tenantPool.query(queries.DELETE_FINANCIAL_DETAILS_BY_MILESTONE, [
+        milestoneId,
+      ]);
+    } else {
+      await db.execute(queries.DELETE_FINANCIAL_DETAILS_BY_MILESTONE, [
+        milestoneId,
+      ]);
+    }
+  } catch (err) {
+    console.error("❌ deleteFinancialDetailsByMilestone error:", err);
+    throw err;
+  }
+};
+
 const updateFinancialDetails = async (orgId, params) => {
   try {
     if (orgId && String(orgId).trim() !== "") {
@@ -278,48 +310,96 @@ const searchEmployees = async (search, orgId) => {
 
 const updateFinancialDetailsForInvoice = async (orgId, data) => {
   try {
-    const {
-      project_id,
-      milestone_id,
-      m_actual_amount,
-      m_tds_percentage,
-      m_tds_amount,
-      m_gst_percentage,
-      m_gst_amount,
-      m_total_amount,
-    } = data;
-
-    const status = "Received";
-    const completed_date = new Date().toISOString().split("T")[0];
-
-    const params = [
-      project_id,
-      milestone_id,
-      m_actual_amount,
-      m_tds_percentage,
-      m_tds_amount,
-      m_gst_percentage,
-      m_gst_amount,
-      m_total_amount,
-      status,
-      completed_date,
-    ];
-
-    const cleanParams = params.map((v) =>
-      v === "" || v === "null" ? null : v
+    const project_id = Number(data.project_id || data.projectId);
+    const milestone_id = Number(data.milestone_id || data.milestoneId);
+    const m_actual_amount = Number(
+      data.m_actual_amount || data.mActualAmount || 0,
     );
+    const m_tds_percentage = Number(
+      data.m_tds_percentage || data.mTdsPercentage || 0,
+    );
+    const m_tds_amount = Number(data.m_tds_amount || data.mTdsAmount || 0);
+    const m_gst_percentage = Number(
+      data.m_gst_percentage || data.mGstPercentage || 0,
+    );
+    const m_gst_amount = Number(data.m_gst_amount || data.mGstAmount || 0);
+    const m_total_amount = Number(
+      data.m_total_amount || data.mTotalAmount || 0,
+    );
+
+    const status = data.status || "Received";
+    const completed_date = data.completed_date
+      ? new Date(data.completed_date).toISOString().split("T")[0]
+      : new Date().toISOString().split("T")[0];
+
+    const searchQuery = `SELECT id FROM financial_details WHERE project_id = ? AND milestone_id = ? AND (month_year IS NULL OR month_year = '') LIMIT 1`;
+    const values = [project_id, milestone_id];
 
     if (orgId && String(orgId).trim() !== "") {
       const tenantPool = await getTenantPoolForOrgId(orgId);
-      await tenantPool.query(
-        queries.UPDATE_FINANCIAL_DETAILS_FOR_INVOICE,
-        cleanParams
-      );
+      const [rows] = await tenantPool.query(searchQuery, values);
+      if (rows && rows.length > 0) {
+        const financialId = rows[0].id;
+        await updateFinancialDetailsById(orgId, {
+          id: financialId,
+          m_actual_amount,
+          m_tds_percentage,
+          m_tds_amount,
+          m_gst_percentage,
+          m_gst_amount,
+          m_total_amount,
+          status,
+          completed_date,
+        });
+      } else {
+        await tenantPool.query(
+          `INSERT INTO financial_details (project_id, milestone_id, m_actual_amount, m_tds_percentage, m_tds_amount, m_gst_percentage, m_gst_amount, m_total_amount, status, completed_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            project_id,
+            milestone_id,
+            m_actual_amount,
+            m_tds_percentage,
+            m_tds_amount,
+            m_gst_percentage,
+            m_gst_amount,
+            m_total_amount,
+            status,
+            completed_date,
+          ],
+        );
+      }
     } else {
-      await db.execute(
-        queries.UPDATE_FINANCIAL_DETAILS_FOR_INVOICE,
-        cleanParams
-      );
+      const [rows] = await db.execute(searchQuery, values);
+      if (rows && rows.length > 0) {
+        const financialId = rows[0].id;
+        await updateFinancialDetailsById(orgId, {
+          id: financialId,
+          m_actual_amount,
+          m_tds_percentage,
+          m_tds_amount,
+          m_gst_percentage,
+          m_gst_amount,
+          m_total_amount,
+          status,
+          completed_date,
+        });
+      } else {
+        await db.execute(
+          `INSERT INTO financial_details (project_id, milestone_id, m_actual_amount, m_tds_percentage, m_tds_amount, m_gst_percentage, m_gst_amount, m_total_amount, status, completed_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            project_id,
+            milestone_id,
+            m_actual_amount,
+            m_tds_percentage,
+            m_tds_amount,
+            m_gst_percentage,
+            m_gst_amount,
+            m_total_amount,
+            status,
+            completed_date,
+          ],
+        );
+      }
     }
   } catch (err) {
     console.error("❌ updateFinancialDetailsForInvoice error:", err);
@@ -330,20 +410,20 @@ const updateFinancialDetailsForInvoice = async (orgId, data) => {
 const getFinancialDetailByMilestoneAndMonthYear = async (
   orgId,
   milestoneId,
-  monthYear
+  monthYear,
 ) => {
   try {
     if (orgId && String(orgId).trim() !== "") {
       const tenantPool = await getTenantPoolForOrgId(orgId);
       const [rows] = await tenantPool.query(
         queries.GET_FINANCIAL_BY_MILESTONE_AND_MONTH_YEAR,
-        [milestoneId, monthYear]
+        [milestoneId, monthYear],
       );
       return rows.length > 0 ? rows[0] : null;
     } else {
       const [rows] = await db.execute(
         queries.GET_FINANCIAL_BY_MILESTONE_AND_MONTH_YEAR,
-        [milestoneId, monthYear]
+        [milestoneId, monthYear],
       );
       return rows.length > 0 ? rows[0] : null;
     }
@@ -369,11 +449,63 @@ const upsertFinancialDetails = async (orgId, data) => {
 
 const updateFinancialDetailsById = async (orgId, params) => {
   try {
+    let values;
+
+    if (Array.isArray(params)) {
+      values = params;
+    } else if (params && typeof params === "object") {
+      const m_actual_amount = Number(
+        params.m_actual_amount || params.mActualAmount || 0,
+      );
+      const m_tds_percentage = Number(
+        params.m_tds_percentage || params.mTdsPercentage || 0,
+      );
+      const m_tds_amount = Number(
+        params.m_tds_amount || params.mTdsAmount || 0,
+      );
+      const m_gst_percentage = Number(
+        params.m_gst_percentage || params.mGstPercentage || 0,
+      );
+      const m_gst_amount = Number(
+        params.m_gst_amount || params.mGstAmount || 0,
+      );
+      const m_total_amount = Number(
+        params.m_total_amount || params.mTotalAmount || 0,
+      );
+      const status = params.status || "Received";
+      const completed_date = params.completed_date
+        ? new Date(params.completed_date).toISOString().split("T")[0]
+        : new Date().toISOString().split("T")[0];
+      const id = Number(
+        params.id || params.financial_id || params.milestone_id || 0,
+      );
+
+      if (!id) {
+        throw new Error(
+          "financial record id is required for updateFinancialDetailsById",
+        );
+      }
+
+      values = [
+        m_actual_amount,
+        m_tds_percentage,
+        m_tds_amount,
+        m_gst_percentage,
+        m_gst_amount,
+        m_total_amount,
+        status,
+        completed_date,
+        id,
+      ];
+    } else {
+      throw new Error("Invalid params for updateFinancialDetailsById");
+    }
+
     if (orgId && String(orgId).trim() !== "") {
       const tenantPool = await getTenantPoolForOrgId(orgId);
-      await tenantPool.query(queries.UPDATE_FINANCIAL_BY_ID, params);
+      await tenantPool.query(queries.UPDATE_FINANCIAL_BY_ID, values);
     } else {
-      await db.execute(queries.UPDATE_FINANCIAL_BY_ID, params);
+      await db.execute(queries.UPDATE_FINANCIAL_BY_ID, values);
     }
   } catch (err) {
     console.error("❌ updateFinancialDetailsById error:", err);
@@ -392,6 +524,8 @@ module.exports = {
   updateProject,
   updateSTSOwner,
   updateMilestone,
+  deleteMilestone,
+  deleteFinancialDetailsByMilestone,
   updateFinancialDetails,
   searchEmployees,
   updateFinancialDetailsForInvoice,

@@ -113,7 +113,7 @@ exports.createProject = async (req, res) => {
     if (Array.isArray(parsedFinancialDetails)) {
       for (const financial of parsedFinancialDetails) {
         const milestone = milestoneIds.find(
-          (m) => m.details === financial.milestone_details
+          (m) => m.details === financial.milestone_details,
         );
         let milestoneId = milestone ? milestone.id : null;
         if (payment_type !== "Monthly Scheduled" && !milestoneId) continue;
@@ -240,7 +240,7 @@ exports.getEmployeeProjects = async (req, res) => {
 
     const projects = await projectService.getEmployeeProjects(
       employeeId,
-      orgId
+      orgId,
     );
     res.status(200).json({ projects });
   } catch (error) {
@@ -413,6 +413,26 @@ exports.updateProject = async (req, res) => {
           m.id = newMilestoneId;
         }
       }
+
+      // Delete milestones that are no longer present
+      const existingMilestones = Array.isArray(existingProject.milestones)
+        ? existingProject.milestones
+        : existingProject.milestones
+          ? JSON.parse(existingProject.milestones)
+          : [];
+      const newMilestoneIds = parsedMilestones
+        .filter((m) => m.id)
+        .map((m) => m.id);
+      const milestonesToDelete = existingMilestones.filter(
+        (em) => !newMilestoneIds.includes(em.id),
+      );
+      for (const milestone of milestonesToDelete) {
+        await projectService.deleteFinancialDetailsByMilestone(
+          orgId,
+          milestone.id,
+        );
+        await projectService.deleteMilestone(orgId, milestone.id);
+      }
     }
 
     let parsedFinancial = [];
@@ -428,7 +448,7 @@ exports.updateProject = async (req, res) => {
         parsedFinancial.forEach((f) => {
           if (!f.milestone_id && f.milestone_details) {
             const match = parsedMilestones.find(
-              (m) => m.details === f.milestone_details
+              (m) => m.details === f.milestone_details,
             );
             if (match) f.milestone_id = match.id;
           }

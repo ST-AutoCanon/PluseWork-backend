@@ -201,6 +201,14 @@ SET milestone_details = ?, start_date = ?, end_date = ?, current_status = ?,
 WHERE id = ?;
 `,
 
+  DELETE_MILESTONE: `
+    DELETE FROM milestones WHERE id = ?;
+`,
+
+  DELETE_FINANCIAL_DETAILS_BY_MILESTONE: `
+    DELETE FROM financial_details WHERE milestone_id = ?;
+`,
+
   UPDATE_FINANCIAL_DETAILS: `
     UPDATE financial_details 
     SET project_amount = ?,
@@ -289,6 +297,12 @@ WHERE id = ?;
   GET_FINANCIAL_BY_MILESTONE_AND_MONTH_YEAR: `
   SELECT * FROM financial_details 
   WHERE milestone_id = ? AND month_year = ?
+`,
+
+  GET_FINANCIAL_DETAIL_BY_PROJECT_AND_MILESTONE: `
+  SELECT id FROM financial_details
+  WHERE project_id = ? AND milestone_id = ? AND (month_year IS NULL OR month_year = '')
+  LIMIT 1
 `,
 
   UPSERT_FINANCIAL_DETAILS: `
