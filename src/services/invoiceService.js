@@ -32,7 +32,7 @@ async function getOrgNameMaster(connection, orgId) {
   try {
     const [rows] = await connection.execute(
       `SELECT Name AS name FROM Organizations WHERE id = ? LIMIT 1`,
-      [orgId]
+      [orgId],
     );
     if (rows && rows.length > 0) return String(rows[0].name).trim();
   } catch (e) {}
@@ -79,7 +79,7 @@ const insertInitialSequenceMaster = async (
   invoiceType,
   financialYear,
   orgId,
-  initial = 2
+  initial = 2,
 ) => {
   const tenantPool = await getTenantPoolForOrgId(orgId);
   const conn = await tenantPool.getConnection();
@@ -99,7 +99,7 @@ const updateSequenceMaster = async (
   nextSeq,
   invoiceType,
   financialYear,
-  orgId
+  orgId,
 ) => {
   const tenantPool = await getTenantPoolForOrgId(orgId);
   const conn = await tenantPool.getConnection();
@@ -205,7 +205,7 @@ const getInvoicesByProject = async (orgId, projectId) => {
   try {
     const [results] = await tenantPool.query(
       invoiceQueries.GET_INVOICES_BY_PROJECT,
-      [projectId]
+      [projectId],
     );
 
     return results.map((invoice) => {
@@ -260,7 +260,7 @@ const createInvoice = async (invoiceData, orgId) => {
   const invoiceNo = await generateInvoiceNo(
     invoiceData.invoiceDate,
     invoiceData.invoiceType,
-    orgId
+    orgId,
   );
 
   const conn = await tenantPool.getConnection();
@@ -379,7 +379,7 @@ const updateInvoiceExtra = async (orgId, id, invoiceData) => {
 
     const [[{ payment_type }]] = await conn.query(
       `SELECT payment_type FROM add_project WHERE id = ?`,
-      [invoiceData.projectId]
+      [invoiceData.projectId],
     );
 
     if (invoiceData.gstPayment === "Completed" && invoiceData.milestoneId) {
@@ -394,8 +394,15 @@ const updateInvoiceExtra = async (orgId, id, invoiceData) => {
 
       if (payment_type === "Monthly Scheduled") {
         await require("./projectService").updateFinancialDetailsById(orgId, {
-          financial_id: Number(invoiceData.milestoneId),
-          ...common,
+          id: Number(invoiceData.milestoneId),
+          m_actual_amount: common.m_actual_amount,
+          m_tds_percentage: common.m_tds_percentage,
+          m_tds_amount: common.m_tds_amount,
+          m_gst_percentage: common.m_gst_percentage,
+          m_gst_amount: common.m_gst_amount,
+          m_total_amount: common.m_total_amount,
+          status: "Received",
+          completed_date: new Date().toISOString().split("T")[0],
         });
       } else {
         await require("./projectService").updateFinancialDetailsForInvoice(
@@ -403,8 +410,15 @@ const updateInvoiceExtra = async (orgId, id, invoiceData) => {
           {
             project_id: Number(invoiceData.projectId),
             milestone_id: Number(invoiceData.milestoneId),
-            ...common,
-          }
+            m_actual_amount: common.m_actual_amount,
+            m_tds_percentage: common.m_tds_percentage,
+            m_tds_amount: common.m_tds_amount,
+            m_gst_percentage: common.m_gst_percentage,
+            m_gst_amount: common.m_gst_amount,
+            m_total_amount: common.m_total_amount,
+            status: "Received",
+            completed_date: new Date().toISOString().split("T")[0],
+          },
         );
       }
     }
@@ -466,7 +480,7 @@ const recordDownloadDetails = async (
   invoiceType,
   invoiceNumber,
   details,
-  orgId
+  orgId,
 ) => {
   if (!orgId) throw new Error("orgId required");
   const tenantPool = await getTenantPoolForOrgId(orgId);
@@ -523,7 +537,7 @@ const recordDownloadDetails = async (
         totalExcludingTax,
         totalIncludingTax,
         terms,
-      ]
+      ],
     );
 
     const usedSeq = parseSequenceFromInvoiceNumber(invoiceNumber);
@@ -531,7 +545,7 @@ const recordDownloadDetails = async (
     if (usedSeq != null && orgId) {
       const [rows] = await tenantConn.execute(
         invoiceQueries.GET_NEXT_SEQUENCE,
-        [invoiceType, fy, orgId]
+        [invoiceType, fy, orgId],
       );
 
       if (!rows || rows.length === 0) {
@@ -582,7 +596,7 @@ const getAllDownloadDetails = async (orgId) => {
   try {
     const [rows] = await tenantPool.query(
       invoiceQueries.GET_ALL_DOWNLOAD_DETAILS,
-      [orgId]
+      [orgId],
     );
     return rows.map((r) => {
       if (r.lineItems && typeof r.lineItems === "string") {
