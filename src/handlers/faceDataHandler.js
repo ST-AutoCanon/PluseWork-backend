@@ -5,6 +5,7 @@ const {
 
 const handleSaveFaceData = async (req, res) => {
   const { employee_id, descriptors } = req.body;
+  const orgId = req.headers["x-org-id"]; // ✅ FIXED
 
   if (!employee_id || !descriptors) {
     return res
@@ -13,7 +14,7 @@ const handleSaveFaceData = async (req, res) => {
   }
 
   try {
-    await saveFaceDataService(employee_id, descriptors);
+    await saveFaceDataService(employee_id, descriptors, orgId); // ✅ FIXED
     res.status(201).json({ message: "Face data saved successfully" });
   } catch (error) {
     console.error("Error saving face data:", error);
@@ -23,9 +24,13 @@ const handleSaveFaceData = async (req, res) => {
 
 const handleGetFaceData = async (req, res) => {
   const { employee_id } = req.params;
+  const orgId = req.headers["x-org-id"]; // ✅ FIXED
 
   try {
-    const faceData = await getFaceDataByEmployeeService(employee_id);
+    const faceData = await getFaceDataByEmployeeService(
+      employee_id,
+      orgId
+    ); // ✅ FIXED
 
     if (!faceData) {
       return res
