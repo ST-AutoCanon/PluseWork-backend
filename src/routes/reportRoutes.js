@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 
 const reports = require("../handlers/reportsHandlerIndex");
+const reportEmployees = require("../handlers/reportEmployeesHandler");
 const { runWithOrgId, getOrgIdFromReq } = require("../utils/requestContext");
 
 function ensureHandler(fn, name) {
@@ -46,7 +47,10 @@ router.get(
 
 router.get(
   "/employees",
-  ensureHandler(reports.downloadEmployeesReport, "downloadEmployeesReport"),
+  ensureHandler(
+    reportEmployees.downloadEmployeesReport,
+    "downloadEmployeesReport",
+  ),
 );
 
 router.get(

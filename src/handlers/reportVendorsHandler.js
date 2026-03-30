@@ -26,42 +26,47 @@ async function buildMetaFromReqQuery(query = {}) {
     coerceToString(query.employee_name, null) ||
     coerceToString(query.employeeName, null) ||
     coerceToString(query.employee, null);
-  if (typedEmployeeName) {
-    meta.employeeName = typedEmployeeName;
-  } else {
-    const empId =
-      coerceToString(query.employee_id, null) ||
-      coerceToString(query.employeeId, null);
-    if (empId) {
-      try {
-        if (typeof reportService.searchEmployees === "function") {
-          const found = await reportService.searchEmployees({
-            q: empId,
-            limit: 1,
-          });
-          meta.employeeName =
-            Array.isArray(found) && found[0]
-              ? found[0].employee_name ||
-                `${(found[0].first_name || "").trim()} ${(
-                  found[0].last_name || ""
-                ).trim()}`.trim() ||
-                empId
-              : empId;
-        } else if (typeof reportService.getEmployeeRows === "function") {
-          const er = await reportService.getEmployeeRows(empId);
-          meta.employeeName =
-            Array.isArray(er) && er[0]
-              ? er[0].employee_name ||
-                `${(er[0].first_name || "").trim()} ${(
-                  er[0].last_name || ""
-                ).trim()}`.trim() ||
-                empId
-              : empId;
-        } else meta.employeeName = empId;
-      } catch (e) {
+  const empId =
+    coerceToString(query.employee_id, null) ||
+    coerceToString(query.employeeId, null);
+
+  if (empId) {
+    // If we have an employee ID, look it up in the database to get proper formatting
+    try {
+      const rows = await reportService.fetchRows(
+        `SELECT employee_id, first_name, last_name, email FROM employees WHERE employee_id = ? LIMIT 1`,
+        [empId],
+      );
+      const er = Array.isArray(rows) && rows[0] ? rows[0] : null;
+      if (er) {
+        const fullName =
+          `${(er.first_name || "").trim()} ${(
+            er.last_name || ""
+          ).trim()}`.trim() ||
+          er.email ||
+          er.employee_id;
+        meta.employee = `${fullName} (${er.employee_id})`;
+        meta.employeeName = fullName;
+        meta.employeeId = er.employee_id;
+      } else if (typedEmployeeName) {
+        meta.employeeName = typedEmployeeName;
+        meta.employeeId = empId;
+      } else {
         meta.employeeName = empId;
+        meta.employeeId = empId;
+      }
+    } catch (e) {
+      // If lookup fails, use what we have
+      if (typedEmployeeName) {
+        meta.employeeName = typedEmployeeName;
+        meta.employeeId = empId;
+      } else {
+        meta.employeeName = empId;
+        meta.employeeId = empId;
       }
     }
+  } else if (typedEmployeeName) {
+    meta.employeeName = typedEmployeeName;
   }
 
   const typedDept =
@@ -83,7 +88,7 @@ async function buildMetaFromReqQuery(query = {}) {
               (d) =>
                 d &&
                 (String(d.id) === String(deptId) ||
-                  String(d.department_id || d.id) === String(deptId))
+                  String(d.department_id || d.id) === String(deptId)),
             );
             meta.department =
               (found &&
@@ -122,7 +127,7 @@ async function downloadVendorsReport(req, res) {
       null,
       fields,
       employeeId,
-      departmentId
+      departmentId,
     );
     const rows = Array.isArray(rowsRaw) ? rowsRaw : [];
 
@@ -162,11 +167,11 @@ async function downloadVendorsReport(req, res) {
       const filename = safeFilename("vendors_report", "xlsx");
       res.setHeader(
         "Content-Type",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       );
       res.setHeader(
         "Content-Disposition",
-        `attachment; filename="${filename}"`
+        `attachment; filename="${filename}"`,
       );
       res.setHeader("Content-Length", buf.length);
       return res.send(buf);
@@ -176,13 +181,13 @@ async function downloadVendorsReport(req, res) {
       const pdfBuf = await reportService.renderPdfBuffer(
         "Vendors Report",
         rowsForExport,
-        { meta }
+        { meta },
       );
       const filename = safeFilename("vendors_report", "pdf");
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader(
         "Content-Disposition",
-        `attachment; filename="${filename}"`
+        `attachment; filename="${filename}"`,
       );
       res.setHeader("Content-Length", pdfBuf.length);
       return res.send(pdfBuf);
@@ -192,7 +197,7 @@ async function downloadVendorsReport(req, res) {
   } catch (err) {
     console.error(
       "[ReportVendorsHandler] Error rendering Vendors report:",
-      err && (err.stack || err)
+      err && (err.stack || err),
     );
     return res.status(500).json({ message: "Internal Server Error" });
   }

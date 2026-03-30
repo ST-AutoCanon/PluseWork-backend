@@ -316,17 +316,54 @@ async function buildMetaFromReqQuery(query = {}) {
     }
   }
 
+  // Get both employee name and ID from query
   const typedEmployeeName =
     coerceToString(query.employee_name, null) ||
     coerceToString(query.employeeName, null) ||
     coerceToString(query.employee, null);
-  if (typedEmployeeName) {
+
+  const empId =
+    coerceToString(query.employee_id, null) ||
+    coerceToString(query.employeeId, null);
+
+  if (empId) {
+    // If we have an employee ID, look it up in the database to get proper formatting
+    try {
+      const [rows] = await dbExec(
+        req,
+        `SELECT employee_id, first_name, last_name, email FROM employees WHERE employee_id = ? LIMIT 1`,
+        [empId],
+      );
+      const er = Array.isArray(rows) && rows[0] ? rows[0] : null;
+      if (er) {
+        const fullName =
+          `${(er.first_name || "").trim()} ${(
+            er.last_name || ""
+          ).trim()}`.trim() ||
+          er.email ||
+          er.employee_id;
+        meta.employee = `${fullName} (${er.employee_id})`;
+        meta.employeeName = fullName;
+        meta.employeeId = er.employee_id;
+      } else if (typedEmployeeName) {
+        meta.employeeName = typedEmployeeName;
+        meta.employeeId = empId;
+      } else {
+        meta.employeeName = empId;
+        meta.employeeId = empId;
+      }
+    } catch (e) {
+      // If lookup fails, use what we have
+      if (typedEmployeeName) {
+        meta.employeeName = typedEmployeeName;
+        meta.employeeId = empId;
+      } else {
+        meta.employeeName = empId;
+        meta.employeeId = empId;
+      }
+    }
+  } else if (typedEmployeeName) {
     meta.employeeName = typedEmployeeName;
-  } else {
-    const empId =
-      coerceToString(query.employee_id, null) ||
-      coerceToString(query.employeeId, null);
-    if (empId) meta.employeeName = empId;
   }
 
   let typedDept =
@@ -404,7 +441,16 @@ async function downloadAttendanceReport(req, res) {
       );
     }
 
-    if (!departmentIdQuery && requesterEmpId) {
+    // Skip department derivation for admin/HR users - they should see all departments
+    const user = req.user || req.authUser || req.auth || req.session?.user;
+    const userRole = user && (user.role || user.user_role);
+    const lowerRole = userRole ? String(userRole).toLowerCase() : "";
+    const isAdmin =
+      lowerRole === "admin" ||
+      lowerRole === "hr" ||
+      lowerRole === "human resources";
+
+    if (!departmentIdQuery && requesterEmpId && !isAdmin) {
       const derived = await (async (id) => {
         try {
           const [rows] = await dbExec(
@@ -439,6 +485,10 @@ async function downloadAttendanceReport(req, res) {
       console.debug(
         "[reportAttendanceHandler] using department_id from query:",
         departmentIdQuery,
+      );
+    } else if (isAdmin) {
+      console.debug(
+        "[reportAttendanceHandler] skipping department derivation for admin/HR user",
       );
     }
 

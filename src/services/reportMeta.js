@@ -20,7 +20,7 @@ function formatTimestampAsiaKolkata(d = new Date()) {
     const [dd, mm, yyyy] = dp;
     return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(
       2,
-      "0"
+      "0",
     )} ${timePart} (Asia/Kolkata)`;
   }
   return `${s} (Asia/Kolkata)`;
@@ -35,25 +35,50 @@ function generateMetaHtml(meta = {}) {
     meta.departmentName === null || meta.departmentName === undefined
       ? ""
       : escapeHtml(String(meta.departmentName));
-  const employee =
-    meta.employeeName === null || meta.employeeName === undefined
-      ? ""
-      : escapeHtml(String(meta.employeeName));
+
+  // First check if meta.employee already has the combined format (e.g., from Leaves handler)
+  let employee =
+    meta.employee !== null && meta.employee !== undefined
+      ? escapeHtml(String(meta.employee))
+      : "";
+
+  // If no pre-formatted employee, try to combine employeeName and employeeId
+  if (!employee) {
+    let employeeName =
+      meta.employeeName === null || meta.employeeName === undefined
+        ? ""
+        : escapeHtml(String(meta.employeeName));
+
+    const employeeId =
+      meta.employeeId === null || meta.employeeId === undefined
+        ? ""
+        : escapeHtml(String(meta.employeeId));
+
+    // If we have both name and ID, combine them in format "Name (ID)"
+    if (employeeName && employeeId && !employeeName.includes(employeeId)) {
+      employee = `${employeeName} (${employeeId})`;
+    } else if (!employeeName && employeeId) {
+      // If only ID exists, use it
+      employee = employeeId;
+    } else if (employeeName) {
+      employee = employeeName;
+    }
+  }
 
   const timestamp = formatTimestampAsiaKolkata();
 
   const leftItems = [];
   if (status)
     leftItems.push(
-      `<div class="meta-item"><strong>Status:</strong> ${status}</div>`
+      `<div class="meta-item"><strong>Status:</strong> ${status}</div>`,
     );
   if (dept)
     leftItems.push(
-      `<div class="meta-item"><strong>Department:</strong> ${dept}</div>`
+      `<div class="meta-item"><strong>Department:</strong> ${dept}</div>`,
     );
   if (employee)
     leftItems.push(
-      `<div class="meta-item"><strong>Employee:</strong> ${employee}</div>`
+      `<div class="meta-item"><strong>Employee:</strong> ${employee}</div>`,
     );
 
   const leftHtml = leftItems.length
@@ -82,7 +107,7 @@ function generateMetaHtml(meta = {}) {
 
     <div class="meta-right">
       <div class="time"><strong>Generated:</strong><br>${escapeHtml(
-        timestamp
+        timestamp,
       )}</div>
     </div>
   </div>

@@ -1,5 +1,5 @@
 const reportService = require("../services/reportIndex");
-const { coerceToString } = require("../services/reportUtils");
+const { coerceToString, fetchRows } = require("../services/reportUtils");
 const {
   parseDates,
   ensureTwoMonthWindow,
@@ -109,7 +109,7 @@ async function findDepartmentsManagedBy(req, managerEmpId) {
   if (!managerEmpId) return [];
   const out = [];
   try {
-    const [cols] = await dbExecRaw(req, "SHOW COLUMNS FROM departments");
+    const cols = await fetchRows("SHOW COLUMNS FROM departments");
     const colNames = Array.isArray(cols)
       ? cols
           .map((c) =>
@@ -252,22 +252,19 @@ async function buildMetaFromReqQuery(query = {}) {
       meta.filters.push(`Status: ${meta.status}`);
     }
 
-    let empCandidate =
-      query.employee_id ??
-      query.employeeId ??
-      query.employee ??
-      query.employee_name ??
-      query.employeeName ??
-      null;
-    if (typeof empCandidate === "string" && empCandidate.trim() === "")
-      empCandidate = null;
+    const typedEmployeeName =
+      coerceToString(query.employee_name, null) ||
+      coerceToString(query.employeeName, null) ||
+      coerceToString(query.employee, null);
 
-    if (empCandidate) {
-      const idCandidate = tryParseCandidate(empCandidate);
+    const rawEmpId = query.employee_id ?? query.employeeId ?? null;
+    const empId = coerceToString(rawEmpId, null);
+
+    if (empId) {
+      const idCandidate = tryParseCandidate(empId);
       if (idCandidate) {
         try {
-          const [rows] = await dbExecRaw(
-            req,
+          const rows = await fetchRows(
             "SELECT employee_id, first_name, last_name, email FROM employees WHERE employee_id = ? LIMIT 1",
             [idCandidate],
           );
@@ -280,19 +277,90 @@ async function buildMetaFromReqQuery(query = {}) {
               er.email ||
               er.employee_id;
             meta.employee = `${name} (${er.employee_id})`;
+            meta.employeeName = name;
+            meta.employeeId = er.employee_id;
             meta.filters.push(`Employee: ${meta.employee}`);
+          } else if (typedEmployeeName) {
+            // Try to resolve the name to employee id
+            try {
+              const nameRows = await fetchRows(
+                "SELECT employee_id, first_name, last_name, email FROM employees WHERE CONCAT(first_name, ' ', last_name) LIKE ? OR email LIKE ? LIMIT 1",
+                [`%${typedEmployeeName}%`, `%${typedEmployeeName}%`],
+              );
+              if (Array.isArray(nameRows) && nameRows[0]) {
+                const er2 = nameRows[0];
+                const name2 =
+                  `${(er2.first_name || "").trim()} ${(er2.last_name || "").trim()}`.trim() ||
+                  er2.email ||
+                  er2.employee_id;
+                meta.employee = `${name2} (${er2.employee_id})`;
+                meta.employeeName = name2;
+                meta.employeeId = er2.employee_id;
+                meta.filters.push(`Employee: ${meta.employee}`);
+                // Set the resolved id back to query for the handler
+                query.employee_id = er2.employee_id;
+              } else {
+                meta.employee = `${typedEmployeeName} (${idCandidate})`;
+                meta.employeeName = typedEmployeeName;
+                meta.employeeId = idCandidate;
+                meta.filters.push(`Employee: ${meta.employee}`);
+              }
+            } catch (e2) {
+              meta.employee = `${typedEmployeeName} (${idCandidate})`;
+              meta.employeeName = typedEmployeeName;
+              meta.employeeId = idCandidate;
+              meta.filters.push(`Employee: ${meta.employee}`);
+            }
           } else {
-            meta.employee = normalizeToPlainString(empCandidate, "employee");
+            meta.employee = `${idCandidate}`;
+            meta.employeeName = `${idCandidate}`;
+            meta.employeeId = idCandidate;
             meta.filters.push(`Employee: ${meta.employee}`);
           }
         } catch (e) {
-          meta.employee = normalizeToPlainString(empCandidate, "employee");
-          meta.filters.push(`Employee: ${meta.employee}`);
+          if (typedEmployeeName) {
+            // Try to resolve the name to employee id
+            try {
+              const nameRows = await fetchRows(
+                "SELECT employee_id, first_name, last_name, email FROM employees WHERE CONCAT(first_name, ' ', last_name) LIKE ? OR email LIKE ? LIMIT 1",
+                [`%${typedEmployeeName}%`, `%${typedEmployeeName}%`],
+              );
+              if (Array.isArray(nameRows) && nameRows[0]) {
+                const er2 = nameRows[0];
+                const name2 =
+                  `${(er2.first_name || "").trim()} ${(er2.last_name || "").trim()}`.trim() ||
+                  er2.email ||
+                  er2.employee_id;
+                meta.employee = `${name2} (${er2.employee_id})`;
+                meta.employeeName = name2;
+                meta.employeeId = er2.employee_id;
+                meta.filters.push(`Employee: ${meta.employee}`);
+                // Set the resolved id back to query for the handler
+                query.employee_id = er2.employee_id;
+              } else {
+                meta.employee = `${typedEmployeeName} (${idCandidate})`;
+                meta.employeeName = typedEmployeeName;
+                meta.employeeId = idCandidate;
+                meta.filters.push(`Employee: ${meta.employee}`);
+              }
+            } catch (e2) {
+              meta.employee = `${typedEmployeeName} (${idCandidate})`;
+              meta.employeeName = typedEmployeeName;
+              meta.employeeId = idCandidate;
+              meta.filters.push(`Employee: ${meta.employee}`);
+            }
+          } else {
+            meta.employee = `${idCandidate}`;
+            meta.employeeName = `${idCandidate}`;
+            meta.employeeId = idCandidate;
+            meta.filters.push(`Employee: ${meta.employee}`);
+          }
         }
-      } else {
-        meta.employee = normalizeToPlainString(empCandidate, "employee");
-        meta.filters.push(`Employee: ${meta.employee}`);
       }
+    } else if (typedEmployeeName) {
+      meta.employee = typedEmployeeName;
+      meta.employeeName = typedEmployeeName;
+      meta.filters.push(`Employee: ${typedEmployeeName}`);
     }
 
     let deptCandidate =
@@ -309,12 +377,11 @@ async function buildMetaFromReqQuery(query = {}) {
       const deptIdStr = coerceToString(deptCandidate, null);
       if (deptIdStr && /^\d+$/.test(String(deptIdStr))) {
         try {
-          const [drows] = await dbExecRaw(
-            req,
+          const rows = await fetchRows(
             "SELECT id, name FROM departments WHERE id = ? LIMIT 1",
             [deptIdStr],
           );
-          const dr = Array.isArray(drows) && drows[0] ? drows[0] : null;
+          const dr = Array.isArray(rows) && rows[0] ? rows[0] : null;
           if (dr) {
             meta.department = `${dr.name}`;
             meta.filters.push(`Department: ${meta.department}`);
@@ -336,6 +403,37 @@ async function buildMetaFromReqQuery(query = {}) {
     }
 
     if (meta.filters.length === 0) meta.filters.push("No explicit filters");
+
+    // Normalize employee metadata to a consistent display form:
+    // - Prefer combined "Name (ID)" where both exist.
+    // - Fall back gracefully if only one is available.
+    const finalEmployeeName =
+      meta.employeeName || meta.employee_name || meta.employee || null;
+    const finalEmployeeId = meta.employeeId || meta.employee_id || null;
+
+    if (finalEmployeeName && finalEmployeeId) {
+      const name = String(finalEmployeeName).trim();
+      const id = String(finalEmployeeId).trim();
+      if (name && id && !name.includes(id)) {
+        meta.employee = `${name} (${id})`;
+      } else {
+        meta.employee = name;
+      }
+      meta.employeeName = name;
+      meta.employeeId = id;
+    } else if (finalEmployeeName) {
+      meta.employee = String(finalEmployeeName).trim();
+      meta.employeeName = meta.employee;
+      if (finalEmployeeId) meta.employeeId = String(finalEmployeeId).trim();
+    } else if (finalEmployeeId) {
+      meta.employee = String(finalEmployeeId).trim();
+      meta.employeeId = meta.employee;
+      if (!meta.employeeName) meta.employeeName = meta.employee;
+    }
+
+    if (meta.department && !meta.departmentName) {
+      meta.departmentName = meta.department;
+    }
   } catch (e) {
     console.warn(
       "[reportEmployeesHandler] buildMetaFromReqQuery failed:",
@@ -393,13 +491,17 @@ async function downloadEmployeesReport(req, res) {
     let isAdmin = false;
     try {
       const u = req.user || req.authUser || req.session?.user;
-      if (u)
+      if (u) {
+        const userRole = u.role ? String(u.role).toLowerCase() : "";
         isAdmin = !!(
           u.is_admin ||
           u.isAdmin ||
-          u.role === "admin" ||
+          userRole === "admin" ||
+          userRole === "hr" ||
+          userRole === "human resources" ||
           (Array.isArray(u.roles) && u.roles.includes("admin"))
         );
+      }
     } catch (e) {
       isAdmin = false;
     }

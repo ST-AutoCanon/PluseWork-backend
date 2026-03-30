@@ -276,9 +276,20 @@ function cleanMetaForDisplay(meta) {
 
   const status = getValue(meta.status);
   const department = getValue(meta.department || meta.departmentName);
-  const employee = getValue(
+
+  const employeeName = getValue(
     meta.employeeName || meta.employee || meta.employee_name,
   );
+  const employeeId = getValue(meta.employeeId || meta.employee_id);
+
+  let employee = "";
+  if (employeeName && employeeId && !employeeName.includes(employeeId)) {
+    employee = `${employeeName} (${employeeId})`;
+  } else if (employeeName) {
+    employee = employeeName;
+  } else if (employeeId) {
+    employee = employeeId;
+  }
 
   if (status) out.push({ label: "Status", value: status });
   if (department) out.push({ label: "Department", value: department });
@@ -290,6 +301,8 @@ function cleanMetaForDisplay(meta) {
     "departmentName",
     "employee",
     "employeeName",
+    "employeeId",
+    "employee_id",
     "employee_name",
     "_is_report_header",
     "_field_display_map",
