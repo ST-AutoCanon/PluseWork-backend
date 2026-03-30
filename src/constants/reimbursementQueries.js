@@ -110,18 +110,20 @@ module.exports = {
   `,
 
   CHECK_INVOICE_DUPLICATE: `
-    SELECT id, employee_id, status
-    FROM reimbursement
-    WHERE JSON_SEARCH(invoices, 'one', ?) IS NOT NULL
-      AND LOWER(TRIM(IFNULL(status, ''))) <> 'rejected'
+    SELECT DISTINCT rl.reimbursement_id, r.employee_id, r.status
+    FROM reimbursement_lines rl
+    JOIN reimbursement r ON r.id = rl.reimbursement_id
+    WHERE JSON_SEARCH(rl.meta, 'one', ?) IS NOT NULL
+      AND LOWER(TRIM(IFNULL(r.status, ''))) <> 'rejected'
   `,
 
   CHECK_INVOICE_DUPLICATE_EXCLUDE: `
-    SELECT id, employee_id, status
-    FROM reimbursement
-    WHERE JSON_SEARCH(invoices, 'one', ?) IS NOT NULL
-      AND id <> ?
-      AND LOWER(TRIM(IFNULL(status, ''))) <> 'rejected'
+    SELECT DISTINCT rl.reimbursement_id, r.employee_id, r.status
+    FROM reimbursement_lines rl
+    JOIN reimbursement r ON r.id = rl.reimbursement_id
+    WHERE JSON_SEARCH(rl.meta, 'one', ?) IS NOT NULL
+      AND rl.reimbursement_id <> ?
+      AND LOWER(TRIM(IFNULL(r.status, ''))) <> 'rejected'
   `,
 
   UPDATE_REIMBURSEMENT: `

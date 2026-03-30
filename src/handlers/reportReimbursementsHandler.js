@@ -176,39 +176,47 @@ async function buildMetaFromReqQuery(query = {}) {
     coerceToString(query.employee_name, null) ||
     coerceToString(query.employeeName, null) ||
     coerceToString(query.employee, null);
-  if (typedEmployeeName) {
-    meta.employeeName = typedEmployeeName;
-  } else {
-    const empId =
-      coerceToString(query.employee_id, null) ||
-      coerceToString(query.employeeId, null);
-    if (empId) {
-      try {
-        if (typeof reportService.searchEmployees === "function") {
-          const found = await reportService.searchEmployees(empId);
-          meta.employeeName =
-            Array.isArray(found) && found[0]
-              ? found[0].employee_name ||
-                `${(found[0].first_name || "").trim()} ${(
-                  found[0].last_name || ""
-                ).trim()}`.trim() ||
-                empId
-              : empId;
-        } else if (typeof reportService.getEmployeeRows === "function") {
-          const er = await reportService.getEmployeeRows(empId);
-          meta.employeeName =
-            Array.isArray(er) && er[0]
-              ? er[0].employee_name ||
-                `${(er[0].first_name || "").trim()} ${(
-                  er[0].last_name || ""
-                ).trim()}`.trim() ||
-                empId
-              : empId;
-        } else meta.employeeName = empId;
-      } catch (e) {
+  const empId =
+    coerceToString(query.employee_id, null) ||
+    coerceToString(query.employeeId, null);
+
+  if (empId) {
+    // If we have an employee ID, look it up in the database to get proper formatting
+    try {
+      const rows = await fetchRows(
+        `SELECT employee_id, first_name, last_name, email FROM employees WHERE employee_id = ? LIMIT 1`,
+        [empId],
+      );
+      const er = Array.isArray(rows) && rows[0] ? rows[0] : null;
+      if (er) {
+        const fullName =
+          `${(er.first_name || "").trim()} ${(
+            er.last_name || ""
+          ).trim()}`.trim() ||
+          er.email ||
+          er.employee_id;
+        meta.employee = `${fullName} (${er.employee_id})`;
+        meta.employeeName = fullName;
+        meta.employeeId = er.employee_id;
+      } else if (typedEmployeeName) {
+        meta.employeeName = typedEmployeeName;
+        meta.employeeId = empId;
+      } else {
         meta.employeeName = empId;
+        meta.employeeId = empId;
+      }
+    } catch (e) {
+      // If lookup fails, use what we have
+      if (typedEmployeeName) {
+        meta.employeeName = typedEmployeeName;
+        meta.employeeId = empId;
+      } else {
+        meta.employeeName = empId;
+        meta.employeeId = empId;
       }
     }
+  } else if (typedEmployeeName) {
+    meta.employeeName = typedEmployeeName;
   }
 
   const typedDept =
@@ -266,12 +274,30 @@ async function downloadReimbursementsReport(req, res) {
     const requesterEmpId = findEmployeeIdInRequest(req);
 
     if (!departmentId && requesterEmpId) {
-      const derived = await lookupDeptForEmployee(requesterEmpId);
-      if (derived) {
-        departmentId = derived;
+      const u = req.user || req.authUser || req.session?.user;
+      const userRole = u && (u.role || u.user_role);
+      const lowerRole = userRole ? String(userRole).toLowerCase() : "";
+      const isAdmin =
+        !!(
+          u &&
+          (u.is_admin ||
+            u.isAdmin ||
+            lowerRole === "admin" ||
+            lowerRole === "hr" ||
+            lowerRole === "human resources")
+        ) || false;
+      if (!isAdmin) {
+        const derived = await lookupDeptForEmployee(requesterEmpId);
+        if (derived) {
+          departmentId = derived;
+          console.debug(
+            "[reportReimbursementsHandler] derived department for requester:",
+            departmentId,
+          );
+        }
+      } else {
         console.debug(
-          "[reportReimbursementsHandler] derived department for requester:",
-          departmentId,
+          "[reportReimbursementsHandler] skipping department derivation for admin/HR user",
         );
       }
     }
@@ -279,8 +305,17 @@ async function downloadReimbursementsReport(req, res) {
     let managerEmpId = null;
     if (!departmentId && requesterEmpId) {
       const u = req.user || req.authUser || req.session?.user;
+      const userRole = u && (u.role || u.user_role);
+      const lowerRole = userRole ? String(userRole).toLowerCase() : "";
       const isAdmin =
-        !!(u && (u.is_admin || u.isAdmin || u.role === "admin")) || false;
+        !!(
+          u &&
+          (u.is_admin ||
+            u.isAdmin ||
+            lowerRole === "admin" ||
+            lowerRole === "hr" ||
+            lowerRole === "human resources")
+        ) || false;
       const isManagerRole = !!(
         u &&
         u.role &&

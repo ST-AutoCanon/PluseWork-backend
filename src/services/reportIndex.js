@@ -67,17 +67,26 @@ function normalizeMetaForRender(raw) {
     if (deptIdCandidate) out.department = deptIdCandidate;
   }
 
-  const empNameCandidate =
+  let empNameCandidate =
     norm(source.employeeName) ||
     norm(source.employee_name) ||
     norm(source.employee) ||
     null;
-  if (empNameCandidate) {
-    out.employeeName = empNameCandidate;
-  } else {
-    const empIdCandidate = norm(source.employeeId) || norm(source.employee_id);
-    if (empIdCandidate) out.employeeName = empIdCandidate;
+  let empIdCandidate = norm(source.employeeId) || norm(source.employee_id);
+
+  // If employee field is combined "Name (ID)", split it
+  if (!empIdCandidate && empNameCandidate) {
+    const m = empNameCandidate.match(/^(.+?)\s*\(([^()]+)\)$/);
+    if (m) {
+      empNameCandidate = m[1].trim();
+      empIdCandidate = m[2].trim();
+    }
   }
+
+  if (empNameCandidate) out.employeeName = empNameCandidate;
+  else if (empIdCandidate) out.employeeName = empIdCandidate;
+
+  if (empIdCandidate) out.employeeId = empIdCandidate;
 
   return out;
 }

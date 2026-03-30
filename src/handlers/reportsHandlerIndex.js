@@ -154,6 +154,31 @@ function wrapHandlerWithDerivedDept(originalHandler) {
   if (typeof originalHandler !== "function") return originalHandler;
   return async function (req, res, next) {
     try {
+      // Skip department derivation for admin/HR users - they should see all departments
+      const user = req.user || req.authUser || req.session?.user;
+      const userRole = user && (user.role || user.user_role);
+      const lowerRole = userRole ? String(userRole).toLowerCase() : "";
+      const isAdmin =
+        lowerRole === "admin" ||
+        lowerRole === "hr" ||
+        lowerRole === "human resources";
+
+      console.debug(
+        "[wrapHandlerWithDerivedDept] userRole:",
+        userRole,
+        "lowerRole:",
+        lowerRole,
+        "isAdmin:",
+        isAdmin,
+      );
+
+      if (isAdmin) {
+        console.debug(
+          "[reportsHandlerIndex] wrapHandlerWithDerivedDept: skipping department derivation for admin/HR user",
+        );
+        return originalHandler(req, res, next);
+      }
+
       const hasDept =
         req.query &&
         (req.query.department_id ||
@@ -170,8 +195,7 @@ function wrapHandlerWithDerivedDept(originalHandler) {
           null;
         const empId = headerEmp ? String(headerEmp).trim() : null;
 
-        const userEmp =
-          (req.user && (req.user.employee_id || req.user.employeeId)) || null;
+        const userEmp = (user && (user.employee_id || user.employeeId)) || null;
         const userEmpId = userEmp ? String(userEmp).trim() : null;
 
         const candidateEmpId = empId || userEmpId;

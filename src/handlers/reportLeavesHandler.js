@@ -245,17 +245,22 @@ async function buildMetaFromReqQuery(query = {}) {
               er.email ||
               er.employee_id;
             meta.employee = `${name} (${er.employee_id})`;
+            meta.employeeName = name;
+            meta.employeeId = er.employee_id;
             meta.filters.push(`Employee: ${meta.employee}`);
           } else {
             meta.employee = normalizeToPlainString(empCandidate, "employee");
+            meta.employeeName = meta.employee;
             meta.filters.push(`Employee: ${meta.employee}`);
           }
         } catch (e) {
           meta.employee = normalizeToPlainString(empCandidate, "employee");
+          meta.employeeName = meta.employee;
           meta.filters.push(`Employee: ${meta.employee}`);
         }
       } else {
         meta.employee = normalizeToPlainString(empCandidate, "employee");
+        meta.employeeName = meta.employee;
         meta.filters.push(`Employee: ${meta.employee}`);
       }
     }
@@ -352,19 +357,24 @@ async function downloadLeavesReport(req, res) {
     let isAdmin = false;
     try {
       const u = req.user || req.authUser || req.session?.user;
-      if (u)
+      if (u) {
+        const userRole = u.role || u.user_role;
+        const lowerRole = userRole ? String(userRole).toLowerCase() : "";
         isAdmin = !!(
           u.is_admin ||
           u.isAdmin ||
-          u.role === "admin" ||
+          lowerRole === "admin" ||
+          lowerRole === "hr" ||
+          lowerRole === "human resources" ||
           (Array.isArray(u.roles) && u.roles.includes("admin"))
         );
+      }
     } catch (e) {
       isAdmin = false;
     }
 
     let managerEmpId = null;
-    if (!departmentIdQuery && requesterEmpId) {
+    if (!departmentIdQuery && requesterEmpId && !isAdmin) {
       try {
         const r = await fetchRows(
           "SELECT department_id FROM employee_professional WHERE employee_id = ? LIMIT 1",
@@ -377,7 +387,7 @@ async function downloadLeavesReport(req, res) {
             departmentIdQuery,
           );
         } else {
-          if (!isAdmin && isExplicitManagerScope(req)) {
+          if (isExplicitManagerScope(req)) {
             managerEmpId = requesterEmpId;
             console.debug(
               "[reportLeavesHandler] explicit manager scoping enabled via flag/role:",
@@ -390,7 +400,7 @@ async function downloadLeavesReport(req, res) {
           }
         }
       } catch (e) {
-        if (!isAdmin && isExplicitManagerScope(req)) {
+        if (isExplicitManagerScope(req)) {
           managerEmpId = requesterEmpId;
           console.debug(
             "[reportLeavesHandler] fallback: explicit manager scoping enabled via flag/role:",

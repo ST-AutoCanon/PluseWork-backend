@@ -19,7 +19,7 @@ async function getEmployeeDepartment(employeeId) {
   try {
     const rows = await reportUtils.fetchRows(
       "SELECT department_id FROM employee_professional WHERE employee_id = ? LIMIT 1",
-      [String(employeeId)]
+      [String(employeeId)],
     );
     if (
       Array.isArray(rows) &&
@@ -33,7 +33,7 @@ async function getEmployeeDepartment(employeeId) {
   } catch (e) {
     console.warn(
       "[reportTasksHandler] getEmployeeDepartment failed:",
-      e && e.message
+      e && e.message,
     );
     return null;
   }
@@ -49,7 +49,7 @@ async function verifyEmployeeInDepartment(employeeId, departmentId) {
   } catch (e) {
     console.warn(
       "[reportTasksHandler] verifyEmployeeInDepartment failed:",
-      e && e.message
+      e && e.message,
     );
     return false;
   }
@@ -103,7 +103,7 @@ async function resolveEmployeeIdsFromTypedName(typedName, departmentId) {
       .filter(Boolean);
 
     const uniqueIds = Array.from(
-      new Set(normalized.map((i) => String(i.employee_id).trim()))
+      new Set(normalized.map((i) => String(i.employee_id).trim())),
     );
 
     if (departmentId && uniqueIds.length > 0) {
@@ -111,7 +111,7 @@ async function resolveEmployeeIdsFromTypedName(typedName, departmentId) {
         const placeholders = uniqueIds.map(() => "?").join(",");
         const profRows = await reportUtils.fetchRows(
           `SELECT employee_id, department_id FROM employee_professional WHERE employee_id IN (${placeholders})`,
-          uniqueIds
+          uniqueIds,
         );
         const map = {};
         if (Array.isArray(profRows)) {
@@ -134,7 +134,7 @@ async function resolveEmployeeIdsFromTypedName(typedName, departmentId) {
         const fallbackFiltered = normalized
           .filter(
             (n) =>
-              n.department_id != null && String(n.department_id).trim() === did
+              n.department_id != null && String(n.department_id).trim() === did,
           )
           .map((n) => String(n.employee_id).trim());
         return Array.from(new Set(fallbackFiltered));
@@ -145,7 +145,7 @@ async function resolveEmployeeIdsFromTypedName(typedName, departmentId) {
   } catch (e) {
     console.warn(
       "[reportTasksHandler] resolveEmployeeIdsFromTypedName failed:",
-      e && e.message
+      e && e.message,
     );
     return [];
   }
@@ -175,38 +175,45 @@ async function buildMetaFromReqQuery(query = {}) {
     coerceToString(query.employee_name, null) ||
     coerceToString(query.employeeName, null) ||
     coerceToString(query.employee, null);
-  if (typedEmployeeName) meta.employeeName = typedEmployeeName;
-  else {
-    const empId =
-      coerceToString(query.employee_id, null) ||
-      coerceToString(query.employeeId, null);
-    if (empId) {
-      try {
-        if (typeof reportService.searchEmployees === "function") {
-          const svcRes = await reportService.searchEmployees({
-            q: empId,
-            limit: 1,
-          });
-          let found = null;
-          if (Array.isArray(svcRes) && svcRes.length) found = svcRes[0];
-          else if (svcRes && Array.isArray(svcRes.results) && svcRes.results[0])
-            found = svcRes.results[0];
-          else if (svcRes && Array.isArray(svcRes.data) && svcRes.data[0])
-            found = svcRes.data[0];
-          meta.employeeName =
-            (found &&
-              (found.employee_name ||
-                `${found.first_name || ""} ${found.last_name || ""}`.trim())) ||
-            empId;
-        } else {
-          const er = await reportService.getEmployeeRows(empId);
-          meta.employeeName =
-            Array.isArray(er) && er[0] ? er[0].employee_name || empId : empId;
-        }
-      } catch (e) {
+  const empId =
+    coerceToString(query.employee_id, null) ||
+    coerceToString(query.employeeId, null);
+
+  if (empId) {
+    // If we have an employee ID, look it up in the database to get proper formatting
+    try {
+      const rows = await reportUtils.fetchRows(
+        `SELECT employee_id, first_name, last_name, email FROM employees WHERE employee_id = ? LIMIT 1`,
+        [empId],
+      );
+      const er = Array.isArray(rows) && rows[0] ? rows[0] : null;
+      if (er) {
+        const fullName =
+          `${(er.first_name || "").trim()} ${er.last_name || ""}`.trim() ||
+          er.email ||
+          er.employee_id;
+        meta.employee = `${fullName} (${er.employee_id})`;
+        meta.employeeName = fullName;
+        meta.employeeId = er.employee_id;
+      } else if (typedEmployeeName) {
+        meta.employeeName = typedEmployeeName;
+        meta.employeeId = empId;
+      } else {
         meta.employeeName = empId;
+        meta.employeeId = empId;
+      }
+    } catch (e) {
+      // If lookup fails, use what we have
+      if (typedEmployeeName) {
+        meta.employeeName = typedEmployeeName;
+        meta.employeeId = empId;
+      } else {
+        meta.employeeName = empId;
+        meta.employeeId = empId;
       }
     }
+  } else if (typedEmployeeName) {
+    meta.employeeName = typedEmployeeName;
   }
 
   const typedDept =
@@ -228,7 +235,7 @@ async function buildMetaFromReqQuery(query = {}) {
                 d &&
                 (String(d.id) === String(deptId) ||
                   String(d.department_id || d.departmentId || d.id) ===
-                    String(deptId))
+                    String(deptId)),
             );
             meta.department =
               (found &&
@@ -299,7 +306,7 @@ async function downloadTasksSupervisorReport(req, res) {
             req,
             res,
             [],
-            "No task data for selected date range"
+            "No task data for selected date range",
           );
         } else {
           return res
@@ -315,7 +322,7 @@ async function downloadTasksSupervisorReport(req, res) {
       status,
       fields,
       employeeId,
-      departmentId
+      departmentId,
     );
     let rows = Array.isArray(rawTasks) ? rawTasks : [];
 
@@ -326,7 +333,7 @@ async function downloadTasksSupervisorReport(req, res) {
     if (typedEmployeeName) {
       const resolvedIds = await resolveEmployeeIdsFromTypedName(
         typedEmployeeName,
-        departmentId
+        departmentId,
       );
       if (!resolvedIds || resolvedIds.length === 0) {
         if (isPreviewRequest(req)) {
@@ -334,7 +341,7 @@ async function downloadTasksSupervisorReport(req, res) {
             req,
             res,
             [],
-            "No task data for selected date range"
+            "No task data for selected date range",
           );
         } else {
           return res
@@ -348,7 +355,7 @@ async function downloadTasksSupervisorReport(req, res) {
           const placeholders = resolvedIds.map(() => "?").join(",");
           const profRows = await reportUtils.fetchRows(
             `SELECT employee_id FROM employee_professional WHERE employee_id IN (${placeholders}) AND department_id = ?`,
-            [...resolvedIds, departmentId]
+            [...resolvedIds, departmentId],
           );
           const verified = Array.isArray(profRows)
             ? profRows.map((r) => String(r.employee_id).trim())
@@ -359,7 +366,7 @@ async function downloadTasksSupervisorReport(req, res) {
                 req,
                 res,
                 [],
-                "No task data for selected date range"
+                "No task data for selected date range",
               );
             } else {
               return res
@@ -375,14 +382,14 @@ async function downloadTasksSupervisorReport(req, res) {
         } catch (e) {
           console.warn(
             "[reportTasksHandler] employee_professional lookup failed in supervisor filter:",
-            e && e.message
+            e && e.message,
           );
           if (isPreviewRequest(req)) {
             return sendPreviewResponse(
               req,
               res,
               [],
-              "No task data for selected date range"
+              "No task data for selected date range",
             );
           } else {
             return res
@@ -405,7 +412,7 @@ async function downloadTasksSupervisorReport(req, res) {
           Object.prototype.hasOwnProperty.call(r, "department_id") ||
           Object.prototype.hasOwnProperty.call(r, "departmentId") ||
           Object.prototype.hasOwnProperty.call(r, "dept_id") ||
-          Object.prototype.hasOwnProperty.call(r, "department")
+          Object.prototype.hasOwnProperty.call(r, "department"),
       );
       if (hasDeptIdField) {
         rows = rows.filter((r) => {
@@ -418,17 +425,17 @@ async function downloadTasksSupervisorReport(req, res) {
           new Set(
             rows
               .map((r) =>
-                r && r.employee_id ? String(r.employee_id).trim() : null
+                r && r.employee_id ? String(r.employee_id).trim() : null,
               )
-              .filter(Boolean)
-          )
+              .filter(Boolean),
+          ),
         );
         if (empIds.length > 0) {
           try {
             const placeholders = empIds.map(() => "?").join(",");
             const profRows = await reportUtils.fetchRows(
               `SELECT employee_id, department_id FROM employee_professional WHERE employee_id IN (${placeholders})`,
-              empIds
+              empIds,
             );
             const map = {};
             if (Array.isArray(profRows)) {
@@ -455,7 +462,7 @@ async function downloadTasksSupervisorReport(req, res) {
           } catch (e) {
             console.warn(
               "[reportTasksHandler] department mapping failed:",
-              e && e.message
+              e && e.message,
             );
             rows = [];
           }
@@ -475,7 +482,7 @@ async function downloadTasksSupervisorReport(req, res) {
     if (isPreviewRequest(req)) {
       const statusToken = normalizeStatusForQuery(status);
       const filteredPreview = rows.filter((t) =>
-        rowMatchesStatusToken(statusToken, t)
+        rowMatchesStatusToken(statusToken, t),
       );
       const msg =
         filteredPreview.length === 0
@@ -486,7 +493,7 @@ async function downloadTasksSupervisorReport(req, res) {
 
     const statusTokenFinal = normalizeStatusForQuery(status);
     const filtered = rows.filter((t) =>
-      rowMatchesStatusToken(statusTokenFinal, t)
+      rowMatchesStatusToken(statusTokenFinal, t),
     );
     if (filtered.length === 0)
       return res
@@ -505,11 +512,11 @@ async function downloadTasksSupervisorReport(req, res) {
       const filename = safeFilename("tasks_supervisor_report", "xlsx");
       res.setHeader(
         "Content-Type",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       );
       res.setHeader(
         "Content-Disposition",
-        `attachment; filename="${filename}"`
+        `attachment; filename="${filename}"`,
       );
       res.setHeader("Content-Length", buf.length);
       return res.send(buf);
@@ -519,18 +526,18 @@ async function downloadTasksSupervisorReport(req, res) {
         pdfBuf = await reportService.renderPdfBuffer(
           "Tasks (Supervisor) Report",
           tasksForPdf,
-          { meta }
+          { meta },
         );
       } catch (e) {
         console.error(
           "[reportTasksHandler] renderPdfBuffer failed for supervisor tasks:",
-          e && (e.stack || e)
+          e && (e.stack || e),
         );
         return res.status(500).json({ message: "Failed to render PDF" });
       }
       if (!pdfBuf || !Buffer.isBuffer(pdfBuf) || pdfBuf.length === 0) {
         console.error(
-          "[reportTasksHandler] renderPdfBuffer returned empty buffer for supervisor tasks."
+          "[reportTasksHandler] renderPdfBuffer returned empty buffer for supervisor tasks.",
         );
         return res
           .status(500)
@@ -540,7 +547,7 @@ async function downloadTasksSupervisorReport(req, res) {
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader(
         "Content-Disposition",
-        `attachment; filename="${filename}"`
+        `attachment; filename="${filename}"`,
       );
       res.setHeader("Content-Length", pdfBuf.length);
       return res.send(pdfBuf);
@@ -548,7 +555,7 @@ async function downloadTasksSupervisorReport(req, res) {
   } catch (err) {
     console.error(
       "[reportTasksHandler] Error rendering Tasks (Supervisor) report:",
-      err && (err.stack || err)
+      err && (err.stack || err),
     );
     return res.status(500).json({ message: "Internal Server Error" });
   }
@@ -592,7 +599,7 @@ async function downloadTasksEmployeeReport(req, res) {
             req,
             res,
             [],
-            "No weekly task data for selected date range"
+            "No weekly task data for selected date range",
           );
         else
           return res
@@ -609,12 +616,12 @@ async function downloadTasksEmployeeReport(req, res) {
         parsedStatus,
         fields,
         employeeId,
-        departmentId
+        departmentId,
       );
     } catch (e) {
       console.error(
         "[reportTasksHandler] getWeeklyTaskRows failed:",
-        e && (e.stack || e.message)
+        e && (e.stack || e.message),
       );
       const msg =
         e && e.message && typeof e.message === "string"
@@ -632,7 +639,7 @@ async function downloadTasksEmployeeReport(req, res) {
     if (typedEmployeeName) {
       const resolvedIds = await resolveEmployeeIdsFromTypedName(
         typedEmployeeName,
-        departmentId
+        departmentId,
       );
       if (!resolvedIds || resolvedIds.length === 0) {
         if (isPreview)
@@ -640,7 +647,7 @@ async function downloadTasksEmployeeReport(req, res) {
             req,
             res,
             [],
-            "No weekly task data for selected date range"
+            "No weekly task data for selected date range",
           );
         else
           return res
@@ -653,7 +660,7 @@ async function downloadTasksEmployeeReport(req, res) {
           const placeholders = resolvedIds.map(() => "?").join(",");
           const profRows = await reportUtils.fetchRows(
             `SELECT employee_id FROM employee_professional WHERE employee_id IN (${placeholders}) AND department_id = ?`,
-            [...resolvedIds, departmentId]
+            [...resolvedIds, departmentId],
           );
           const verified = Array.isArray(profRows)
             ? profRows.map((r) => String(r.employee_id).trim())
@@ -664,7 +671,7 @@ async function downloadTasksEmployeeReport(req, res) {
                 req,
                 res,
                 [],
-                "No weekly task data for selected date range"
+                "No weekly task data for selected date range",
               );
             else
               return res.status(404).json({
@@ -679,14 +686,14 @@ async function downloadTasksEmployeeReport(req, res) {
         } catch (e) {
           console.warn(
             "[reportTasksHandler] employee_professional lookup failed in employee-driven filter:",
-            e && e.message
+            e && e.message,
           );
           if (isPreview)
             return sendPreviewResponse(
               req,
               res,
               [],
-              "No weekly task data for selected date range"
+              "No weekly task data for selected date range",
             );
           else
             return res
@@ -708,7 +715,7 @@ async function downloadTasksEmployeeReport(req, res) {
           Object.prototype.hasOwnProperty.call(r, "department_id") ||
           Object.prototype.hasOwnProperty.call(r, "departmentId") ||
           Object.prototype.hasOwnProperty.call(r, "dept_id") ||
-          Object.prototype.hasOwnProperty.call(r, "department")
+          Object.prototype.hasOwnProperty.call(r, "department"),
       );
       if (hasDeptIdField) {
         rows = rows.filter((r) => {
@@ -721,17 +728,17 @@ async function downloadTasksEmployeeReport(req, res) {
           new Set(
             rows
               .map((r) =>
-                r && r.employee_id ? String(r.employee_id).trim() : null
+                r && r.employee_id ? String(r.employee_id).trim() : null,
               )
-              .filter(Boolean)
-          )
+              .filter(Boolean),
+          ),
         );
         if (empIds.length > 0) {
           try {
             const placeholders = empIds.map(() => "?").join(",");
             const profRows = await reportUtils.fetchRows(
               `SELECT employee_id, department_id FROM employee_professional WHERE employee_id IN (${placeholders})`,
-              empIds
+              empIds,
             );
             const map = {};
             if (Array.isArray(profRows)) {
@@ -758,7 +765,7 @@ async function downloadTasksEmployeeReport(req, res) {
           } catch (e) {
             console.warn(
               "[reportTasksHandler] department mapping failed:",
-              e && e.message
+              e && e.message,
             );
             rows = [];
           }
@@ -776,7 +783,7 @@ async function downloadTasksEmployeeReport(req, res) {
     }
 
     const filtered = rows.filter((w) =>
-      statusMatches(normalizedEmpStatus, [w && w.emp_status])
+      statusMatches(normalizedEmpStatus, [w && w.emp_status]),
     );
 
     if (isPreview) {
@@ -806,11 +813,11 @@ async function downloadTasksEmployeeReport(req, res) {
       const filename = safeFilename("tasks_employee_report", "xlsx");
       res.setHeader(
         "Content-Type",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       );
       res.setHeader(
         "Content-Disposition",
-        `attachment; filename="${filename}"`
+        `attachment; filename="${filename}"`,
       );
       res.setHeader("Content-Length", buf.length);
       return res.send(buf);
@@ -820,18 +827,18 @@ async function downloadTasksEmployeeReport(req, res) {
         pdfBuf = await reportService.renderPdfBuffer(
           "Tasks (Employee) Report",
           weeklyForPdf,
-          { meta }
+          { meta },
         );
       } catch (e) {
         console.error(
           "[reportTasksHandler] renderPdfBuffer failed for employee tasks:",
-          e && (e.stack || e)
+          e && (e.stack || e),
         );
         return res.status(500).json({ message: "Failed to render PDF" });
       }
       if (!pdfBuf || !Buffer.isBuffer(pdfBuf) || pdfBuf.length === 0) {
         console.error(
-          "[reportTasksHandler] renderPdfBuffer returned empty buffer for employee tasks."
+          "[reportTasksHandler] renderPdfBuffer returned empty buffer for employee tasks.",
         );
         return res
           .status(500)
@@ -841,7 +848,7 @@ async function downloadTasksEmployeeReport(req, res) {
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader(
         "Content-Disposition",
-        `attachment; filename="${filename}"`
+        `attachment; filename="${filename}"`,
       );
       res.setHeader("Content-Length", pdfBuf.length);
       return res.send(pdfBuf);
@@ -849,7 +856,7 @@ async function downloadTasksEmployeeReport(req, res) {
   } catch (err) {
     console.error(
       "[reportTasksHandler] Error rendering Tasks (Employee) report:",
-      err && (err.stack || err)
+      err && (err.stack || err),
     );
     return res.status(500).json({ message: "Internal Server Error" });
   }

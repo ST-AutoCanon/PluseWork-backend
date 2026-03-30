@@ -1359,7 +1359,9 @@ exports.updateReimbursement = async (req, res) => {
     if (req.files && req.files.length) {
       req.files.forEach((f) => safeUnlinkSync(f.path));
     }
-    res.status(500).json({ error: "Error updating reimbursement" });
+    res
+      .status(500)
+      .json({ error: error.message || "Error updating reimbursement" });
   }
 };
 
