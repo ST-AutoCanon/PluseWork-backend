@@ -1,6 +1,19 @@
 const INSERT_ASSET = `
-  INSERT INTO assets (org_id, asset_id, asset_code, asset_name, configuration, valuation_date, assigned_to, category, sub_category, status, document_path)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO assets (
+  org_id,
+  asset_id,
+  asset_code,
+  asset_name,
+  configuration,
+  valuation_date,
+  assigned_to,
+  category,
+  sub_category,
+  status,
+  document_path,
+  created_at
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_DATE);
 `;
 
 const GET_ALL_ASSETS = `SELECT * FROM assets WHERE org_id = ?;`;
