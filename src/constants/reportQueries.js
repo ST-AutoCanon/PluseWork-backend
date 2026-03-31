@@ -247,7 +247,7 @@ ORDER BY e.created_at DESC
     a.valuation_date,
     a.assigned_to,
     a.document_path,
-    a.created_at,
+    DATE_FORMAT(a.created_at, '%Y-%m-%d') AS created_at,
     a.category,
     a.sub_category,
     a.status,
