@@ -71,7 +71,7 @@ function robustParseAssignedTo(raw) {
         try {
           const attempt = arrayMatch[0].replace(
             /(['"])??([a-zA-Z0-9_]+)\1\s*:/g,
-            '"$2":'
+            '"$2":',
           );
           return JSON.parse(attempt);
         } catch (e2) {}
@@ -150,7 +150,7 @@ function analyzeAssignedEntries(entries) {
   });
 
   const entriesWithStatus = normalized.filter(
-    (x) => x && x.status && String(x.status).trim() !== ""
+    (x) => x && x.status && String(x.status).trim() !== "",
   );
   if (entriesWithStatus.length > 0) {
     let best = null;
@@ -160,7 +160,7 @@ function analyzeAssignedEntries(entries) {
       const rd = parseDateFlexible(en.returnDate);
       const candidateTime = Math.max(
         sd ? sd.getTime() : -Infinity,
-        rd ? rd.getTime() : -Infinity
+        rd ? rd.getTime() : -Infinity,
       );
       if (candidateTime === -Infinity) {
         continue;
@@ -198,8 +198,8 @@ function analyzeAssignedEntries(entries) {
       ent && ent.status
         ? ent.status
         : ent.raw && ent.raw.status
-        ? ent.raw.status
-        : ""
+          ? ent.raw.status
+          : "",
     );
     const sd = parseDateFlexible(ent.startDate);
     const rd = parseDateFlexible(ent.returnDate);
@@ -243,7 +243,7 @@ function analyzeAssignedEntries(entries) {
     } else if (normalized.length && normalized[normalized.length - 1].raw) {
       const last = normalized[normalized.length - 1];
       const lc = canonicalizeStatusToken(
-        last.status || (typeof last.raw === "string" ? last.raw : "")
+        last.status || (typeof last.raw === "string" ? last.raw : ""),
       );
       if (lc) lifecycle = lc;
     }
@@ -302,7 +302,7 @@ async function downloadAssetsReport(req, res) {
         a.valuation_date,
         a.assigned_to,
         a.document_path,
-        a.created_at,
+        DATE_FORMAT(a.created_at, '%Y-%m-%d') AS created_at,
         a.category,
         a.sub_category,
         a.status,
@@ -383,7 +383,7 @@ async function downloadAssetsReport(req, res) {
     }
 
     exportFields = exportFields.filter(
-      (f) => f && !INTERNAL_KEYS_TO_STRIP.has(String(f))
+      (f) => f && !INTERNAL_KEYS_TO_STRIP.has(String(f)),
     );
 
     if (!Array.isArray(exportFields) || exportFields.length === 0) {
@@ -448,24 +448,24 @@ async function downloadAssetsReport(req, res) {
           const pdfBuf = await reportService.renderPdfBuffer(
             "Assets Report",
             prunedRows,
-            { meta }
+            { meta },
           );
           res.setHeader("Content-Type", "application/pdf");
           res.setHeader(
             "Content-Disposition",
-            `attachment; filename="assets_report.pdf"`
+            `attachment; filename="assets_report.pdf"`,
           );
           res.setHeader("Content-Length", pdfBuf.length);
           return res.send(pdfBuf);
         } catch (e) {
           console.warn(
             "[reportAssetsHandler] PDF render failed, falling back to JSON:",
-            e && e.message
+            e && e.message,
           );
         }
       } else {
         console.warn(
-          "[reportAssetsHandler] PDF renderer not available, returning JSON fallback."
+          "[reportAssetsHandler] PDF renderer not available, returning JSON fallback.",
         );
       }
     } else if (fmt === "xlsx") {
@@ -476,23 +476,23 @@ async function downloadAssetsReport(req, res) {
           });
           res.setHeader(
             "Content-Type",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
           );
           res.setHeader(
             "Content-Disposition",
-            `attachment; filename="assets_report.xlsx"`
+            `attachment; filename="assets_report.xlsx"`,
           );
           res.setHeader("Content-Length", buf.length);
           return res.send(buf);
         } catch (e) {
           console.warn(
             "[reportAssetsHandler] Excel render failed, falling back to JSON:",
-            e && e.message
+            e && e.message,
           );
         }
       } else {
         console.warn(
-          "[reportAssetsHandler] Excel renderer not available, returning JSON fallback."
+          "[reportAssetsHandler] Excel renderer not available, returning JSON fallback.",
         );
       }
     }
@@ -504,7 +504,7 @@ async function downloadAssetsReport(req, res) {
   } catch (err) {
     console.error(
       "[reportAssetsHandler] error:",
-      err && (err.stack || err.message)
+      err && (err.stack || err.message),
     );
     return res
       .status(500)
