@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS employee_personal (
   alternate_email VARCHAR(255),
   alternate_number VARCHAR(20),
   blood_group VARCHAR(5),
+  emergency_contact_person VARCHAR(50),
   emergency_name VARCHAR(255),
   emergency_number VARCHAR(20),
   father_dob DATE,

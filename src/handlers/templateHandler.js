@@ -79,6 +79,8 @@ function buildSimpleTemplateHtml(
   footerName,
   watermarkUrl = null,
   watermarkPlacement = null,
+  headerProps = null,
+  footerProps = null,
 ) {
   const headerUrl = headerName
     ? `/api/orgs/${orgId}/uploads/${headerName}`
@@ -107,11 +109,20 @@ function buildSimpleTemplateHtml(
                     alt: "header",
                     class: "template-header",
                   },
-                  style: {
-                    width: "100%",
-                    display: "block",
-                    pointerEvents: "none",
-                  },
+                  style: headerProps
+                    ? {
+                        position: "absolute",
+                        left: headerProps.xPct || "0%",
+                        top: headerProps.yPct || "0%",
+                        width: headerProps.wPct || "100%",
+                        height: headerProps.hPct || "100%",
+                        pointerEvents: "none",
+                      }
+                    : {
+                        width: "100%",
+                        display: "block",
+                        pointerEvents: "none",
+                      },
                   selectable: false,
                   draggable: false,
                 },
@@ -132,11 +143,20 @@ function buildSimpleTemplateHtml(
                     alt: "footer",
                     class: "template-footer",
                   },
-                  style: {
-                    width: "100%",
-                    display: "block",
-                    pointerEvents: "none",
-                  },
+                  style: footerProps
+                    ? {
+                        position: "absolute",
+                        left: footerProps.xPct || "0%",
+                        top: footerProps.yPct || "0%",
+                        width: footerProps.wPct || "100%",
+                        height: footerProps.hPct || "100%",
+                        pointerEvents: "none",
+                      }
+                    : {
+                        width: "100%",
+                        display: "block",
+                        pointerEvents: "none",
+                      },
                   selectable: false,
                   draggable: false,
                 },
@@ -265,6 +285,8 @@ async function uploadScanHandler(req, res) {
     let watermarkPlacement = null;
     let bodyType = "letter";
     let incomingWatermarkFlag = false;
+    let headerProps = null;
+    let footerProps = null;
     try {
       if (req.body && req.body.meta) {
         const meta =
@@ -274,6 +296,8 @@ async function uploadScanHandler(req, res) {
         watermarkPlacement = meta.watermarkPlacement || null;
         bodyType = meta.bodyType || "letter";
         incomingWatermarkFlag = !!meta.watermark;
+        headerProps = meta.headerProps || null;
+        footerProps = meta.footerProps || null;
       }
     } catch (e) {
       console.warn("uploadScanHandler: meta parse failed", e);
@@ -329,6 +353,8 @@ async function uploadScanHandler(req, res) {
         footerName,
         watermarkUrlForGrapes,
         watermarkPlacement,
+        headerProps,
+        footerProps,
       );
       grapesJsonBuilt = built.grapesJson;
       htmlBuilt = built.html;
@@ -515,6 +541,8 @@ async function uploadScanHandler(req, res) {
       bodyType,
       watermark: !!watermarkName || incomingWatermarkFlag,
       watermarkPlacement: watermarkPlacement || null,
+      headerProps: headerProps || null,
+      footerProps: footerProps || null,
       uploads: {
         header: uploadedUrls.header || null,
         footer: uploadedUrls.footer || null,
