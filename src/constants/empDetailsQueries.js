@@ -43,7 +43,7 @@ module.exports = {
     child1_name, child1_dob, child1_gov_doc_url,
     child2_name, child2_dob, child2_gov_doc_url,
     child3_name, child3_dob, child3_gov_doc_url
-  ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   `,
   UPDATE_EMPLOYEE_PERSONAL: `
     UPDATE employee_personal
@@ -431,7 +431,8 @@ SELECT employee_id
     bd.branch_name,
 
     exp.exp_json AS experience,
-    docs.docs_json AS other_docs
+    docs.docs_json AS other_docs,
+    exit_req.hr_final_lwd
 
   FROM employees e
   LEFT JOIN employee_personal p    
@@ -473,6 +474,20 @@ LEFT JOIN (
   FROM employee_documents
   GROUP BY employee_id
 ) docs ON e.employee_id = docs.employee_id
+
+LEFT JOIN (
+  SELECT t1.employee_id, t1.hr_final_lwd
+  FROM employee_exit_requests1 t1
+  INNER JOIN (
+    SELECT employee_id, MAX(id) AS latest_id
+    FROM employee_exit_requests1
+    GROUP BY employee_id
+  ) t2 
+  ON t1.employee_id COLLATE utf8mb4_0900_ai_ci 
+   = t2.employee_id COLLATE utf8mb4_0900_ai_ci 
+  AND t1.id = t2.latest_id
+) exit_req ON e.employee_id COLLATE utf8mb4_0900_ai_ci 
+   = exit_req.employee_id COLLATE utf8mb4_0900_ai_ci
 
 
   WHERE 1=1
@@ -568,7 +583,8 @@ LEFT JOIN (
     bd.branch_name,
 
     exp.exp_json   AS experience,
-    docs.docs_json AS other_docs
+    docs.docs_json AS other_docs,
+    exit_req.hr_final_lwd
 
   FROM employees e
   LEFT JOIN employee_personal     p  ON e.employee_id = p.employee_id
@@ -604,6 +620,21 @@ LEFT JOIN (
   FROM employee_documents
   GROUP BY employee_id
 ) docs ON e.employee_id = docs.employee_id
+
+LEFT JOIN (
+  SELECT t1.employee_id, t1.hr_final_lwd
+  FROM employee_exit_requests1 t1
+  INNER JOIN (
+    SELECT employee_id, MAX(id) AS latest_id
+    FROM employee_exit_requests1
+    
+    GROUP BY employee_id
+  ) t2 
+  ON t1.employee_id COLLATE utf8mb4_0900_ai_ci 
+   = t2.employee_id COLLATE utf8mb4_0900_ai_ci 
+  AND t1.id = t2.latest_id
+) exit_req ON e.employee_id COLLATE utf8mb4_0900_ai_ci 
+   = exit_req.employee_id COLLATE utf8mb4_0900_ai_ci
 
 
   WHERE (
