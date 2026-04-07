@@ -23,7 +23,7 @@ const getInvoices = async (req, res) => {
   try {
     const invoices = await invoiceService.getInvoicesByProject(
       orgId,
-      projectId
+      projectId,
     );
     res.json({ invoices });
   } catch (error) {
@@ -63,7 +63,7 @@ const updateInvoice = async (req, res) => {
     const updatedInvoice = await invoiceService.updateInvoice(
       orgId,
       req.params.id,
-      req.body
+      req.body,
     );
     res.json(updatedInvoice);
   } catch (err) {
@@ -82,7 +82,7 @@ const updateInvoiceExtra = async (req, res) => {
     const updatedInvoice = await invoiceService.updateInvoiceExtra(
       orgId,
       req.params.id,
-      invoiceData
+      invoiceData,
     );
 
     res.json(updatedInvoice);
@@ -100,7 +100,7 @@ const generateTemplateInvoice = async (req, res) => {
   try {
     const invoiceNo = await invoiceService.generateTemplateInvoiceNo(
       invoiceType,
-      orgId
+      orgId,
     );
     res.json({ invoiceNo });
   } catch (error) {
@@ -130,18 +130,32 @@ const recordDownloadDetails = async (req, res, next) => {
       return res.status(400).json({ error: "orgId header is required" });
     }
 
-    const { invoiceType, invoiceNumber, downloadDetails } = req.body;
+    let { invoiceType, invoiceNumber, downloadDetails } = req.body;
+
     if (!invoiceType || !invoiceNumber || !downloadDetails) {
       return res.status(400).json({
         error: "invoiceType, invoiceNumber and downloadDetails are required",
       });
     }
 
+    // ✅ NORMALIZE
+    invoiceType = String(invoiceType).toLowerCase().trim();
+
+    // ✅ VALIDATE
+    const allowedTypes = ["tax", "proforma", "quotation", "po"];
+    if (!allowedTypes.includes(invoiceType)) {
+      return res.status(400).json({
+        error: `Invalid invoiceType: ${invoiceType}`,
+      });
+    }
+
+    console.log("Saving invoiceType:", invoiceType); // 🔍 debug
+
     const record = await invoiceService.recordDownloadDetails(
       invoiceType,
       invoiceNumber,
       downloadDetails,
-      orgId
+      orgId,
     );
 
     res.status(201).json({ success: true, id: record.id });
