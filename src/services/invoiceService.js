@@ -2,6 +2,19 @@ const db = require("../config");
 const invoiceQueries = require("../constants/invoiceQueries");
 const { getTenantPool, sanitizeDbName } = require("../db/tenantPoolManager");
 
+const normalizeInvoiceType = (type) => {
+  if (!type) return "tax";
+
+  const t = String(type).toLowerCase().trim();
+
+  if (t.includes("tax")) return "tax";
+  if (t.includes("proforma")) return "proforma";
+  if (t.includes("quotation")) return "quotation";
+  if (t.includes("po") || t.includes("purchase")) return "po";
+
+  return "tax";
+};
+
 async function getTenantPoolForOrgId(orgId) {
   if (!orgId) {
     const err = new Error("orgId required to get tenant pool");
@@ -118,8 +131,12 @@ const updateSequenceMaster = async (
 const generateTemplateInvoiceNo = async (invoiceType, orgId = null) => {
   const today = new Date();
   const financialYear = getFinancialYear(today);
+
+  invoiceType = normalizeInvoiceType(invoiceType); // ✅ FIX
+
   const tenantPool = await getTenantPoolForOrgId(orgId);
   const conn = await tenantPool.getConnection();
+
   try {
     const orgName = await getOrgNameMaster(conn, orgId);
     const acronym = makeOrgAcronym(orgName);
@@ -129,10 +146,9 @@ const generateTemplateInvoiceNo = async (invoiceType, orgId = null) => {
       financialYear,
       orgId,
     ]);
-    const sequence =
-      rows && rows.length > 0 && typeof rows[0].sequence !== "undefined"
-        ? Number(rows[0].sequence)
-        : 1;
+
+    const sequence = rows && rows.length > 0 ? Number(rows[0].sequence) : 1;
+
     const paddedSeq = String(sequence).padStart(4, "0");
 
     if (invoiceType === "tax") {
@@ -141,6 +157,8 @@ const generateTemplateInvoiceNo = async (invoiceType, orgId = null) => {
       return `${acronym}/${financialYear}/PI/${paddedSeq}`;
     } else if (invoiceType === "quotation") {
       return `${acronym}-Q-${paddedSeq}`;
+    } else if (invoiceType === "po") {
+      return `${acronym}-PO-${paddedSeq}`;
     } else {
       throw new Error("Unknown invoice type");
     }
@@ -151,8 +169,12 @@ const generateTemplateInvoiceNo = async (invoiceType, orgId = null) => {
 
 const generateInvoiceNo = async (invoiceDate, invoiceType, orgId) => {
   const financialYear = getFinancialYear(invoiceDate);
+
+  invoiceType = normalizeInvoiceType(invoiceType); // ✅ FIX
+
   const tenantPool = await getTenantPoolForOrgId(orgId);
   const conn = await tenantPool.getConnection();
+
   try {
     const orgName = await getOrgNameMaster(conn, orgId);
     const acronym = makeOrgAcronym(orgName);
@@ -164,8 +186,10 @@ const generateInvoiceNo = async (invoiceDate, invoiceType, orgId) => {
     ]);
 
     let sequenceForInvoice;
+
     if (!rows || rows.length === 0) {
       sequenceForInvoice = 1;
+
       await conn.execute(invoiceQueries.INSERT_INITIAL_SEQUENCE, [
         invoiceType,
         financialYear,
@@ -175,6 +199,7 @@ const generateInvoiceNo = async (invoiceDate, invoiceType, orgId) => {
     } else {
       const currentSeq = Number(rows[0].sequence) || 1;
       sequenceForInvoice = currentSeq;
+
       await conn.execute(invoiceQueries.UPDATE_SEQUENCE, [
         currentSeq + 1,
         invoiceType,
@@ -191,6 +216,8 @@ const generateInvoiceNo = async (invoiceDate, invoiceType, orgId) => {
       return `${acronym}/${financialYear}/PI/${paddedSeq}`;
     } else if (invoiceType === "quotation") {
       return `${acronym}-Q-${paddedSeq}`;
+    } else if (invoiceType === "po") {
+      return `${acronym}-PO-${paddedSeq}`;
     } else {
       throw new Error("Unknown invoice type");
     }
@@ -482,7 +509,15 @@ const recordDownloadDetails = async (
   details,
   orgId,
 ) => {
+  invoiceType = normalizeInvoiceType(invoiceType);
+
   if (!orgId) throw new Error("orgId required");
+  if (!invoiceType) throw new Error("invoiceType required");
+  if (!invoiceNumber) throw new Error("invoiceNumber required");
+  if (!details || typeof details !== "object") {
+    throw new Error("downloadDetails must be an object");
+  }
+
   const tenantPool = await getTenantPoolForOrgId(orgId);
 
   const {
@@ -507,49 +542,50 @@ const recordDownloadDetails = async (
   } = details;
 
   const tenantConn = await tenantPool.getConnection();
-  const masterConn = await db.getConnection();
+  const safeLineItems = Array.isArray(lineItems) ? lineItems : [];
 
   try {
     await tenantConn.beginTransaction();
-    await masterConn.beginTransaction();
 
-    const [res] = await tenantConn.execute(
+    const [res] = await tenantConn.query(
       invoiceQueries.INSERT_DOWNLOAD_DETAILS,
       [
         orgId,
         invoiceType,
         invoiceNumber,
-        to,
-        address,
-        contact,
-        companyGst,
-        state,
-        invoiceDate,
-        referenceDate,
-        referenceId,
-        placeOfSupply,
+        to || null,
+        address || null,
+        contact || null,
+        companyGst || null,
+        state || null,
+        invoiceDate || null,
+        referenceDate || null,
+        referenceId || null,
+        placeOfSupply || null,
         withSeal ? 1 : 0,
-        JSON.stringify(lineItems || []),
-        subTotal,
-        gst,
-        gstAmount,
-        advance,
-        totalExcludingTax,
-        totalIncludingTax,
-        terms,
+        JSON.stringify(safeLineItems),
+        subTotal ?? 0,
+        gst ?? 0,
+        gstAmount ?? 0,
+        advance ?? 0,
+        totalExcludingTax ?? 0,
+        totalIncludingTax ?? 0,
+        terms || null,
       ],
     );
 
     const usedSeq = parseSequenceFromInvoiceNumber(invoiceNumber);
     const fy = getFinancialYear(invoiceDate || new Date());
-    if (usedSeq != null && orgId) {
-      const [rows] = await tenantConn.execute(
-        invoiceQueries.GET_NEXT_SEQUENCE,
-        [invoiceType, fy, orgId],
-      );
+
+    if (usedSeq != null) {
+      const [rows] = await tenantConn.query(invoiceQueries.GET_NEXT_SEQUENCE, [
+        invoiceType,
+        fy,
+        orgId,
+      ]);
 
       if (!rows || rows.length === 0) {
-        await tenantConn.execute(invoiceQueries.INSERT_INITIAL_SEQUENCE, [
+        await tenantConn.query(invoiceQueries.INSERT_INITIAL_SEQUENCE, [
           invoiceType,
           fy,
           orgId,
@@ -558,7 +594,7 @@ const recordDownloadDetails = async (
       } else {
         const currentSeq = Number(rows[0].sequence) || 1;
         if (currentSeq <= usedSeq) {
-          await tenantConn.execute(invoiceQueries.UPDATE_SEQUENCE, [
+          await tenantConn.query(invoiceQueries.UPDATE_SEQUENCE, [
             usedSeq + 1,
             invoiceType,
             fy,
@@ -569,23 +605,15 @@ const recordDownloadDetails = async (
     }
 
     await tenantConn.commit();
-    await masterConn.commit();
-
     return { id: res.insertId };
   } catch (err) {
     try {
       await tenantConn.rollback();
     } catch (e) {}
-    try {
-      await masterConn.rollback();
-    } catch (e) {}
     throw err;
   } finally {
     try {
       tenantConn.release();
-    } catch (e) {}
-    try {
-      masterConn.release();
     } catch (e) {}
   }
 };
