@@ -100,6 +100,8 @@ const teamRouter = require("./routes/team");
 const clearanceRoutes = require("./routes/clearance");
 const exitFilesRoutes = require("./routes/exitFilesRoutes");
 const downloadRoutes = require("./routes/downloadRoutes");
+const formsRoutes = require("./routes/forms.routes");
+
 app.use(express.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
@@ -367,6 +369,7 @@ app.use((req, res, next) => {
     app.use("/api/team", teamRouter);
     app.use("/", orgRoutes);
     app.use("/api", payrollRoutes);
+        app.use("/api", formsRoutes);
 
     app.use("/api/overtime", overtimeRoutes);
     app.use("/api/overtime-summary", overtimeSummaryRoutes);
