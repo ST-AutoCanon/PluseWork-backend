@@ -244,7 +244,7 @@ CREATE TABLE IF NOT EXISTS chat_rooms (
 CREATE TABLE IF NOT EXISTS download_details (
   id INT AUTO_INCREMENT PRIMARY KEY,
   org_id INT UNSIGNED,
-  invoice_type ENUM('tax','proforma','quotation'),
+  invoice_type VARCHAR(100),
   invoice_number VARCHAR(50),
   to_name VARCHAR(255),
   address TEXT,

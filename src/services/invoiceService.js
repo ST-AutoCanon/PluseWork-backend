@@ -139,7 +139,12 @@ const generateTemplateInvoiceNo = async (invoiceType, orgId = null) => {
 
   try {
     const orgName = await getOrgNameMaster(conn, orgId);
-    const acronym = makeOrgAcronym(orgName);
+    let acronym = makeOrgAcronym(orgName);
+
+    // ✅ FORCE acronym for org 32
+    if (Number(orgId) === 32) {
+      acronym = "AM";
+    }
 
     const [rows] = await conn.execute(invoiceQueries.GET_NEXT_SEQUENCE, [
       invoiceType,
@@ -151,6 +156,22 @@ const generateTemplateInvoiceNo = async (invoiceType, orgId = null) => {
 
     const paddedSeq = String(sequence).padStart(4, "0");
 
+    const paddedSeq3 = String(sequence).padStart(3, "0"); // 001 format
+
+    // ✅ ORG 32 CUSTOM FORMAT
+    if (Number(orgId) === 32) {
+      if (invoiceType === "tax") {
+        return `${acronym}-INV-${paddedSeq3}`;
+      } else if (invoiceType === "proforma") {
+        return `${acronym}-PI-${paddedSeq3}`;
+      } else if (invoiceType === "quotation") {
+        return `${acronym}-Q-${paddedSeq3}`;
+      } else if (invoiceType === "po") {
+        return `${acronym}-PO-${paddedSeq3}`;
+      }
+    }
+
+    // ✅ DEFAULT FORMAT (OTHER ORGS)
     if (invoiceType === "tax") {
       return `${acronym}/${financialYear}/${paddedSeq}`;
     } else if (invoiceType === "proforma") {
@@ -159,8 +180,6 @@ const generateTemplateInvoiceNo = async (invoiceType, orgId = null) => {
       return `${acronym}-Q-${paddedSeq}`;
     } else if (invoiceType === "po") {
       return `${acronym}-PO-${paddedSeq}`;
-    } else {
-      throw new Error("Unknown invoice type");
     }
   } finally {
     conn.release();
@@ -177,7 +196,12 @@ const generateInvoiceNo = async (invoiceDate, invoiceType, orgId) => {
 
   try {
     const orgName = await getOrgNameMaster(conn, orgId);
-    const acronym = makeOrgAcronym(orgName);
+    let acronym = makeOrgAcronym(orgName);
+
+    // ✅ FORCE acronym for org 32
+    if (Number(orgId) === 32) {
+      acronym = "AM";
+    }
 
     const [rows] = await conn.execute(invoiceQueries.GET_NEXT_SEQUENCE, [
       invoiceType,
@@ -209,7 +233,22 @@ const generateInvoiceNo = async (invoiceDate, invoiceType, orgId) => {
     }
 
     const paddedSeq = String(sequenceForInvoice).padStart(4, "0");
+    const paddedSeq3 = String(sequenceForInvoice).padStart(3, "0");
 
+    // ✅ ORG 32 FORMAT
+    if (Number(orgId) === 32) {
+      if (invoiceType === "tax") {
+        return `${acronym}-INV-${paddedSeq3}`;
+      } else if (invoiceType === "proforma") {
+        return `${acronym}-PI-${paddedSeq3}`;
+      } else if (invoiceType === "quotation") {
+        return `${acronym}-Q-${paddedSeq3}`;
+      } else if (invoiceType === "po") {
+        return `${acronym}-PO-${paddedSeq3}`;
+      }
+    }
+
+    // ✅ DEFAULT FORMAT
     if (invoiceType === "tax") {
       return `${acronym}/${financialYear}/${paddedSeq}`;
     } else if (invoiceType === "proforma") {
@@ -218,8 +257,6 @@ const generateInvoiceNo = async (invoiceDate, invoiceType, orgId) => {
       return `${acronym}-Q-${paddedSeq}`;
     } else if (invoiceType === "po") {
       return `${acronym}-PO-${paddedSeq}`;
-    } else {
-      throw new Error("Unknown invoice type");
     }
   } finally {
     conn.release();
