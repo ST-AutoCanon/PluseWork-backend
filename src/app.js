@@ -33,7 +33,7 @@ const salaryStatementRouter = require("./routes/salaryRoutes");
 const salaryDetailsRouter = require("./routes/salaryDetailsRouter");
 const salaryPeriodRoutes = require("./routes/salaryCalculationPeriodRoutes");
 const orgWorkHoursRoutes = require("./routes/orgWorkHours.routes");
-
+const customerRoutes = require("./routes/customerRoutes");
 const { createSessionStore, _initPromise } = require("./lib/sessionStore");
 const EmployeeQueries = require("./services/employeeQueries");
 const chatService = require("./services/chatService");
@@ -369,8 +369,8 @@ app.use((req, res, next) => {
     app.use("/api/team", teamRouter);
     app.use("/", orgRoutes);
     app.use("/api", payrollRoutes);
-        app.use("/api", formsRoutes);
-
+    app.use("/api", formsRoutes);
+    app.use("/", customerRoutes);
     app.use("/api/overtime", overtimeRoutes);
     app.use("/api/overtime-summary", overtimeSummaryRoutes);
     app.use("/api", salaryPeriodRoutes);
