@@ -938,3 +938,16 @@ CREATE TABLE leave_types (
   UNIQUE KEY uniq_leave_types_org_key (org_id,type_key),
   KEY idx_leave_types_org (org_id)
 );
+CREATE TABLE customers (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  company_name VARCHAR(255) NOT NULL,
+  company_gst VARCHAR(50),
+  company_pan VARCHAR(50),
+  company_address TEXT,
+  country VARCHAR(100),
+  state VARCHAR(100),
+  project_poc_name VARCHAR(255),
+  project_poc_contact VARCHAR(50),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);

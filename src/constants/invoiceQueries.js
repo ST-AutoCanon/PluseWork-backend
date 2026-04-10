@@ -31,11 +31,10 @@ SELECT
         'id',               entry_id,
         'milestone_details',entry_label,
         'month_year',       entry_month,
-        'source',           entry_source   -- NEW FLAG
+        'source',           entry_source
       )
     )
     FROM (
-      -- real milestones
       SELECT 
         m.id                 AS entry_id,
         m.milestone_details  AS entry_label,
@@ -48,7 +47,6 @@ SELECT
 
       UNION ALL
 
-      -- financial schedule entries
       SELECT
         fd.id                AS entry_id,
         COALESCE(m2.milestone_details, 'Scheduled') AS entry_label,
@@ -64,7 +62,7 @@ SELECT
   ), JSON_ARRAY()) AS milestones
 
 FROM invoices i
-JOIN add_project p ON p.id = i.projectId     -- bring in payment_type
+JOIN add_project p ON p.id = i.projectId
 WHERE i.projectId = ?
 ORDER BY i.createdAt DESC;
 `,
@@ -244,4 +242,59 @@ WHERE i.id = ?;
   WHERE org_id = ?
   ORDER BY created_at DESC
 `,
+
+  GET_DOWNLOAD_DETAILS_BY_ID: `
+  SELECT
+    id,
+    invoice_type         AS invoiceType,
+    invoice_number       AS invoiceNumber,
+    to_name              AS toName,
+    address,
+    contact,
+    company_gst          AS companyGst,
+    state,
+    DATE_FORMAT(invoice_date,'%Y-%m-%d') AS invoiceDate,
+    DATE_FORMAT(reference_date,'%Y-%m-%d') AS referenceDate,
+    reference_id         AS referenceId,
+    place_of_supply      AS placeOfSupply,
+    with_seal            AS withSeal,
+    line_items           AS lineItems,
+    sub_total            AS subTotal,
+    gst,
+    gst_amount           AS gstAmount,
+    advance,
+    total_excluding_tax  AS totalExcludingTax,
+    total_including_tax  AS totalIncludingTax,
+    terms,
+    created_at           AS createdAt
+  FROM download_details
+  WHERE org_id = ? AND id = ?
+  LIMIT 1
+`,
+
+  UPDATE_DOWNLOAD_DETAILS: `
+    UPDATE download_details
+    SET
+      invoice_type = ?,
+      invoice_number = ?,
+      to_name = ?,
+      address = ?,
+      contact = ?,
+      company_gst = ?,
+      state = ?,
+      invoice_date = ?,
+      reference_date = ?,
+      reference_id = ?,
+      place_of_supply = ?,
+      with_seal = ?,
+      line_items = ?,
+      sub_total = ?,
+      gst = ?,
+      gst_amount = ?,
+      advance = ?,
+      total_excluding_tax = ?,
+      total_including_tax = ?,
+      terms = ?
+    WHERE org_id = ? AND id = ?
+  `,
 };

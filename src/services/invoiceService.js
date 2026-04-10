@@ -25,6 +25,18 @@ async function getTenantPoolForOrgId(orgId) {
   return getTenantPool(dbName);
 }
 
+const normalizeDownloadLineItems = (lineItems) => {
+  if (!Array.isArray(lineItems)) return [];
+
+  return lineItems.map((item) => ({
+    description: item?.description || "",
+    hsnSac: item?.hsnSac || item?.hsn || "",
+    quantity: Number(item?.quantity || 0),
+    rate: Number(item?.rate || 0),
+    total: Number(item?.total || 0),
+  }));
+};
+
 const getFinancialYear = (invoiceDate) => {
   const dateObj = new Date(invoiceDate);
   const year = dateObj.getFullYear();
@@ -132,7 +144,7 @@ const generateTemplateInvoiceNo = async (invoiceType, orgId = null) => {
   const today = new Date();
   const financialYear = getFinancialYear(today);
 
-  invoiceType = normalizeInvoiceType(invoiceType); // ✅ FIX
+  invoiceType = normalizeInvoiceType(invoiceType);
 
   const tenantPool = await getTenantPoolForOrgId(orgId);
   const conn = await tenantPool.getConnection();
@@ -141,7 +153,6 @@ const generateTemplateInvoiceNo = async (invoiceType, orgId = null) => {
     const orgName = await getOrgNameMaster(conn, orgId);
     let acronym = makeOrgAcronym(orgName);
 
-    // ✅ FORCE acronym for org 32
     if (Number(orgId) === 32) {
       acronym = "AM";
     }
@@ -153,34 +164,22 @@ const generateTemplateInvoiceNo = async (invoiceType, orgId = null) => {
     ]);
 
     const sequence = rows && rows.length > 0 ? Number(rows[0].sequence) : 1;
-
     const paddedSeq = String(sequence).padStart(4, "0");
+    const paddedSeq3 = String(sequence).padStart(3, "0");
 
-    const paddedSeq3 = String(sequence).padStart(3, "0"); // 001 format
-
-    // ✅ ORG 32 CUSTOM FORMAT
     if (Number(orgId) === 32) {
-      if (invoiceType === "tax") {
-        return `${acronym}-INV-${paddedSeq3}`;
-      } else if (invoiceType === "proforma") {
-        return `${acronym}-PI-${paddedSeq3}`;
-      } else if (invoiceType === "quotation") {
-        return `${acronym}-Q-${paddedSeq3}`;
-      } else if (invoiceType === "po") {
-        return `${acronym}-PO-${paddedSeq3}`;
-      }
+      if (invoiceType === "tax") return `${acronym}-INV-${paddedSeq3}`;
+      if (invoiceType === "proforma") return `${acronym}-PI-${paddedSeq3}`;
+      if (invoiceType === "quotation") return `${acronym}-Q-${paddedSeq3}`;
+      if (invoiceType === "po") return `${acronym}-PO-${paddedSeq3}`;
     }
 
-    // ✅ DEFAULT FORMAT (OTHER ORGS)
-    if (invoiceType === "tax") {
+    if (invoiceType === "tax")
       return `${acronym}/${financialYear}/${paddedSeq}`;
-    } else if (invoiceType === "proforma") {
+    if (invoiceType === "proforma")
       return `${acronym}/${financialYear}/PI/${paddedSeq}`;
-    } else if (invoiceType === "quotation") {
-      return `${acronym}-Q-${paddedSeq}`;
-    } else if (invoiceType === "po") {
-      return `${acronym}-PO-${paddedSeq}`;
-    }
+    if (invoiceType === "quotation") return `${acronym}-Q-${paddedSeq}`;
+    if (invoiceType === "po") return `${acronym}-PO-${paddedSeq}`;
   } finally {
     conn.release();
   }
@@ -189,7 +188,7 @@ const generateTemplateInvoiceNo = async (invoiceType, orgId = null) => {
 const generateInvoiceNo = async (invoiceDate, invoiceType, orgId) => {
   const financialYear = getFinancialYear(invoiceDate);
 
-  invoiceType = normalizeInvoiceType(invoiceType); // ✅ FIX
+  invoiceType = normalizeInvoiceType(invoiceType);
 
   const tenantPool = await getTenantPoolForOrgId(orgId);
   const conn = await tenantPool.getConnection();
@@ -198,7 +197,6 @@ const generateInvoiceNo = async (invoiceDate, invoiceType, orgId) => {
     const orgName = await getOrgNameMaster(conn, orgId);
     let acronym = makeOrgAcronym(orgName);
 
-    // ✅ FORCE acronym for org 32
     if (Number(orgId) === 32) {
       acronym = "AM";
     }
@@ -235,29 +233,19 @@ const generateInvoiceNo = async (invoiceDate, invoiceType, orgId) => {
     const paddedSeq = String(sequenceForInvoice).padStart(4, "0");
     const paddedSeq3 = String(sequenceForInvoice).padStart(3, "0");
 
-    // ✅ ORG 32 FORMAT
     if (Number(orgId) === 32) {
-      if (invoiceType === "tax") {
-        return `${acronym}-INV-${paddedSeq3}`;
-      } else if (invoiceType === "proforma") {
-        return `${acronym}-PI-${paddedSeq3}`;
-      } else if (invoiceType === "quotation") {
-        return `${acronym}-Q-${paddedSeq3}`;
-      } else if (invoiceType === "po") {
-        return `${acronym}-PO-${paddedSeq3}`;
-      }
+      if (invoiceType === "tax") return `${acronym}-INV-${paddedSeq3}`;
+      if (invoiceType === "proforma") return `${acronym}-PI-${paddedSeq3}`;
+      if (invoiceType === "quotation") return `${acronym}-Q-${paddedSeq3}`;
+      if (invoiceType === "po") return `${acronym}-PO-${paddedSeq3}`;
     }
 
-    // ✅ DEFAULT FORMAT
-    if (invoiceType === "tax") {
+    if (invoiceType === "tax")
       return `${acronym}/${financialYear}/${paddedSeq}`;
-    } else if (invoiceType === "proforma") {
+    if (invoiceType === "proforma")
       return `${acronym}/${financialYear}/PI/${paddedSeq}`;
-    } else if (invoiceType === "quotation") {
-      return `${acronym}-Q-${paddedSeq}`;
-    } else if (invoiceType === "po") {
-      return `${acronym}-PO-${paddedSeq}`;
-    }
+    if (invoiceType === "quotation") return `${acronym}-Q-${paddedSeq}`;
+    if (invoiceType === "po") return `${acronym}-PO-${paddedSeq}`;
   } finally {
     conn.release();
   }
@@ -329,6 +317,10 @@ const createInvoice = async (invoiceData, orgId) => {
 
   const conn = await tenantPool.getConnection();
   try {
+    const safeLineItems = normalizeDownloadLineItems(
+      invoiceData.lineItems || [],
+    );
+
     const [results] = await conn.execute(invoiceQueries.INSERT_INVOICE, [
       invoiceData.projectId,
       invoiceData.invoiceType,
@@ -337,7 +329,7 @@ const createInvoice = async (invoiceData, orgId) => {
       invoiceData.referenceId,
       invoiceData.referenceDate,
       invoiceData.terms,
-      JSON.stringify(invoiceData.lineItems || []),
+      JSON.stringify(safeLineItems),
       invoiceData.workDescription,
       invoiceData.subTotal,
       invoiceData.advance,
@@ -379,7 +371,7 @@ const updateInvoice = async (orgId, id, invoiceData) => {
     invoiceData.referenceId,
     formattedReferenceDate,
     invoiceData.terms,
-    JSON.stringify(invoiceData.lineItems || []),
+    JSON.stringify(normalizeDownloadLineItems(invoiceData.lineItems || [])),
     invoiceData.workDescription,
     invoiceData.subTotal,
     invoiceData.advance,
@@ -407,10 +399,10 @@ const updateInvoiceExtra = async (orgId, id, invoiceData) => {
   const tenantPool = await getTenantPoolForOrgId(orgId);
 
   const formattedInvoiceDate = invoiceData.invoiceDate
-    ? new Date(invoiceData.invoiceDate).toISOString().slice(0, 10)
+    ? new Date(invoiceData.invoiceDate).toISOString().split("T")[0]
     : null;
   const formattedReferenceDate = invoiceData.referenceDate
-    ? new Date(invoiceData.referenceDate).toISOString().slice(0, 10)
+    ? new Date(invoiceData.referenceDate).toISOString().split("T")[0]
     : null;
 
   const conn = await tenantPool.getConnection();
@@ -422,7 +414,7 @@ const updateInvoiceExtra = async (orgId, id, invoiceData) => {
       invoiceData.referenceId,
       formattedReferenceDate,
       invoiceData.terms,
-      JSON.stringify(invoiceData.lineItems || []),
+      JSON.stringify(normalizeDownloadLineItems(invoiceData.lineItems || [])),
       invoiceData.workDescription,
       invoiceData.subTotal,
       invoiceData.advance,
@@ -579,7 +571,7 @@ const recordDownloadDetails = async (
   } = details;
 
   const tenantConn = await tenantPool.getConnection();
-  const safeLineItems = Array.isArray(lineItems) ? lineItems : [];
+  const safeLineItems = normalizeDownloadLineItems(lineItems);
 
   try {
     await tenantConn.beginTransaction();
@@ -671,8 +663,92 @@ const getAllDownloadDetails = async (orgId) => {
           r.lineItems = [];
         }
       }
+      if (Array.isArray(r.lineItems)) {
+        r.lineItems = r.lineItems.map((item) => ({
+          description: item?.description || "",
+          hsnSac: item?.hsnSac || item?.hsn || "",
+          quantity: Number(item?.quantity || 0),
+          rate: Number(item?.rate || 0),
+          total: Number(item?.total || 0),
+        }));
+      }
       return r;
     });
+  } catch (err) {
+    throw err;
+  }
+};
+
+const getDownloadDetailsById = async (orgId, id) => {
+  if (!orgId) throw new Error("orgId required");
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+
+  try {
+    const [rows] = await tenantPool.query(
+      invoiceQueries.GET_DOWNLOAD_DETAILS_BY_ID,
+      [orgId, id],
+    );
+    if (!rows || rows.length === 0) return null;
+
+    const r = rows[0];
+    if (r.lineItems && typeof r.lineItems === "string") {
+      try {
+        r.lineItems = JSON.parse(r.lineItems);
+      } catch {
+        r.lineItems = [];
+      }
+    }
+    if (Array.isArray(r.lineItems)) {
+      r.lineItems = r.lineItems.map((item) => ({
+        description: item?.description || "",
+        hsnSac: item?.hsnSac || item?.hsn || "",
+        quantity: Number(item?.quantity || 0),
+        rate: Number(item?.rate || 0),
+        total: Number(item?.total || 0),
+      }));
+    }
+    return r;
+  } catch (err) {
+    throw err;
+  }
+};
+
+const updateDownloadDetails = async (orgId, id, details) => {
+  if (!orgId) throw new Error("orgId required");
+  if (!id) throw new Error("id is required");
+
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+
+  const safeLineItems = normalizeDownloadLineItems(details.lineItems);
+
+  const values = [
+    details.invoiceType || "tax",
+    details.invoiceNumber || null,
+    details.to || details.toName || null,
+    details.address || null,
+    details.contact || null,
+    details.companyGst || null,
+    details.state || null,
+    details.invoiceDate || null,
+    details.referenceDate || null,
+    details.referenceId || null,
+    details.placeOfSupply || null,
+    details.withSeal ? 1 : 0,
+    JSON.stringify(safeLineItems),
+    details.subTotal ?? 0,
+    details.gst ?? 0,
+    details.gstAmount ?? 0,
+    details.advance ?? 0,
+    details.totalExcludingTax ?? 0,
+    details.totalIncludingTax ?? 0,
+    details.terms || null,
+    orgId,
+    id,
+  ];
+
+  try {
+    await tenantPool.query(invoiceQueries.UPDATE_DOWNLOAD_DETAILS, values);
+    return await getDownloadDetailsById(orgId, id);
   } catch (err) {
     throw err;
   }
@@ -688,5 +764,7 @@ module.exports = {
   updateInvoiceExtra,
   recordDownloadDetails,
   getAllDownloadDetails,
+  getDownloadDetailsById,
+  updateDownloadDetails,
   generateInvoiceNo,
 };

@@ -138,18 +138,14 @@ const recordDownloadDetails = async (req, res, next) => {
       });
     }
 
-    // ✅ NORMALIZE
     invoiceType = String(invoiceType).toLowerCase().trim();
 
-    // ✅ VALIDATE
     const allowedTypes = ["tax", "proforma", "quotation", "po"];
     if (!allowedTypes.includes(invoiceType)) {
       return res.status(400).json({
         error: `Invalid invoiceType: ${invoiceType}`,
       });
     }
-
-    console.log("Saving invoiceType:", invoiceType); // 🔍 debug
 
     const record = await invoiceService.recordDownloadDetails(
       invoiceType,
@@ -177,6 +173,46 @@ const getDownloadDetails = async (req, res, next) => {
   }
 };
 
+const getDownloadDetailById = async (req, res, next) => {
+  try {
+    const orgId = resolveOrgIdFromReq(req);
+    if (!orgId) {
+      return res.status(400).json({ error: "orgId header is required" });
+    }
+
+    const { id } = req.params;
+    const record = await invoiceService.getDownloadDetailsById(orgId, id);
+
+    if (!record) {
+      return res.status(404).json({ error: "Download detail not found" });
+    }
+
+    res.json({ downloadDetail: record });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const updateDownloadDetails = async (req, res, next) => {
+  try {
+    const orgId = resolveOrgIdFromReq(req);
+    if (!orgId) {
+      return res.status(400).json({ error: "orgId header is required" });
+    }
+
+    const { id } = req.params;
+    const updated = await invoiceService.updateDownloadDetails(
+      orgId,
+      id,
+      req.body,
+    );
+
+    res.json({ success: true, downloadDetail: updated });
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
   getInvoices,
   createInvoice,
@@ -186,4 +222,6 @@ module.exports = {
   updateInvoiceExtra,
   recordDownloadDetails,
   getDownloadDetails,
+  getDownloadDetailById,
+  updateDownloadDetails,
 };
