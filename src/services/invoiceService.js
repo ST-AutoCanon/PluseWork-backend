@@ -11,6 +11,7 @@ const normalizeInvoiceType = (type) => {
   if (t.includes("proforma")) return "proforma";
   if (t.includes("quotation")) return "quotation";
   if (t.includes("po") || t.includes("purchase")) return "po";
+  if (t.includes("credit")) return "credit"; // ✅ ADD THIS
 
   return "tax";
 };
@@ -31,6 +32,7 @@ const normalizeDownloadLineItems = (lineItems) => {
   return lineItems.map((item) => ({
     description: item?.description || "",
     hsnSac: item?.hsnSac || item?.hsn || "",
+    partNumber: item?.partNumber || "", // ✅ ADD THIS
     quantity: Number(item?.quantity || 0),
     rate: Number(item?.rate || 0),
     total: Number(item?.total || 0),
@@ -172,6 +174,7 @@ const generateTemplateInvoiceNo = async (invoiceType, orgId = null) => {
       if (invoiceType === "proforma") return `${acronym}-PI-${paddedSeq3}`;
       if (invoiceType === "quotation") return `${acronym}-Q-${paddedSeq3}`;
       if (invoiceType === "po") return `${acronym}-PO-${paddedSeq3}`;
+      if (invoiceType === "credit") return `${acronym}-CRN-${paddedSeq3}`; // ✅ ADD
     }
 
     if (invoiceType === "tax")
@@ -180,6 +183,7 @@ const generateTemplateInvoiceNo = async (invoiceType, orgId = null) => {
       return `${acronym}/${financialYear}/PI/${paddedSeq}`;
     if (invoiceType === "quotation") return `${acronym}-Q-${paddedSeq}`;
     if (invoiceType === "po") return `${acronym}-PO-${paddedSeq}`;
+    if (invoiceType === "credit") return `${acronym}/CR/${paddedSeq}`; // ✅ ADD
   } finally {
     conn.release();
   }
@@ -238,6 +242,7 @@ const generateInvoiceNo = async (invoiceDate, invoiceType, orgId) => {
       if (invoiceType === "proforma") return `${acronym}-PI-${paddedSeq3}`;
       if (invoiceType === "quotation") return `${acronym}-Q-${paddedSeq3}`;
       if (invoiceType === "po") return `${acronym}-PO-${paddedSeq3}`;
+      if (invoiceType === "credit") return `${acronym}-CRN-${paddedSeq3}`; // ✅ ADD
     }
 
     if (invoiceType === "tax")
@@ -246,6 +251,7 @@ const generateInvoiceNo = async (invoiceDate, invoiceType, orgId) => {
       return `${acronym}/${financialYear}/PI/${paddedSeq}`;
     if (invoiceType === "quotation") return `${acronym}-Q-${paddedSeq}`;
     if (invoiceType === "po") return `${acronym}-PO-${paddedSeq}`;
+    if (invoiceType === "credit") return `${acronym}/CR/${paddedSeq}`; // ✅ ADD
   } finally {
     conn.release();
   }
@@ -666,6 +672,7 @@ const getAllDownloadDetails = async (orgId) => {
       if (Array.isArray(r.lineItems)) {
         r.lineItems = r.lineItems.map((item) => ({
           description: item?.description || "",
+          partNumber: item?.partNumber || "",
           hsnSac: item?.hsnSac || item?.hsn || "",
           quantity: Number(item?.quantity || 0),
           rate: Number(item?.rate || 0),
@@ -701,6 +708,7 @@ const getDownloadDetailsById = async (orgId, id) => {
     if (Array.isArray(r.lineItems)) {
       r.lineItems = r.lineItems.map((item) => ({
         description: item?.description || "",
+        partNumber: item?.partNumber || "",
         hsnSac: item?.hsnSac || item?.hsn || "",
         quantity: Number(item?.quantity || 0),
         rate: Number(item?.rate || 0),
