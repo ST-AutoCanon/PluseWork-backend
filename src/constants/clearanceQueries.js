@@ -18,6 +18,7 @@ const CLEARANCE_QUERIES = {
     hr_approved,
     hr_approved_at,
     hr_comment,
+    
     created_by,
     created_at,
     updated_at

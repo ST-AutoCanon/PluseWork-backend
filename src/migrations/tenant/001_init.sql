@@ -951,3 +951,145 @@ CREATE TABLE customers (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
+
+CREATE TABLE employee_exit_requests1 (
+  id bigint NOT NULL AUTO_INCREMENT,
+  org_id bigint NOT NULL,
+  employee_id varchar(20) NOT NULL,
+  reason varchar(100) NOT NULL,
+  exit_type enum('VOLUNTARY','EARLY_RELEASE') NOT NULL DEFAULT 'VOLUNTARY',
+  other_reason text,
+  employee_comment text,
+  proposed_lwd date NOT NULL,
+  applied_at datetime DEFAULT CURRENT_TIMESTAMP,
+  supervisor_status enum('PENDING','APPROVED','REJECTED','DISCUSS') DEFAULT 'PENDING',
+  supervisor_recommended_lwd date DEFAULT NULL,
+  supervisor_comment text,
+  supervisor_action_at datetime DEFAULT NULL,
+  supervisor_action_by varchar(20) DEFAULT NULL,
+  hr_status enum('PENDING','APPROVED','REJECTED','DISCUSS') DEFAULT 'PENDING',
+  hr_final_lwd date DEFAULT NULL,
+  hr_comment text,
+  leave_policy enum('all','sick_only','none') DEFAULT NULL,
+  hr_action_at datetime DEFAULT NULL,
+  hr_action_by varchar(20) DEFAULT NULL,
+  withdrawal_requested_at datetime DEFAULT NULL,
+  withdrawal_reason text,
+  withdrawal_supervisor_status enum('PENDING','APPROVED','REJECTED') DEFAULT NULL,
+  withdrawal_hr_status enum('PENDING','APPROVED','REJECTED') DEFAULT NULL,
+  is_active tinyint(1) DEFAULT '1',
+  final_outcome enum('RESIGNED','WITHDRAWN','REJECTED','CANCELLED') DEFAULT NULL,
+  final_lwd date DEFAULT NULL,
+  kt_proposed_date date DEFAULT NULL,
+  assets_proposed_date date DEFAULT NULL,
+  proposed_dates_submitted_at datetime DEFAULT NULL,
+  kt_planned_date date DEFAULT NULL,
+  assets_return_planned_date date DEFAULT NULL,
+  kt_completed tinyint(1) DEFAULT '0',
+  assets_returned tinyint(1) DEFAULT '0',
+  clearance_completed_at datetime DEFAULT NULL,
+  created_at datetime DEFAULT CURRENT_TIMESTAMP,
+  updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  hr_ratings json DEFAULT NULL COMMENT 'HR star ratings as JSON',
+  hr_evaluation_comments text COMMENT 'Detailed HR remarks during final approval',
+  PRIMARY KEY (id),
+  KEY idx_org_employee (org_id,employee_id),
+  KEY idx_org_active (org_id,is_active),
+  KEY idx_supervisor_pending (`org_id`,`supervisor_status`),
+  KEY idx_hr_pending (`org_id`,`hr_status`)
+) ;
+
+CREATE TABLE employee_exit_clearance_items (
+  id bigint NOT NULL AUTO_INCREMENT,
+  org_id bigint NOT NULL,
+  exit_request_id bigint NOT NULL,
+  item_type enum('KT','ASSET') NOT NULL,
+  title varchar(200) NOT NULL,
+  planned_date date DEFAULT NULL,
+  description text,
+  actual_completed_date date DEFAULT NULL,
+  status enum('pending','in_progress','completed','issue') DEFAULT 'pending',
+  attached_files json DEFAULT NULL,
+  supervisor_approved tinyint DEFAULT '0',
+  supervisor_approved_at datetime DEFAULT NULL,
+  supervisor_comment text,
+  hr_approved tinyint DEFAULT '0',
+  hr_approved_at datetime DEFAULT NULL,
+  hr_comment text,
+  created_by varchar(20) NOT NULL,
+  created_at datetime DEFAULT CURRENT_TIMESTAMP,
+  updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_exit_type (exit_request_id,item_type),
+  KEY idx_org_exit (org_id,exit_request_id),
+  KEY idx_pending_kt (exit_request_id,item_type,status),
+  CONSTRAINT employee_exit_clearance_items_ibfk_1 FOREIGN KEY (exit_request_id) REFERENCES employee_exit_requests1 (id) ON DELETE CASCADE
+) ;
+
+CREATE TABLE form_assignments (
+  id int NOT NULL AUTO_INCREMENT,
+  form_id int NOT NULL,
+  org_id int unsigned DEFAULT NULL,
+  assigned_to_type enum('EMPLOYEE','DEPARTMENT','SUPERVISOR') COLLATE utf8mb4_general_ci NOT NULL,
+  assigned_to_id varchar(20) COLLATE utf8mb4_general_ci NOT NULL,
+  assigned_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY form_id (form_id),
+  KEY idx_org_id (org_id),
+  CONSTRAINT form_assignments_ibfk_1 FOREIGN KEY (form_id) REFERENCES form_templates (id) ON DELETE CASCADE
+) ;
+
+CREATE TABLE form_responses1 (
+  id int NOT NULL AUTO_INCREMENT,
+  form_id int NOT NULL,
+  employee_id varchar(20) COLLATE utf8mb4_general_ci DEFAULT NULL,
+  org_id int DEFAULT NULL,
+  response_json json DEFAULT NULL,
+  submitted_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id)
+) ;
+
+CREATE TABLE form_templates (
+  id int NOT NULL AUTO_INCREMENT,
+  org_id int unsigned DEFAULT NULL,
+  form_name varchar(255) COLLATE utf8mb4_general_ci NOT NULL,
+  form_json json NOT NULL,
+  layout varchar(10) COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'one',
+  form_type enum('employee_only','employee_supervisor') COLLATE utf8mb4_general_ci DEFAULT 'employee_only',
+  active_from date DEFAULT NULL,
+  active_to date DEFAULT NULL,
+  active_until datetime DEFAULT NULL,
+  created_by int DEFAULT NULL,
+  created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_form_type (form_type),
+  KEY idx_active_until (active_until),
+  KEY idx_org_id (org_id)
+) ;
+
+CREATE TABLE org_sup_project_visibility (
+  org_id varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
+  visibility_mode enum('all','assigned_only') CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'assigned_only',
+  created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  updated_by varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT 'Employee ID or name who last updated (supervisor-driven)',
+  PRIMARY KEY (org_id),
+  KEY idx_sup_visibility_mode (`visibility_mode`)
+);
+
+CREATE TABLE org_work_hours (
+  org_id int NOT NULL,
+  work_hours int NOT NULL,
+  updated_at timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (org_id)
+) ;
+
+CREATE TABLE org_project_visibility (
+  org_id varchar(50) COLLATE utf8mb4_general_ci NOT NULL,
+  visibility_mode enum('all','assigned_only') COLLATE utf8mb4_general_ci DEFAULT 'assigned_only',
+  created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  updated_by varchar(100) COLLATE utf8mb4_general_ci DEFAULT NULL,
+  PRIMARY KEY (org_id)
+) ;
