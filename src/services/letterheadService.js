@@ -123,69 +123,116 @@ const getAllLetterheads = async (orgId) => {
   }
 };
 
+const formatDate = (dateValue) => {
+  if (!dateValue) return null;
+
+  const date = new Date(dateValue);
+
+  if (isNaN(date.getTime())) return null;
+
+  return date.toISOString().split("T")[0]; // YYYY-MM-DD
+};
 const updateLetterheadById = async (orgId, letterheadData, id) => {
   const tenantPool = await getTenantPoolForOrgId(orgId);
+
   try {
     const {
-      letterhead_code,
       template_name,
       letter_type,
       subject,
       body,
-      recipient_name,
-      title,
-      mobile_number,
-      email,
-      address,
-      date,
-      signature,
-      employee_name,
-      position,
-      annual_salary,
-      effective_date,
-      date_of_appointment,
       attachment,
-      place,
-      company_name,
-      company_address,
-      company_address_line2,
-      gstin_number,
-      cin_number,
+      ...dynamicFields
     } = letterheadData;
 
-    const values = [
-      template_name,
-      letter_type,
-      subject,
-      body,
-      recipient_name || null,
-      title || null,
-      mobile_number || null,
-      email || null,
-      address || null,
-      date || null,
-      signature || null,
-      employee_name || null,
-      position || null,
-      annual_salary || null,
-      effective_date || null,
-      date_of_appointment || null,
-      attachment || null,
-      place || null,
-      company_name || null,
-      company_address || null,
-      company_address_line2 || null,
-      gstin_number || null,
-      cin_number || null,
-      id,
-      orgId,
+    // Map contact_number → mobile_number
+    if (dynamicFields.contact_number) {
+      dynamicFields.mobile_number = dynamicFields.contact_number;
+      delete dynamicFields.contact_number;
+    }
+// Fix date fields
+if (dynamicFields.date) {
+  dynamicFields.date = formatDate(dynamicFields.date);
+}
+
+if (dynamicFields.date_of_appointment) {
+  dynamicFields.date_of_appointment =
+    formatDate(dynamicFields.date_of_appointment);
+}
+
+if (dynamicFields.effective_date) {
+  dynamicFields.effective_date =
+    formatDate(dynamicFields.effective_date);
+}
+    // ✅ Allowed DB columns only
+    const allowedColumns = [
+      "recipient_name",
+      "title",
+      "mobile_number",
+      "email",
+      "address",
+      "date",
+      "signature",
+      "employee_name",
+      "position",
+      "annual_salary",
+      "effective_date",
+      "date_of_appointment",
+      "place",
+      "company_name",
+      "company_address",
+      "company_address_line2",
+      "gstin_number",
+      "cin_number"
     ];
 
-    const [result] = await tenantPool.query(queries.UPDATE_LETTERHEAD_BY_ID, values);
+    // Filter only valid fields
+    const filteredDynamicFields = {};
+    Object.keys(dynamicFields).forEach(key => {
+      if (allowedColumns.includes(key)) {
+        filteredDynamicFields[key] = dynamicFields[key];
+      }
+    });
+
+    const baseFields = {
+      template_name: template_name || null,
+      letter_type,
+      subject: subject || null,
+      body,
+      attachment: attachment || null,
+    };
+
+    const updateData = {
+      ...baseFields,
+      ...filteredDynamicFields
+    };
+
+    const setClauses = Object.keys(updateData)
+      .map(key => `${key} = ?`)
+      .join(", ");
+
+    const values = [
+      ...Object.values(updateData),
+      id,
+      orgId
+    ];
+
+    const query = `
+      UPDATE letterhead 
+      SET ${setClauses}
+      WHERE id = ? AND org_id = ?;
+    `;
+
+    console.log("Final Update Query:", query);
+    console.log("Values:", values);
+
+    const [result] = await tenantPool.query(query, values);
+
     return result;
+
   } catch (error) {
     console.error("Error updating letterhead:", error);
-    throw new Error("Error updating letterhead");
+    throw new Error("Error updating letterhead: " + error.message);
   }
 };
 
@@ -193,8 +240,16 @@ const getLetterheadById = async (orgId, id) => {
   const tenantPool = await getTenantPoolForOrgId(orgId);
   try {
     const [rows] = await tenantPool.query(queries.GET_LETTERHEAD_BY_ID, [id, orgId]);
-    return rows[0] || null;
-  } catch (error) {
+if (rows.length > 0) {
+  const data = rows[0];
+
+  // Map mobile_number → contact_number
+  data.contact_number = data.mobile_number;
+
+  return data;
+}
+
+return null;  } catch (error) {
     console.error("Error fetching letterhead by ID:", error);
     throw new Error("Error fetching letterhead by ID");
   }
