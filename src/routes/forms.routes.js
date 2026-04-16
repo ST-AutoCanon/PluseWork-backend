@@ -19,6 +19,7 @@ router.post("/forms", handler.createForm);
 router.put("/forms/:id", handler.updateForm);
 router.post("/forms/:id/submit", handler.submitForm);
 router.get("/forms/:id/responses", handler.getResponses);
+router.get("/forms/:formId/responses-with-names", employeeHandler.getFormResponses);
 router.post("/forms/:id/assign", handler.assignForm);
 router.get("/forms/:id/assigned", handler.getFormAssignedEmployees);
 router.get("/employees", employeeHandler.getEmployees);

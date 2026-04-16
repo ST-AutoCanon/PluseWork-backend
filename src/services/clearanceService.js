@@ -162,11 +162,13 @@ async function approveItem(orgId, itemId, approved, approverEmployeeId, approval
 }
 
 
-async function finalizeExit(orgId, exitId) {
+// In src/services/clearanceService.js
+
+async function finalizeExit(orgId, exitId, overallRating, hrComments, actionBy) {
   const pool = await getTenantPoolByOrgId(orgId);
 
   try {
-    // 1. Get the employee_id from the exit request (safety check)
+    // Get employee_id for marking inactive
     const [[exit]] = await pool.execute(
       `SELECT employee_id 
        FROM employee_exit_requests1 
@@ -175,42 +177,44 @@ async function finalizeExit(orgId, exitId) {
     );
 
     if (!exit || !exit.employee_id) {
-      throw new Error("Exit request not found or missing employee_id");
+      throw new Error("Exit request not found");
     }
 
     const employeeId = exit.employee_id;
 
-    // 2. Mark clearance as completed (your existing logic)
-    await pool.execute(
-      `UPDATE employee_exit_requests1
-       SET clearance_completed_at = NOW()
-       WHERE id = ? AND org_id = ?
-         AND clearance_completed_at IS NULL
-         AND final_outcome = 'RESIGNED'`,
-      [exitId, orgId]
-    );
+    // Prepare ratings as JSON (only overall rating)
+    let ratingsJson = null;
+    if (overallRating && overallRating >= 1 && overallRating <= 5) {
+      ratingsJson = JSON.stringify({ overall: Number(overallRating) });
+    }
 
-    // ───────────────────────────────────────────────────────────────
-    // 3. NEW: Mark employee as Inactive
-    // ───────────────────────────────────────────────────────────────
-    await pool.execute(
-      `UPDATE employees
-       SET 
-         status = 'Inactive',
-         updated_at = NOW()
-       WHERE employee_id = ? 
-         AND org_id = ?`,
-      [employeeId, orgId]
-    );
+    // Finalize the exit - using only existing columns
+    await pool.execute(`
+      UPDATE employee_exit_requests1
+      SET 
+        clearance_completed_at = NOW(),
+        hr_ratings = ?,
+        hr_evaluation_comments = ?
+      WHERE id = ? 
+        AND org_id = ?
+        AND final_outcome = 'RESIGNED'
+        AND clearance_completed_at IS NULL
+    `, [ratingsJson, hrComments || null, exitId, orgId]);
 
-    console.log(`[FINALIZE SUCCESS] Employee ${employeeId} marked Inactive for exit ${exitId}`);
+    // Mark employee as Inactive
+    await pool.execute(`
+      UPDATE employees
+      SET 
+        status = 'Inactive',
+        updated_at = NOW()
+      WHERE employee_id = ? AND org_id = ?
+    `, [employeeId, orgId]);
 
-    // Optional: Add audit log entry (recommended for compliance)
-   
+    console.log(`[FINALIZE SUCCESS] Exit ${exitId} finalized with HR rating. Employee ${employeeId} marked Inactive.`);
 
   } catch (err) {
-    console.error("[FINALIZE EXIT ERROR]", err);
-    throw err; // Let the handler catch and return 500
+    console.error("[finalizeExit SERVICE ERROR]", err);
+    throw err;
   }
 }
 
@@ -246,7 +250,31 @@ async function updateItem(orgId, itemId, data) {
 
   await pool.execute(query, values);
 }
+// In clearanceService.js
 
+async function updateFinalLwd(orgId, exitId, finalLwd, actionBy) {
+  const pool = await getTenantPoolByOrgId(orgId);
+
+  const [result] = await pool.execute(`
+    UPDATE employee_exit_requests1 
+    SET 
+      final_lwd = ?,
+      updated_at = NOW()
+      ${actionBy ? ', hr_action_by = ?' : ''}
+    WHERE id = ? 
+      AND org_id = ?
+      AND final_outcome = 'RESIGNED'
+  `, actionBy 
+      ? [finalLwd, actionBy, exitId, orgId] 
+      : [finalLwd, exitId, orgId]
+  );
+
+  if (result.affectedRows === 0) {
+    throw new Error("Failed to update LWD. Exit request not found or already finalized.");
+  }
+
+  console.log(`[updateFinalLwd] Success - Exit ${exitId} LWD updated to ${finalLwd}`);
+}
 // Add to exports
 
 module.exports = {
@@ -255,6 +283,7 @@ module.exports = {
   updateStatus,
   approveItem,
   finalizeExit,
-  updateItem
+  updateItem,
+  updateFinalLwd     // ← Must be here
   
 };
