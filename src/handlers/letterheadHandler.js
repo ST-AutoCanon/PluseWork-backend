@@ -12,93 +12,132 @@ const getOrgId = (req) => {
   );
 };
 
+// const addLetterheadHandler = async (req, res) => {
+//   const orgId = getOrgId(req);
+//   if (!orgId) {
+//     return res.status(400).json({ error: "org_id is required" });
+//   }
+
+//   try {
+//     const {
+//       letterhead_code,
+//       template_name,
+//       letter_type,
+//       subject,
+//       body,
+//       recipient_name,
+//       title,
+//       mobile_number,
+//       email,
+//       address,
+//       date,
+//       signature,
+//       employee_name,
+//       position,
+//       annual_salary,
+//       effective_date,
+//       date_of_appointment,
+//       place,
+//       company_name,
+//       company_address,
+//       company_address_line2,
+//       gstin_number,
+//       cin_number,
+//     } = req.body;
+
+//     if (!letter_type || !body) {
+//       return res.status(400).json({ error: "Required fields missing" });
+//     }
+
+//     const files = req.files || {};
+//     let attachment = null;
+//     if (files.letterhead_file) {
+//       attachment = files.letterhead_file[0].filename;
+//     }
+
+//     const letterheadData = {
+//       letterhead_code,
+//       template_name,
+//       letter_type,
+//       subject,
+//       body,
+//       recipient_name,
+//       title,
+//       mobile_number,
+//       email,
+//       address,
+//       date,
+//       signature,
+//       employee_name,
+//       position,
+//       annual_salary,
+//       effective_date,
+//       date_of_appointment,
+//       attachment,
+//       place,
+//       company_name,
+//       company_address,
+//       company_address_line2,
+//       gstin_number,
+//       cin_number,
+//     };
+
+//     const result = await letterheadService.insertLetterhead(
+//       orgId,
+//       letterheadData
+//     );
+//     res.status(201).json({
+//       message: "Letterhead created successfully",
+//       id: result.insertId,
+//       letterhead_code: result.letterhead_code,
+//     });
+//   } catch (error) {
+//     console.error("Error in addLetterheadHandler:", error);
+//     res
+//       .status(500)
+//       .json({ error: "Failed to create letterhead", details: error.message });
+//   }
+// };
 const addLetterheadHandler = async (req, res) => {
   const orgId = getOrgId(req);
-  if (!orgId) {
-    return res.status(400).json({ error: "org_id is required" });
-  }
+  if (!orgId) return res.status(400).json({ error: "org_id is required" });
 
   try {
-    const {
-      letterhead_code,
-      template_name,
-      letter_type,
-      subject,
+    const { 
+      letter_type, 
+      template_name, 
+      subject, 
       body,
-      recipient_name,
-      title,
-      mobile_number,
-      email,
-      address,
-      date,
-      signature,
-      employee_name,
-      position,
-      annual_salary,
-      effective_date,
-      date_of_appointment,
-      place,
-      company_name,
-      company_address,
-      company_address_line2,
-      gstin_number,
-      cin_number,
+      ...dynamicFields   // ← This captures ALL other fields like contact_number, date_of_birth, etc.
     } = req.body;
 
     if (!letter_type || !body) {
-      return res.status(400).json({ error: "Required fields missing" });
+      return res.status(400).json({ error: "letter_type and body are required" });
     }
 
     const files = req.files || {};
-    let attachment = null;
-    if (files.letterhead_file) {
-      attachment = files.letterhead_file[0].filename;
-    }
+    const attachment = files.letterhead_file ? files.letterhead_file[0].filename : null;
 
     const letterheadData = {
-      letterhead_code,
       template_name,
       letter_type,
       subject,
       body,
-      recipient_name,
-      title,
-      mobile_number,
-      email,
-      address,
-      date,
-      signature,
-      employee_name,
-      position,
-      annual_salary,
-      effective_date,
-      date_of_appointment,
       attachment,
-      place,
-      company_name,
-      company_address,
-      company_address_line2,
-      gstin_number,
-      cin_number,
+      ...dynamicFields   // ← Pass all dynamic fields
     };
 
-    const result = await letterheadService.insertLetterhead(
-      orgId,
-      letterheadData
-    );
-    res.status(201).json({
-      message: "Letterhead created successfully",
-      id: result.insertId,
-      letterhead_code: result.letterhead_code,
+    const result = await letterheadService.insertLetterhead(orgId, letterheadData);
+
+    res.status(201).json({ 
+      message: "Letter saved successfully", 
+      id: result.insertId 
     });
   } catch (error) {
-    console.error("Error in addLetterheadHandler:", error);
-    res
-      .status(500)
-      .json({ error: "Failed to create letterhead", details: error.message });
+    console.error("Add letterhead error:", error);
+    res.status(500).json({ error: "Failed to save letter" });
   }
 };
-
 const getAllLetterheadsHandler = async (req, res) => {
   const orgId = getOrgId(req);
   if (!orgId) return res.status(400).json({ error: "org_id is required" });
@@ -124,86 +163,43 @@ const updateLetterheadHandler = async (req, res) => {
   }
 
   try {
-    const {
-      template_name,
-      letter_type,
-      subject,
+    const { 
+      letter_type, 
+      template_name, 
+      subject, 
       body,
-      recipient_name,
-      title,
-      mobile_number,
-      email,
-      address,
-      date,
-      signature,
-      employee_name,
-      position,
-      annual_salary,
-      effective_date,
-      date_of_appointment,
-      place,
-      company_name,
-      company_address,
-      company_address_line2,
-      gstin_number,
-      cin_number,
+      ...dynamicFields   // Capture all other fields dynamically
     } = req.body;
 
     if (!letter_type || !body) {
-      return res.status(400).json({ error: "Required fields missing" });
+      return res.status(400).json({ error: "letter_type and body are required" });
     }
 
     const files = req.files || {};
-    let attachment = null;
-    if (files.letterhead_file) {
-      attachment = files.letterhead_file[0].filename;
-    }
+    const attachment = files.letterhead_file ? files.letterhead_file[0].filename : null;
 
     const letterheadData = {
-      template_name,
+      template_name: template_name?.trim(),
       letter_type,
-      subject,
+      subject: subject?.trim() || null,
       body,
-      recipient_name,
-      title,
-      mobile_number,
-      email,
-      address,
-      date,
-      signature,
-      employee_name,
-      position,
-      annual_salary,
-      effective_date,
-      date_of_appointment,
       attachment,
-      place,
-      company_name,
-      company_address,
-      company_address_line2,
-      gstin_number,
-      cin_number,
+      ...dynamicFields   // ← This is the key: send everything else
     };
 
-    const result = await letterheadService.updateLetterheadById(
-      orgId,
-      letterheadData,
-      id
-    );
+    const result = await letterheadService.updateLetterheadById(orgId, letterheadData, id);
     
     if (result && result.affectedRows > 0) {
       res.status(200).json({
-        message: "Letterhead updated successfully",
+        message: "Letter updated successfully",
         id: parseInt(id),
       });
     } else {
-      res.status(404).json({ error: "Letterhead not found" });
+      res.status(404).json({ error: "Letterhead not found or no changes made" });
     }
   } catch (error) {
     console.error("Error in updateLetterheadHandler:", error);
-    res
-      .status(500)
-      .json({ error: "Failed to update letterhead", details: error.message });
+    res.status(500).json({ error: "Failed to update letter", details: error.message });
   }
 };
 
