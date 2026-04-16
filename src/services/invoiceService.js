@@ -344,6 +344,8 @@ const createInvoice = async (invoiceData, orgId) => {
       invoiceData.gstAmount,
       invoiceData.totalAmount,
       invoiceData.totalIncludingTax,
+      invoiceData.roundOff || 0,
+      invoiceData.roundOffAmount || 0,
     ]);
 
     if (!results.insertId) {
@@ -386,6 +388,8 @@ const updateInvoice = async (orgId, id, invoiceData) => {
     invoiceData.gstAmount,
     invoiceData.totalAmount,
     invoiceData.totalIncludingTax,
+    invoiceData.roundOff || 0,
+    invoiceData.roundOffAmount || 0,
     id,
   ];
 
@@ -429,6 +433,8 @@ const updateInvoiceExtra = async (orgId, id, invoiceData) => {
       invoiceData.gstAmount,
       invoiceData.totalAmount,
       invoiceData.totalIncludingTax,
+      invoiceData.roundOff || 0,
+      invoiceData.roundOffAmount || 0,
       id,
     ]);
 
@@ -560,6 +566,7 @@ const recordDownloadDetails = async (
     address,
     contact,
     companyGst,
+    country,
     state,
     invoiceDate,
     referenceDate,
@@ -574,6 +581,8 @@ const recordDownloadDetails = async (
     totalExcludingTax,
     totalIncludingTax,
     terms,
+    roundOff,
+    roundOffAmount,
   } = details;
 
   const tenantConn = await tenantPool.getConnection();
@@ -592,6 +601,7 @@ const recordDownloadDetails = async (
         address || null,
         contact || null,
         companyGst || null,
+        country || null,
         state || null,
         invoiceDate || null,
         referenceDate || null,
@@ -606,6 +616,8 @@ const recordDownloadDetails = async (
         totalExcludingTax ?? 0,
         totalIncludingTax ?? 0,
         terms || null,
+        roundOff || 0,
+        roundOffAmount || 0,
       ],
     );
 
@@ -736,6 +748,7 @@ const updateDownloadDetails = async (orgId, id, details) => {
     details.address || null,
     details.contact || null,
     details.companyGst || null,
+    details.country || null,
     details.state || null,
     details.invoiceDate || null,
     details.referenceDate || null,
@@ -750,6 +763,8 @@ const updateDownloadDetails = async (orgId, id, details) => {
     details.totalExcludingTax ?? 0,
     details.totalIncludingTax ?? 0,
     details.terms || null,
+    details.roundOff || 0,
+    details.roundOffAmount || 0,
     orgId,
     id,
   ];

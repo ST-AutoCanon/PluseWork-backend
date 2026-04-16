@@ -23,6 +23,8 @@ SELECT
   i.gstPayment,
   i.milestoneId,
   i.status,
+  i.round_off AS roundOff,
+  i.round_off_amount AS roundOffAmount,
   p.payment_type,
 
   COALESCE((
@@ -91,6 +93,8 @@ SELECT
   i.gstPayment,
   i.milestoneId,
   i.status,
+  i.round_off AS roundOff,
+  i.round_off_amount AS roundOffAmount,
   p.payment_type,
 
   (
@@ -141,8 +145,8 @@ WHERE i.id = ?;
   `,
   INSERT_INVOICE: `
     INSERT INTO invoices 
-      (projectId, invoiceType, invoiceDate, invoiceNo, referenceId, referenceDate, terms, lineItems, workDescription, subTotal, advance, totalExcludingTax, gst, gstAmount, totalAmount, totalIncludingTax)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+      (projectId, invoiceType, invoiceDate, invoiceNo, referenceId, referenceDate, terms, lineItems, workDescription, subTotal, advance, totalExcludingTax, gst, gstAmount, totalAmount, totalIncludingTax, round_off, round_off_amount)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
   `,
   UPDATE_INVOICE_BASIC: `
     UPDATE invoices SET 
@@ -160,7 +164,9 @@ WHERE i.id = ?;
       gst = ?,
       gstAmount = ?,
       totalAmount = ?,
-      totalIncludingTax = ?
+      totalIncludingTax = ?,
+      round_off = ?,
+      round_off_amount = ?
     WHERE id = ?;
   `,
   UPDATE_INVOICE_EXTRA: `
@@ -197,6 +203,7 @@ WHERE i.id = ?;
       address,
       contact,
       company_gst,
+      country,
       state,
       invoice_date,
       reference_date,
@@ -210,8 +217,10 @@ WHERE i.id = ?;
       advance,
       total_excluding_tax,
       total_including_tax,
-      terms
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      terms,
+      round_off,
+      round_off_amount
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `,
 
   GET_ALL_DOWNLOAD_DETAILS: `
@@ -223,6 +232,7 @@ WHERE i.id = ?;
     address,
     contact,
     company_gst          AS companyGst,
+    country,
     state,
     DATE_FORMAT(invoice_date,'%Y-%m-%d') AS invoiceDate,
     DATE_FORMAT(reference_date,'%Y-%m-%d') AS referenceDate,
@@ -237,6 +247,8 @@ WHERE i.id = ?;
     total_excluding_tax  AS totalExcludingTax,
     total_including_tax  AS totalIncludingTax,
     terms,
+    round_off            AS roundOff,
+    round_off_amount     AS roundOffAmount,
     created_at           AS createdAt
   FROM download_details
   WHERE org_id = ?
@@ -252,6 +264,7 @@ WHERE i.id = ?;
     address,
     contact,
     company_gst          AS companyGst,
+    country,
     state,
     DATE_FORMAT(invoice_date,'%Y-%m-%d') AS invoiceDate,
     DATE_FORMAT(reference_date,'%Y-%m-%d') AS referenceDate,
@@ -266,6 +279,8 @@ WHERE i.id = ?;
     total_excluding_tax  AS totalExcludingTax,
     total_including_tax  AS totalIncludingTax,
     terms,
+    round_off            AS roundOff,
+    round_off_amount     AS roundOffAmount,
     created_at           AS createdAt
   FROM download_details
   WHERE org_id = ? AND id = ?
@@ -281,6 +296,7 @@ WHERE i.id = ?;
       address = ?,
       contact = ?,
       company_gst = ?,
+      country = ?,
       state = ?,
       invoice_date = ?,
       reference_date = ?,
@@ -294,7 +310,9 @@ WHERE i.id = ?;
       advance = ?,
       total_excluding_tax = ?,
       total_including_tax = ?,
-      terms = ?
+      terms = ?,
+      round_off = ?,
+      round_off_amount = ?
     WHERE org_id = ? AND id = ?
   `,
 };
