@@ -140,7 +140,7 @@ const recordDownloadDetails = async (req, res, next) => {
 
     invoiceType = String(invoiceType).toLowerCase().trim();
 
-    const allowedTypes = ["tax", "proforma", "quotation", "po"];
+    const allowedTypes = ["tax", "proforma", "quotation", "po", "credit"];
     if (!allowedTypes.includes(invoiceType)) {
       return res.status(400).json({
         error: `Invalid invoiceType: ${invoiceType}`,
