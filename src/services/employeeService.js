@@ -550,6 +550,11 @@ exports.editFullEmployee = async (data) => {
     }
 
     const pick = (key) => (hasKey(key) ? data[key] : existing[key]);
+    const normalizeDateValue = (val) => {
+      if (val == null) return null;
+      const s = String(val).trim();
+      return s ? s : null;
+    };
 
     const personalFileFields = [
       "spouse_gov_doc_url",
@@ -701,14 +706,30 @@ exports.editFullEmployee = async (data) => {
       "child3_gov_doc_url",
     ];
 
+    const dateFields = new Set([
+      "spouse_dob",
+      "marriage_date",
+      "father_dob",
+      "mother_dob",
+      "child1_dob",
+      "child2_dob",
+      "child3_dob",
+    ]);
+
     const personalFileSet = new Set(personalFileFields);
 
     const personalParams = personalKeys.map((k) => {
       const val = pick(k);
+
       if (personalFileSet.has(k)) {
         return arrayToJsonOrNull(val);
       }
-      return val !== undefined ? val : null;
+
+      if (dateFields.has(k)) {
+        return normalizeDateValue(val);
+      }
+
+      return val !== undefined && String(val).trim() !== "" ? val : null;
     });
     personalParams.push(eid);
     await conn.execute(queries.UPDATE_EMPLOYEE_PERSONAL, personalParams);

@@ -250,6 +250,7 @@ CREATE TABLE IF NOT EXISTS download_details (
   address TEXT,
   contact VARCHAR(100),
   company_gst VARCHAR(50),
+  country VARCHAR(100),
   state VARCHAR(100),
   invoice_date DATE,
   reference_date DATE,
@@ -264,6 +265,8 @@ CREATE TABLE IF NOT EXISTS download_details (
   total_excluding_tax DECIMAL(10,2),
   total_including_tax DECIMAL(10,2),
   terms TEXT,
+  round_off TINYINT(1) NOT NULL DEFAULT 0,
+  round_off_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -298,7 +301,9 @@ CREATE TABLE IF NOT EXISTS invoices (
   updatedAt TIMESTAMP,
   gstPayment VARCHAR(50),
   milestoneId INT,
-  status VARCHAR(20)
+  status VARCHAR(20),
+  round_off TINYINT(1) NOT NULL DEFAULT 0,
+  round_off_amount DECIMAL(10,2) NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS emp_attendence (
