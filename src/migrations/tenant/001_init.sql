@@ -70,6 +70,8 @@ CREATE TABLE IF NOT EXISTS employee_professional (
   position VARCHAR(100),
   supervisor_id VARCHAR(20),
   salary DECIMAL(10,2),
+  total_experience_months INT NOT NULL DEFAULT 0,
+  total_experience_text VARCHAR(50) NULL,
   resume_url VARCHAR(500),
   joining_date DATE
 );

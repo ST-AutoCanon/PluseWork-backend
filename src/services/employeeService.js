@@ -331,6 +331,8 @@ async function addFullEmployeeUsingConnection(conn, data, options = {}) {
     data.position || null,
     data.supervisor_id || null,
     data.salary || null,
+    data.total_experience_months || null,
+    data.total_experience_text || null,
     arrayToJsonOrNull(data.resume_url || data.resume || data.resume_urls),
   ]);
 
@@ -821,6 +823,8 @@ exports.editFullEmployee = async (data) => {
       pick("position") || null,
       pick("supervisor_id") || null,
       pick("salary") || null,
+      pick("total_experience_months") || null,
+      pick("total_experience_text") || null,
       arrayToJsonOrNull(normalizedResume),
       eid,
     ]);

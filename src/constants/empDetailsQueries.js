@@ -139,8 +139,8 @@ module.exports = {
   ADD_EMPLOYEE_PRO: `
     INSERT INTO employee_professional (
       employee_id, domain, employee_type, joining_date, role, department_id,
-      position, supervisor_id, salary, resume_url
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      position, supervisor_id, salary, total_experience_months, total_experience_text, resume_url
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `,
   UPDATE_EMPLOYEE_PRO: `
     UPDATE employee_professional
@@ -152,6 +152,8 @@ module.exports = {
            position      = ?,
            supervisor_id = ?,
            salary        = ?,
+           total_experience_months = ?,
+           total_experience_text = ?,
            resume_url = ?
      WHERE employee_id = ?
   `,
@@ -250,7 +252,7 @@ SELECT
   pr.role, pr.department_id, d.name AS department,
   pr.position, pr.supervisor_id,
   CONCAT(sup.first_name,' ',sup.last_name) AS supervisor_name,
-  pr.salary, pr.resume_url,
+  pr.salary, pr.total_experience_months, pr.total_experience_text, pr.resume_url,
 
   -- bank
   bd.bank_name, bd.account_number, bd.ifsc_code, bd.branch_name,
@@ -423,6 +425,8 @@ SELECT employee_id
     pr.supervisor_id,
     CONCAT(sup.first_name,' ',sup.last_name) AS supervisor_name,
     pr.salary,
+    pr.total_experience_months, 
+    pr.total_experience_text,
     pr.resume_url,
 
     bd.bank_name,
@@ -575,6 +579,8 @@ LEFT JOIN (
     pr.supervisor_id,
     CONCAT(sup.first_name,' ',sup.last_name) AS supervisor_name,
     pr.salary,
+    pr.total_experience_months, 
+    pr.total_experience_text,
     pr.resume_url,
 
     bd.bank_name,
