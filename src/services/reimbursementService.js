@@ -633,28 +633,6 @@ exports.createReimbursement = async (reimbursementData, orgId) => {
   try {
     await conn.beginTransaction();
 
-    // Check for duplicate invoices before creating
-    if (
-      Array.isArray(reimbursementData.invoices) &&
-      reimbursementData.invoices.length > 0
-    ) {
-      for (const invoice of reimbursementData.invoices) {
-        if (!invoice || typeof invoice !== "string") continue;
-        const trimmedInvoice = invoice.trim();
-        if (!trimmedInvoice) continue;
-
-        const [existing] = await conn.query(queries.CHECK_INVOICE_DUPLICATE, [
-          trimmedInvoice,
-        ]);
-        if (existing && existing.length > 0) {
-          const duplicateClaim = existing[0];
-          throw new Error(
-            `Duplicate invoice detected: "${trimmedInvoice}" is already used in reimbursement ID ${duplicateClaim.reimbursement_id}. Please use a unique invoice number.`,
-          );
-        }
-      }
-    }
-
     const participantsArr = parseParticipants(reimbursementData.participants);
     const participantsJSON = JSON.stringify(participantsArr);
 
@@ -684,16 +662,6 @@ exports.createReimbursement = async (reimbursementData, orgId) => {
       const values = lines.map((l, idx) => {
         const payload =
           l.payload && typeof l.payload === "object" ? l.payload : {};
-
-        // Include main invoices in the first line's meta
-        if (
-          idx === 0 &&
-          Array.isArray(reimbursementData.invoices) &&
-          reimbursementData.invoices.length > 0
-        ) {
-          payload.invoices = reimbursementData.invoices;
-        }
-
         const purpose = payload.purpose || null;
         const date = payload.date || null;
         const from_date = payload.from_date || payload.fromDate || null;
@@ -803,26 +771,6 @@ exports.updateReimbursement = async (reimbursementId, updateData, orgId) => {
   try {
     await conn.beginTransaction();
 
-    // Check for duplicate invoices before updating (exclude current reimbursement)
-    if (Array.isArray(updateData.invoices) && updateData.invoices.length > 0) {
-      for (const invoice of updateData.invoices) {
-        if (!invoice || typeof invoice !== "string") continue;
-        const trimmedInvoice = invoice.trim();
-        if (!trimmedInvoice) continue;
-
-        const [existing] = await conn.query(
-          queries.CHECK_INVOICE_DUPLICATE_EXCLUDE,
-          [trimmedInvoice, reimbursementId],
-        );
-        if (existing && existing.length > 0) {
-          const duplicateClaim = existing[0];
-          throw new Error(
-            `Duplicate invoice detected: "${trimmedInvoice}" is already used in reimbursement ID ${duplicateClaim.reimbursement_id}. Please use a unique invoice number.`,
-          );
-        }
-      }
-    }
-
     const [reimRows] = await conn.query(
       `SELECT employee_id FROM reimbursement WHERE id = ?`,
       [reimbursementId],
@@ -859,16 +807,6 @@ exports.updateReimbursement = async (reimbursementId, updateData, orgId) => {
       const values = lines.map((l, idx) => {
         const payload =
           l.payload && typeof l.payload === "object" ? l.payload : {};
-
-        // Include main invoices in the first line's meta
-        if (
-          idx === 0 &&
-          Array.isArray(updateData.invoices) &&
-          updateData.invoices.length > 0
-        ) {
-          payload.invoices = updateData.invoices;
-        }
-
         const purpose = payload.purpose || null;
         const date = payload.date || null;
         const from_date = payload.from_date || payload.fromDate || null;
