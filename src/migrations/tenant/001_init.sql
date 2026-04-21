@@ -348,6 +348,20 @@ CREATE TABLE IF NOT EXISTS leavequeries (
   KEY idx_leavequeries_end_date (end_date)
 );
 
+CREATE TABLE `employee_leave_carry_forward` (
+  id bigint unsigned NOT NULL AUTO_INCREMENT,
+  employee_id varchar(64) NOT NULL,
+  year int NOT NULL,
+  leave_type varchar(64) NOT NULL,
+  amount decimal(8,2) NOT NULL DEFAULT '0.00',
+  created_at datetime DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `ux_emp_year_type` (`employee_id`,`year`,`leave_type`),
+  KEY `employee_id` (`employee_id`),
+  KEY `year` (`year`)
+) ;
+
+
 CREATE TABLE IF NOT EXISTS reimbursement (
   id int NOT NULL AUTO_INCREMENT,
   employee_id varchar(10) NOT NULL,
@@ -675,6 +689,42 @@ CREATE TABLE IF NOT EXISTS employee_bonus_details (
   PRIMARY KEY (id),
   KEY idx_employee_bonus_org_id (org_id)
 );
+
+CREATE TABLE `employee_lop_records` (
+  id int NOT NULL AUTO_INCREMENT,
+  employee_id varchar(64) COLLATE utf8mb4_general_ci NOT NULL,
+  leave_id bigint DEFAULT NULL,
+  lop_days int NOT NULL DEFAULT '0',
+  created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`)
+) ;
+
+CREATE TABLE `lop_records` (
+  id bigint unsigned NOT NULL AUTO_INCREMENT,
+  employee_id varchar(64) NOT NULL,
+  leave_id bigint unsigned NOT NULL,
+  lop_days decimal(8,2) NOT NULL DEFAULT '0.00',
+  reason text,
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `employee_id` (`employee_id`),
+  KEY `leave_id` (`leave_id`)
+) ;
+
+
+CREATE TABLE `leave_attachments` (
+  id bigint unsigned NOT NULL AUTO_INCREMENT,
+  leave_id bigint NOT NULL,
+  file_name varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL,
+  file_path varchar(1024) COLLATE utf8mb4_general_ci DEFAULT NULL,
+  mime_type varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL,
+  size bigint DEFAULT '0',
+  org_id varchar(64) COLLATE utf8mb4_general_ci NOT NULL,
+  created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `leave_id` (`leave_id`),
+  KEY `org_id` (`org_id`)
+) ;
 
 CREATE TABLE IF NOT EXISTS employee_monthly_lop (
   id int NOT NULL AUTO_INCREMENT,
