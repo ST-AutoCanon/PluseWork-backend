@@ -698,7 +698,18 @@ exports.createReimbursement = async (reimbursementData, orgId) => {
       (s, l) => s + (parseFloat(l.total_amount) || 0),
       0,
     );
+    for (const line of lines) {
+      const payload = line.payload || {};
+      const invoices = normalizeInvoiceList(payload.invoices);
 
+      for (const inv of invoices) {
+        const [dup] = await conn.query(queries.CHECK_INVOICE_DUPLICATE, [inv]);
+
+        if (dup && dup.length > 0) {
+          throw new Error(`Invoice ${inv} already exists`);
+        }
+      }
+    }
     const [res] = await conn.query(queries.CREATE_REIMBURSEMENT, [
       reimbursementData.employeeId,
       reimbursementData.department_id || null,
@@ -812,13 +823,6 @@ exports.createReimbursement = async (reimbursementData, orgId) => {
   }
 };
 
-/**
- * updateReimbursement
- * Important changes:
- *  - We no longer blindly DELETE all attachments and re-insert.
- *  - We compute incoming filenames and keep existing filenames unless explicitly removed.
- *  - We only insert rows with (reimbursement_id, line_id, file_name).
- */
 exports.updateReimbursement = async (reimbursementId, updateData, orgId) => {
   const tenantPool = await getTenantPoolForOrgId(orgId);
   const conn = await tenantPool.getConnection();
@@ -836,6 +840,24 @@ exports.updateReimbursement = async (reimbursementId, updateData, orgId) => {
     const participantsJSON = JSON.stringify(participantsArr);
 
     const lines = Array.isArray(updateData.lines) ? updateData.lines : [];
+    // ✅ INVOICE DUPLICATE VALIDATION (UPDATE CASE)
+    for (const line of lines) {
+      const payload = line.payload || {};
+      const invoices = normalizeInvoiceList(payload.invoices);
+
+      for (const inv of invoices) {
+        const [dupRows] = await conn.query(
+          queries.CHECK_INVOICE_DUPLICATE_EXCLUDE,
+          [inv, reimbursementId], // exclude current claim
+        );
+
+        if (dupRows && dupRows.length > 0) {
+          const err = new Error(`Invoice ${inv} already exists`);
+          err.code = "DUPLICATE_INVOICE";
+          throw err;
+        }
+      }
+    }
     const aggregated_total = lines.reduce(
       (s, l) => s + (parseFloat(l.total_amount) || 0),
       0,
