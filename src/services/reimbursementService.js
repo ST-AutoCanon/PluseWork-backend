@@ -241,6 +241,44 @@ exports.processUploadedFiles = async (
   }
 };
 
+const normalizeInvoiceList = (raw) => {
+  if (raw === undefined || raw === null) return [];
+
+  let value = raw;
+
+  if (typeof value === "string") {
+    const s = value.trim();
+    if (!s) return [];
+
+    try {
+      value = JSON.parse(s);
+    } catch {
+      value = s
+        .split(",")
+        .map((v) => v.trim())
+        .filter(Boolean);
+    }
+  }
+
+  if (!Array.isArray(value)) value = [value];
+
+  const seen = new Set();
+  const out = [];
+
+  for (const item of value) {
+    const invoice = String(item ?? "").trim();
+    if (!invoice) continue;
+
+    const key = invoice.toLowerCase();
+    if (seen.has(key)) continue;
+
+    seen.add(key);
+    out.push(invoice);
+  }
+
+  return out;
+};
+
 exports.getReimbursementsByEmployee = async (
   employeeId,
   fromDate = null,
@@ -248,10 +286,12 @@ exports.getReimbursementsByEmployee = async (
   orgId,
 ) => {
   const tenantPool = await getTenantPoolForOrgId(orgId);
+
   const [rows] = await tenantPool.query(
     queries.GET_REIMBURSEMENTS_BY_EMPLOYEE,
     [employeeId],
   );
+
   if (!rows || rows.length === 0) return [];
 
   const reimbursements = rows.map((r) => ({
@@ -259,6 +299,7 @@ exports.getReimbursementsByEmployee = async (
     participants: parseParticipantsSafe(r.participants),
     aggregated_total: r.aggregated_total,
   }));
+
   const ids = reimbursements.map((r) => r.id);
   const safeIds = ids.length ? ids : [-1];
 
@@ -266,12 +307,14 @@ exports.getReimbursementsByEmployee = async (
     queries.GET_LINES_BY_REIMBURSEMENT_IDS,
     [safeIds],
   );
+
   const [attachRows] = await tenantPool.query(
     queries.GET_ATTACHMENTS_BY_REIMBURSEMENT_IDS,
     [safeIds],
   );
 
   const linesByReim = {};
+
   linesRows.forEach((l) => {
     let parsedMeta = {};
     if (l.meta !== undefined && l.meta !== null) {
@@ -286,6 +329,12 @@ exports.getReimbursementsByEmployee = async (
         parsedMeta = l.meta;
       }
     }
+
+    const invoiceList = normalizeInvoiceList(
+      parsedMeta.invoices ?? l.invoices ?? l.invoice ?? null,
+    );
+
+    const primaryInvoice = invoiceList[0] || null;
 
     const payload = {
       ...parsedMeta,
@@ -320,7 +369,14 @@ exports.getReimbursementsByEmployee = async (
       service_provider:
         parsedMeta.service_provider || l.service_provider || null,
 
-      invoices: parseInvoices(parsedMeta.invoices),
+      // UI-friendly: one invoice per line for edit forms
+      invoices: primaryInvoice ? [primaryInvoice] : [],
+      invoice: primaryInvoice,
+
+      // Preserve the full original list so no data is lost
+      invoice_list: invoiceList,
+      invoice_display: invoiceList.join(", "),
+
       attachments: Array.isArray(parsedMeta.attachments)
         ? parsedMeta.attachments
         : parsedMeta.attachments
@@ -329,6 +385,7 @@ exports.getReimbursementsByEmployee = async (
     };
 
     if (!linesByReim[l.reimbursement_id]) linesByReim[l.reimbursement_id] = [];
+
     linesByReim[l.reimbursement_id].push({
       id: l.id,
       line_index: l.line_index,
@@ -346,12 +403,11 @@ exports.getReimbursementsByEmployee = async (
       id: a.id,
       line_id: a.line_id,
       file_name: a.file_name,
-      url: url,
-      // no file_path persisted
+      url,
     });
   });
 
-  const result = reimbursements.map((r) => ({
+  return reimbursements.map((r) => ({
     ...r,
     lines: linesByReim[r.id] || [],
     attachments: (attByReim[r.id] || []).filter((a) => !a.line_id),
@@ -363,8 +419,6 @@ exports.getReimbursementsByEmployee = async (
         return acc;
       }, {}),
   }));
-
-  return result;
 };
 
 exports.getAllReimbursements = async (
