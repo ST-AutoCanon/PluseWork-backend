@@ -205,6 +205,7 @@ WHERE i.id = ?;
       company_gst,
       country,
       state,
+      currency,
       invoice_date,
       reference_date,
       reference_id,
@@ -234,6 +235,7 @@ WHERE i.id = ?;
     company_gst          AS companyGst,
     country,
     state,
+    currency,
     DATE_FORMAT(invoice_date,'%Y-%m-%d') AS invoiceDate,
     DATE_FORMAT(reference_date,'%Y-%m-%d') AS referenceDate,
     reference_id         AS referenceId,
@@ -249,6 +251,8 @@ WHERE i.id = ?;
     terms,
     round_off            AS roundOff,
     round_off_amount     AS roundOffAmount,
+    is_cancelled        AS isCancelled,
+    cancelled_at         AS cancelledAt,
     created_at           AS createdAt
   FROM download_details
   WHERE org_id = ?
@@ -266,6 +270,7 @@ WHERE i.id = ?;
     company_gst          AS companyGst,
     country,
     state,
+    currency,
     DATE_FORMAT(invoice_date,'%Y-%m-%d') AS invoiceDate,
     DATE_FORMAT(reference_date,'%Y-%m-%d') AS referenceDate,
     reference_id         AS referenceId,
@@ -281,6 +286,8 @@ WHERE i.id = ?;
     terms,
     round_off            AS roundOff,
     round_off_amount     AS roundOffAmount,
+    is_cancelled        AS isCancelled,
+    cancelled_at         AS cancelledAt,
     created_at           AS createdAt
   FROM download_details
   WHERE org_id = ? AND id = ?
@@ -298,6 +305,7 @@ WHERE i.id = ?;
       company_gst = ?,
       country = ?,
       state = ?,
+      currency = ?,
       invoice_date = ?,
       reference_date = ?,
       reference_id = ?,
@@ -315,4 +323,12 @@ WHERE i.id = ?;
       round_off_amount = ?
     WHERE org_id = ? AND id = ?
   `,
+
+  CANCEL_DOWNLOAD_DETAILS: `
+  UPDATE download_details
+  SET
+    is_cancelled = 1,
+    cancelled_at = NOW()
+  WHERE org_id = ? AND id = ?
+`,
 };

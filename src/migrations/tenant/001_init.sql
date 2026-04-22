@@ -269,6 +269,9 @@ CREATE TABLE IF NOT EXISTS download_details (
   terms TEXT,
   round_off TINYINT(1) NOT NULL DEFAULT 0,
   round_off_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
+  is_cancelled TINYINT(1) NOT NULL DEFAULT 0,
+  cancelled_at DATETIME NULL,
+  currency VARCHAR(10),
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 

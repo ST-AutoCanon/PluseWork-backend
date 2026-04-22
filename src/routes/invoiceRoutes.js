@@ -15,5 +15,9 @@ router.put(
   "/invoice/sequence/:invoiceType",
   invoiceHandler.updateInvoiceSequence,
 );
+router.patch(
+  "/download-details/:id/cancel",
+  invoiceHandler.cancelDownloadDetails,
+);
 
 module.exports = router;
