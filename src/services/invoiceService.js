@@ -568,6 +568,7 @@ const recordDownloadDetails = async (
     companyGst,
     country,
     state,
+    currency,
     invoiceDate,
     referenceDate,
     referenceId,
@@ -603,6 +604,7 @@ const recordDownloadDetails = async (
         companyGst || null,
         country || null,
         state || null,
+        currency || null,
         invoiceDate || null,
         referenceDate || null,
         referenceId || null,
@@ -750,6 +752,7 @@ const updateDownloadDetails = async (orgId, id, details) => {
     details.companyGst || null,
     details.country || null,
     details.state || null,
+    details.currency || null,
     details.invoiceDate || null,
     details.referenceDate || null,
     details.referenceId || null,
@@ -777,6 +780,28 @@ const updateDownloadDetails = async (orgId, id, details) => {
   }
 };
 
+const cancelDownloadDetails = async (orgId, id) => {
+  if (!orgId) throw new Error("orgId required");
+  if (!id) throw new Error("id is required");
+
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+
+  try {
+    const [result] = await tenantPool.query(
+      invoiceQueries.CANCEL_DOWNLOAD_DETAILS,
+      [orgId, id],
+    );
+
+    if (!result.affectedRows) {
+      throw new Error("Download detail not found");
+    }
+
+    return await getDownloadDetailsById(orgId, id);
+  } catch (err) {
+    throw err;
+  }
+};
+
 module.exports = {
   getInvoicesByProject,
   createInvoice,
@@ -790,4 +815,5 @@ module.exports = {
   getDownloadDetailsById,
   updateDownloadDetails,
   generateInvoiceNo,
+  cancelDownloadDetails,
 };

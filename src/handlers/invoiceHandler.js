@@ -213,6 +213,26 @@ const updateDownloadDetails = async (req, res, next) => {
   }
 };
 
+const cancelDownloadDetails = async (req, res, next) => {
+  try {
+    const orgId = resolveOrgIdFromReq(req);
+    if (!orgId) {
+      return res.status(400).json({ error: "orgId header is required" });
+    }
+
+    const { id } = req.params;
+    if (!id) {
+      return res.status(400).json({ error: "id is required" });
+    }
+
+    const updated = await invoiceService.cancelDownloadDetails(orgId, id);
+
+    res.json({ success: true, downloadDetail: updated });
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
   getInvoices,
   createInvoice,
@@ -224,4 +244,5 @@ module.exports = {
   getDownloadDetails,
   getDownloadDetailById,
   updateDownloadDetails,
+  cancelDownloadDetails,
 };
