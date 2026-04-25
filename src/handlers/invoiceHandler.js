@@ -91,6 +91,22 @@ const updateInvoiceExtra = async (req, res) => {
   }
 };
 
+const cancelInvoice = async (req, res) => {
+  const orgId = resolveOrgIdFromReq(req);
+  if (!orgId) {
+    return res.status(400).json({ error: "orgId header is required" });
+  }
+
+  const { id } = req.params;
+
+  try {
+    const updatedInvoice = await invoiceService.cancelInvoice(orgId, id);
+    res.json({ success: true, invoice: updatedInvoice });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
 const generateTemplateInvoice = async (req, res) => {
   const orgId = resolveOrgIdFromReq(req);
   const { invoiceType } = req.query;
@@ -245,4 +261,5 @@ module.exports = {
   getDownloadDetailById,
   updateDownloadDetails,
   cancelDownloadDetails,
+  cancelInvoice,
 };

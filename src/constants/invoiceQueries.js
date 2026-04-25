@@ -8,6 +8,7 @@ SELECT
   i.invoiceNo,
   i.referenceId,
   DATE_FORMAT(i.referenceDate,'%Y-%m-%d') AS referenceDate,
+  i.currency,
   i.workDescription,
   i.subTotal,
   i.advance,
@@ -25,6 +26,7 @@ SELECT
   i.status,
   i.round_off AS roundOff,
   i.round_off_amount AS roundOffAmount,
+  i.isCancelled,
   p.payment_type,
 
   COALESCE((
@@ -78,6 +80,7 @@ SELECT
   i.invoiceNo,
   i.referenceId,
   DATE_FORMAT(i.referenceDate,'%Y-%m-%d') AS referenceDate,
+  i.currency,
   i.workDescription,
   i.subTotal,
   i.advance,
@@ -95,6 +98,7 @@ SELECT
   i.status,
   i.round_off AS roundOff,
   i.round_off_amount AS roundOffAmount,
+  i.isCancelled,
   p.payment_type,
 
   (
@@ -145,8 +149,8 @@ WHERE i.id = ?;
   `,
   INSERT_INVOICE: `
     INSERT INTO invoices 
-      (projectId, invoiceType, invoiceDate, invoiceNo, referenceId, referenceDate, terms, lineItems, workDescription, subTotal, advance, totalExcludingTax, gst, gstAmount, totalAmount, totalIncludingTax, round_off, round_off_amount)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+      (projectId, invoiceType, invoiceDate, invoiceNo, referenceId, referenceDate, currency, terms, lineItems, workDescription, subTotal, advance, totalExcludingTax, gst, gstAmount, totalAmount, totalIncludingTax, round_off, round_off_amount)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
   `,
   UPDATE_INVOICE_BASIC: `
     UPDATE invoices SET 
@@ -155,6 +159,7 @@ WHERE i.id = ?;
       invoiceNo = ?,
       referenceId = ?,
       referenceDate = ?,
+      currency = ?,
       terms = ?,
       lineItems = ?,
       workDescription = ?,
