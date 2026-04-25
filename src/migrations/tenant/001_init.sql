@@ -70,7 +70,7 @@ CREATE TABLE IF NOT EXISTS employee_professional (
   position VARCHAR(100),
   supervisor_id VARCHAR(20),
   salary DECIMAL(10,2),
-  total_experience_months INT NOT NULL DEFAULT 0,
+  total_experience_months INT DEFAULT 0,
   total_experience_text VARCHAR(50) NULL,
   resume_url VARCHAR(500),
   joining_date DATE
@@ -108,7 +108,7 @@ CREATE TABLE IF NOT EXISTS employee_documents (
 
 CREATE TABLE IF NOT EXISTS employee_bank_details (
   bank_id INT AUTO_INCREMENT PRIMARY KEY,
-  employee_id VARCHAR(10),
+  employee_id VARCHAR(20),
   employee_name VARCHAR(100),
   bank_name VARCHAR(100),
   account_number VARCHAR(20),
@@ -351,17 +351,17 @@ CREATE TABLE IF NOT EXISTS leavequeries (
   KEY idx_leavequeries_end_date (end_date)
 );
 
-CREATE TABLE `employee_leave_carry_forward` (
+CREATE TABLE employee_leave_carry_forward (
   id bigint unsigned NOT NULL AUTO_INCREMENT,
   employee_id varchar(64) NOT NULL,
   year int NOT NULL,
   leave_type varchar(64) NOT NULL,
   amount decimal(8,2) NOT NULL DEFAULT '0.00',
   created_at datetime DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `ux_emp_year_type` (`employee_id`,`year`,`leave_type`),
-  KEY `employee_id` (`employee_id`),
-  KEY `year` (`year`)
+  PRIMARY KEY (id),
+  UNIQUE KEY ux_emp_year_type (employee_id,year,leave_type),
+  KEY employee_id (employee_id),
+  KEY year (year)
 ) ;
 
 
@@ -1086,6 +1086,25 @@ CREATE TABLE employee_exit_clearance_items (
   CONSTRAINT employee_exit_clearance_items_ibfk_1 FOREIGN KEY (exit_request_id) REFERENCES employee_exit_requests1 (id) ON DELETE CASCADE
 ) ;
 
+CREATE TABLE form_templates (
+  id int NOT NULL AUTO_INCREMENT,
+  org_id int unsigned DEFAULT NULL,
+  form_name varchar(255) COLLATE utf8mb4_general_ci NOT NULL,
+  form_json json NOT NULL,
+  layout varchar(10) COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'one',
+  form_type enum('employee_only','employee_supervisor') COLLATE utf8mb4_general_ci DEFAULT 'employee_only',
+  active_from date DEFAULT NULL,
+  active_to date DEFAULT NULL,
+  active_until datetime DEFAULT NULL,
+  created_by int DEFAULT NULL,
+  created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_form_type (form_type),
+  KEY idx_active_until (active_until),
+  KEY idx_org_id (org_id)
+) ;
+
 CREATE TABLE form_assignments (
   id int NOT NULL AUTO_INCREMENT,
   form_id int NOT NULL,
@@ -1107,25 +1126,6 @@ CREATE TABLE form_responses1 (
   response_json json DEFAULT NULL,
   submitted_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id)
-) ;
-
-CREATE TABLE form_templates (
-  id int NOT NULL AUTO_INCREMENT,
-  org_id int unsigned DEFAULT NULL,
-  form_name varchar(255) COLLATE utf8mb4_general_ci NOT NULL,
-  form_json json NOT NULL,
-  layout varchar(10) COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'one',
-  form_type enum('employee_only','employee_supervisor') COLLATE utf8mb4_general_ci DEFAULT 'employee_only',
-  active_from date DEFAULT NULL,
-  active_to date DEFAULT NULL,
-  active_until datetime DEFAULT NULL,
-  created_by int DEFAULT NULL,
-  created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (id),
-  KEY idx_form_type (form_type),
-  KEY idx_active_until (active_until),
-  KEY idx_org_id (org_id)
 ) ;
 
 CREATE TABLE org_sup_project_visibility (

@@ -334,6 +334,7 @@ const createInvoice = async (invoiceData, orgId) => {
       invoiceNo,
       invoiceData.referenceId,
       invoiceData.referenceDate,
+      invoiceData.currency,
       invoiceData.terms,
       JSON.stringify(safeLineItems),
       invoiceData.workDescription,
@@ -378,6 +379,7 @@ const updateInvoice = async (orgId, id, invoiceData) => {
     invoiceData.invoiceNo,
     invoiceData.referenceId,
     formattedReferenceDate,
+    invoiceData.currency,
     invoiceData.terms,
     JSON.stringify(normalizeDownloadLineItems(invoiceData.lineItems || [])),
     invoiceData.workDescription,
@@ -423,6 +425,7 @@ const updateInvoiceExtra = async (orgId, id, invoiceData) => {
       invoiceData.invoiceNo,
       invoiceData.referenceId,
       formattedReferenceDate,
+      invoiceData.currency,
       invoiceData.terms,
       JSON.stringify(normalizeDownloadLineItems(invoiceData.lineItems || [])),
       invoiceData.workDescription,
@@ -496,6 +499,42 @@ const updateInvoiceExtra = async (orgId, id, invoiceData) => {
     try {
       conn.release();
     } catch (e) {}
+  }
+};
+
+const cancelInvoice = async (orgId, id) => {
+  if (!orgId) throw new Error("orgId required");
+  if (!id) throw new Error("id required");
+
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  const conn = await tenantPool.getConnection();
+
+  try {
+    await conn.query(
+      `UPDATE invoices
+       SET isCancelled = 1
+       WHERE id = ?`,
+      [id],
+    );
+
+    const [rows] = await conn.query(invoiceQueries.GET_INVOICE_BY_ID, [id]);
+
+    if (!rows || rows.length === 0) {
+      throw new Error("Invoice not found after cancel");
+    }
+
+    const invoice = rows[0];
+    if (invoice.lineItems && typeof invoice.lineItems === "string") {
+      try {
+        invoice.lineItems = JSON.parse(invoice.lineItems);
+      } catch {
+        invoice.lineItems = [];
+      }
+    }
+
+    return invoice;
+  } finally {
+    conn.release();
   }
 };
 
@@ -816,4 +855,5 @@ module.exports = {
   updateDownloadDetails,
   generateInvoiceNo,
   cancelDownloadDetails,
+  cancelInvoice,
 };
