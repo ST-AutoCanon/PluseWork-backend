@@ -72,6 +72,9 @@ const adminSalaryStatementRoutes = require("./routes/adminSalaryStatementRoute")
 const assetsRoutes = require("./routes/assetsRoutes");
 const adminAttendanceRoutes = require("./routes/adminAttendancetrackerRoute");
 const face_admin_page = require("./routes/face_adminpageRoutes");
+const leaveRegularisationRoutes = require("./routes/leaveRegularisationRoutes");
+const leaveregularisationRoutes = require("./routes/leaveRegularisationRoutes");
+
 const employeeloginRoutes = require("./routes/employeeloginRoutes");
 const employeeBirthdayRoutes = require("./routes/employeeBirthday");
 const meetingRoutes = require("./routes/meetingRoutes");
@@ -370,6 +373,8 @@ app.use((req, res, next) => {
     app.use("/", orgRoutes);
     app.use("/api", payrollRoutes);
     app.use("/api", formsRoutes);
+    app.use("/api/leave-regularisation", leaveRegularisationRoutes);
+
     app.use("/", customerRoutes);
     app.use("/api/overtime", overtimeRoutes);
     app.use("/api/overtime-summary", overtimeSummaryRoutes);
