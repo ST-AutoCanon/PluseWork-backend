@@ -64,27 +64,71 @@ async function getAllOrgExitRequests(orgId) {
 
 async function getHrResignedClearance(orgId) {
   const pool = await getTenantPoolByOrgId(orgId);
+
   const [rows] = await pool.execute(`
-    SELECT 
+    SELECT
       id,
       employee_id,
       reason,
       proposed_lwd,
       final_lwd,
       hr_action_at,
+
       kt_proposed_date,
       assets_proposed_date,
       proposed_dates_submitted_at,
+
       kt_planned_date,
       assets_return_planned_date,
+
       kt_completed,
       assets_returned,
-      clearance_completed_at
+      clearance_completed_at,
+
+      hr_rating,
+      hr_evaluation_comments
+
     FROM employee_exit_requests1
     WHERE org_id = ?
       AND final_outcome = 'RESIGNED'
     ORDER BY hr_action_at DESC
   `, [orgId]);
+
+  return rows;
+}async function getHrResignedClearance(orgId) {
+  const pool = await getTenantPoolByOrgId(orgId);
+
+  const [rows] = await pool.execute(`
+    SELECT
+      id,
+      employee_id,
+      reason,
+      proposed_lwd,
+      final_lwd,
+      hr_action_at,
+
+      kt_proposed_date,
+      assets_proposed_date,
+      proposed_dates_submitted_at,
+
+      kt_planned_date,
+      assets_return_planned_date,
+
+      kt_completed,
+      assets_returned,
+      clearance_completed_at,
+
+      hr_rating,
+  hr_evaluation_comments,
+  hr_comment,
+  hr_final_lwd
+
+    FROM employee_exit_requests1
+    WHERE org_id = ?
+      AND final_outcome = 'RESIGNED'
+    ORDER BY hr_action_at DESC
+  `, [orgId]);
+
   return rows;
 }
 
@@ -256,6 +300,34 @@ async function getMyActiveRequest(orgId, employeeId) {
   return rows[0] || null;
 }
 
+async function saveHrFinalEvaluation(
+  orgId,
+  id,
+  finalLwd,
+  hrRating,
+  hrEvaluationComments
+) {
+  const pool = await getTenantPoolByOrgId(orgId);
+
+  await pool.execute(`
+    UPDATE employee_exit_requests1
+    SET
+      final_lwd = ?,
+      hr_rating = ?,
+      hr_evaluation_comments = ?,
+      updated_at = NOW()
+    WHERE id = ?
+      AND org_id = ?
+  `, [
+    finalLwd || null,
+    hrRating || null,
+    hrEvaluationComments || null,
+    id,
+    orgId
+  ]);
+
+  return { success: true };
+}
 module.exports = {
   applyResignation,
   requestWithdrawal,
@@ -276,4 +348,6 @@ module.exports = {
   hrUpdateClearanceStatus,
   getMyTeamAllRequests,
   getAllOrgExitRequests,
+    saveHrFinalEvaluation,
+
 };

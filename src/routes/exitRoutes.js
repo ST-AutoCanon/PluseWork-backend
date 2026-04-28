@@ -18,6 +18,7 @@ const {
   getMyTeamAllRequests,     // ← new
   getAllOrgExitRequests,
   hrFinalApproveWithdraw,
+  saveHrFinalEvaluation
 } = require("../handlers/exitHandler");
 
 // Employee
@@ -45,6 +46,10 @@ router.post("/clearance/update", hrUpdateClearance);
 router.post("/hr/withdraw/final", hrFinalApproveWithdraw);
 // Add this line
 router.post("/clearance/update", hrUpdateClearance);
+router.put(
+  "/hr-final-evaluation/:id",
+  saveHrFinalEvaluation
+);
 // Add this alongside the existing one
 router.get("/hr/resigned-clearance", getHrResignedClearance);
 module.exports = router;

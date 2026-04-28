@@ -286,8 +286,7 @@ GET_MY_TEAM_ALL_REQUESTS: `
   SELECT 
     eer.*,
     CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
-    eer.hr_ratings,                    -- ← ADD THIS
-    eer.hr_evaluation_comments         -- ← ADD THIS
+    et.level
   FROM employee_exit_requests1 eer
   INNER JOIN employee_tree et 
     ON eer.employee_id = et.employee_id COLLATE utf8mb4_0900_ai_ci
@@ -302,17 +301,16 @@ GET_MY_TEAM_ALL_REQUESTS: `
 GET_ALL_ORG_EXIT_REQUESTS: `
   SELECT 
     eer.*,
-    CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
-    eer.hr_ratings,
-    eer.hr_evaluation_comments
+    CONCAT(e.first_name, ' ', e.last_name) AS employee_name
   FROM employee_exit_requests1 eer
   JOIN employees e 
-    ON eer.employee_id COLLATE utf8mb4_general_ci = e.employee_id COLLATE utf8mb4_general_ci
-   AND eer.org_id      COLLATE utf8mb4_general_ci = e.org_id COLLATE utf8mb4_general_ci
+    ON eer.employee_id = e.employee_id 
+    AND eer.org_id = e.org_id
   WHERE eer.org_id = ?
   ORDER BY 
     COALESCE(eer.hr_action_at, eer.supervisor_action_at, eer.applied_at) DESC
 `,
+
 
 
 };

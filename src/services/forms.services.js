@@ -401,7 +401,7 @@ const getFormAssignedEmployees = async (orgId, formId) => {
         e.last_name
       FROM form_assignments fa
       INNER JOIN employees e 
-        ON fa.assigned_to_id = e.employee_id
+        ON fa.assigned_to_id COLLATE utf8mb4_0900_ai_ci = e.employee_id
       WHERE fa.form_id = ?
         AND fa.assigned_to_type = 'EMPLOYEE'
         AND fa.org_id = ?
