@@ -1,5 +1,4 @@
 
-
 const FORM_QUERIES = {
   CREATE_FORM: `
     INSERT INTO form_templates (form_name, form_json, layout, form_type, active_from, active_to)
@@ -81,20 +80,21 @@ const FORM_QUERIES = {
       AND assigned_to_type = 'EMPLOYEE'
   `,
 
-  GET_ASSIGNED_FORMS: `
-    SELECT 
-      ft.id,
-      ft.form_name,
-      ft.layout,
-      ft.form_type,
-      ft.active_from,
-      ft.active_to
-    FROM form_assignments fa
-    INNER JOIN form_templates ft ON fa.form_id = ft.id
-    WHERE fa.assigned_to_type = 'EMPLOYEE'
-      AND fa.assigned_to_id = ?
-    ORDER BY ft.id DESC
-  `,
+ GET_ASSIGNED_FORMS: `
+  SELECT 
+    ft.id,
+    ft.form_name,
+    ft.layout,
+    ft.form_type,
+    ft.active_from,
+    ft.active_to
+  FROM form_assignments fa
+  INNER JOIN form_templates ft 
+    ON fa.form_id = ft.id
+  WHERE fa.assigned_to_type = 'EMPLOYEE'
+    AND fa.assigned_to_id COLLATE utf8mb4_0900_ai_ci = ?
+  ORDER BY ft.id DESC
+`,
 };
 
 module.exports = FORM_QUERIES;

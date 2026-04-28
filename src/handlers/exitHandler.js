@@ -12,8 +12,9 @@ module.exports = {
   getSupervisorPending,
   supervisorNormalAction,
   supervisorWithdrawalAction,
-getMyTeamAllRequests,
+  getMyTeamAllRequests,
   getAllOrgExitRequests,
+
   // HR
   getHrPending,
   hrNormalAction,
@@ -24,7 +25,10 @@ getMyTeamAllRequests,
   employeeProposeClearanceDates,
   getHrResignedClearance,
   hrUpdateClearance,
-  hrSetFinalPlannedDates,          // ← added here
+  hrSetFinalPlannedDates,
+
+  // NEW
+  saveHrFinalEvaluation
 };
 
 // ───────────────────────────────────────────────
@@ -291,7 +295,37 @@ async function hrUpdateClearance(req, res) {
     res.status(400).json({ success: false, error: err.message });
   }
 }
+async function saveHrFinalEvaluation(req, res) {
+  try {
+    const orgId = req.headers["x-org-id"];
+    const { id } = req.params;
 
+    const {
+      final_lwd,
+      hr_rating,
+      hr_evaluation_comments
+    } = req.body;
+
+    await exitService.saveHrFinalEvaluation(
+      orgId,
+      id,
+      final_lwd,
+      hr_rating,
+      hr_evaluation_comments
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "HR final evaluation saved successfully"
+    });
+  } catch (error) {
+    console.error("saveHrFinalEvaluation error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server Error"
+    });
+  }
+}
 async function hrSetFinalPlannedDates(req, res) {
   try {
     const orgId = req.headers["x-org-id"];
