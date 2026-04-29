@@ -308,7 +308,9 @@ CREATE TABLE IF NOT EXISTS invoices (
   milestoneId INT,
   status VARCHAR(20),
   round_off TINYINT(1) NOT NULL DEFAULT 0,
-  round_off_amount DECIMAL(10,2) NOT NULL DEFAULT 0
+  round_off_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
+  currency VARCHAR(10),
+  isCancelled TINYINT(1) NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS emp_attendence (
