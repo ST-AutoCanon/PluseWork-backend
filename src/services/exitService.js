@@ -71,8 +71,7 @@ async function getHrResignedClearance(orgId) {
       employee_id,
       reason,
       proposed_lwd,
-      final_lwd,
-      hr_action_at,
+hr_final_lwd,                    -- ← Make sure this is selected      hr_action_at,
 
       kt_proposed_date,
       assets_proposed_date,
@@ -209,11 +208,18 @@ async function getMyActiveRequest(orgId, employeeId) {
 
 // HR ────────────── final approve resignation
 async function hrApproveResignation(data) {
-  const { orgId, exitId, finalLwd, comment,leavePolicy, actionBy } = data;
+  const { orgId, exitId, hr_final_lwd, comment, leavePolicy, actionBy } = data;   // ← Changed here
+  
   const pool = await getTenantPoolByOrgId(orgId);
 
   await pool.execute(Q.HR_FINAL_APPROVE_RESIGN, [
-    finalLwd, comment || null,leavePolicy || null, actionBy, finalLwd, exitId, orgId
+    hr_final_lwd,                    // ← hr_final_lwd
+    comment || null,
+    leavePolicy || null, 
+    actionBy, 
+    hr_final_lwd,                    // ← also set final_lwd = hr_final_lwd (to keep backward compatibility)
+    exitId, 
+    orgId
   ]);
 
   return { success: true, message: "Resignation approved" };
@@ -300,28 +306,54 @@ async function getMyActiveRequest(orgId, employeeId) {
   return rows[0] || null;
 }
 
+// async function saveHrFinalEvaluation(
+//   orgId,
+//   id,
+// hr_final_lwd,           // ← Changed parameter name  hrEvaluationComments
+// ) {
+//   const pool = await getTenantPoolByOrgId(orgId);
+
+//   await pool.execute(`
+//     UPDATE employee_exit_requests1
+//     SET
+// hr_final_lwd = ?,        
+//       hr_rating = ?,
+//       hr_evaluation_comments = ?,
+//       updated_at = NOW()
+//     WHERE id = ?
+//       AND org_id = ?
+//   `, [
+//     hr_final_lwd || null,
+//     hr_rating || null,
+//    hr_evaluation_comments || null,
+//     id,
+//     orgId
+//   ]);
+
+//   return { success: true };
+// }
 async function saveHrFinalEvaluation(
   orgId,
   id,
-  finalLwd,
-  hrRating,
-  hrEvaluationComments
+  hr_final_lwd,
+  hr_rating,
+  hr_evaluation_comments
 ) {
   const pool = await getTenantPoolByOrgId(orgId);
 
   await pool.execute(`
     UPDATE employee_exit_requests1
     SET
-      final_lwd = ?,
+      hr_final_lwd = ?,
       hr_rating = ?,
       hr_evaluation_comments = ?,
       updated_at = NOW()
     WHERE id = ?
       AND org_id = ?
   `, [
-    finalLwd || null,
-    hrRating || null,
-    hrEvaluationComments || null,
+    hr_final_lwd || null,
+    hr_rating || null,           // This was causing the integer error
+    hr_evaluation_comments || null,
     id,
     orgId
   ]);

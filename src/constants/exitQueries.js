@@ -117,20 +117,20 @@ GET_HR_WITHDRAW_PENDING: `
     WHERE id = ? AND org_id = ?
   `,
 
-  HR_FINAL_APPROVE_RESIGN: `
-    UPDATE employee_exit_requests1
-    SET
-      hr_status = 'APPROVED',
-      hr_final_lwd = ?,
-      hr_comment = ?,
-      leave_policy = ?,
-      hr_action_at = NOW(),
-      hr_action_by = ?,
-      is_active = 0,
-      final_outcome = 'RESIGNED',
-      final_lwd = ?
-    WHERE id = ? AND org_id = ?
-  `,
+ HR_FINAL_APPROVE_RESIGN: `
+  UPDATE employee_exit_requests1
+  SET
+    hr_status = 'APPROVED',
+    hr_final_lwd = ?,           -- HR's final decision
+    hr_comment = ?,
+    leave_policy = ?,
+    hr_action_at = NOW(),
+    hr_action_by = ?,
+    final_lwd = ?,              -- Keep in sync with hr_final_lwd
+    is_active = 0,
+    final_outcome = 'RESIGNED'
+  WHERE id = ? AND org_id = ?
+`,
 GET_MY_ACTIVE_REQUEST: `
   SELECT *
 FROM employee_exit_requests1

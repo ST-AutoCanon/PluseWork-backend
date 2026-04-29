@@ -187,10 +187,14 @@ async function hrApproveResignation(req, res) {
     const actionBy = req.headers["x-employee-id"];
     
     // Extract ALL expected fields from req.body
-    const { exitId, finalLwd, comment, leavePolicy } = req.body;
-
+const {
+  exitId,
+  hr_final_lwd,
+  comment,
+  leavePolicy
+} = req.body;
     // Basic validation
-    if (!exitId || !finalLwd) {
+   if (!exitId || !hr_final_lwd) {
       return res.status(400).json({ 
         success: false, 
         error: "exitId and finalLwd are required" 
@@ -206,14 +210,14 @@ async function hrApproveResignation(req, res) {
       });
     }
 
-    await exitService.hrApproveResignation({
-      orgId,
-      exitId,
-      finalLwd,
-      comment: comment || null,
-      leavePolicy: leavePolicy || null,     // ← pass it (null if not sent)
-      actionBy,
-    });
+   await exitService.hrApproveResignation({
+  orgId,
+  exitId,
+  hr_final_lwd,
+  comment: comment || null,
+  leavePolicy: leavePolicy || null,
+  actionBy,
+});
 
     res.json({ success: true, message: "Resignation fully approved" });
   } catch (err) {
@@ -300,8 +304,8 @@ async function saveHrFinalEvaluation(req, res) {
     const orgId = req.headers["x-org-id"];
     const { id } = req.params;
 
-    const {
-      final_lwd,
+     const {
+      hr_final_lwd,           
       hr_rating,
       hr_evaluation_comments
     } = req.body;
@@ -309,7 +313,7 @@ async function saveHrFinalEvaluation(req, res) {
     await exitService.saveHrFinalEvaluation(
       orgId,
       id,
-      final_lwd,
+      hr_final_lwd,           
       hr_rating,
       hr_evaluation_comments
     );
