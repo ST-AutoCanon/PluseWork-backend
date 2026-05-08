@@ -39,6 +39,11 @@ async function getItems(orgId, exitId) {
 
 async function addItem(data) {
   const pool = await getTenantPoolByOrgId(data.orgId);
+
+  const statusToSave = data.status && ['pending', 'in_progress', 'completed'].includes(data.status) 
+    ? data.status 
+    : 'pending';
+
   const [res] = await pool.execute(Q.ADD_ITEM, [
     data.orgId,
     data.exitId,
@@ -46,10 +51,11 @@ async function addItem(data) {
     data.title,
     data.description || null,
     data.plannedDate || null,
-    'pending',
+    statusToSave,                    // ← Fixed
     data.attachedFiles ? JSON.stringify(data.attachedFiles) : null,
     data.createdBy
   ]);
+
   return res.insertId;
 }
 

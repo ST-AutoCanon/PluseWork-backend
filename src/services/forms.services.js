@@ -334,8 +334,61 @@ const getAssignedForms = async (orgId, employeeId) => {
 /* ------------------------------------------------ */
 /* GET TEAM SUBMISSIONS FOR SUPERVISOR             */
 /* ------------------------------------------------ */
+// const getTeamSubmissions = async (orgId, supervisorId) => {
+//   console.log(`[SERVICE] Fetching team submissions for supervisor: ${supervisorId}, org: ${orgId}`);
+
+//   const tenantPool = await getTenantPoolByOrgId(orgId);
+
+//   try {
+//     const [rows] = await tenantPool.query(`
+//       SELECT 
+//         fr.*,
+//         ft.form_name,
+//         ft.form_type,
+//         ft.active_from,           -- ← ADD THIS
+//         ft.active_to,             -- ← ADD THIS
+//         e.employee_id,
+//         e.first_name,
+//         e.middle_name,
+//         e.last_name,
+//         CONCAT(
+//           COALESCE(e.first_name, ''), ' ', 
+//           COALESCE(e.middle_name, ''), ' ', 
+//           COALESCE(e.last_name, '')
+//         ) AS employee_name,
+//         fr.submitted_at
+//       FROM form_responses1 fr
+//       INNER JOIN form_templates ft 
+//         ON fr.form_id = ft.id
+//       INNER JOIN employees e 
+//         ON fr.employee_id = e.employee_id
+//       INNER JOIN employee_professional ep 
+//         ON e.employee_id = ep.employee_id
+
+//       WHERE fr.org_id = ?
+//         AND ep.supervisor_id = ?
+//         AND ft.form_type = 'employee_supervisor'
+
+//       ORDER BY fr.submitted_at DESC;
+//     `, [orgId, supervisorId]);
+
+//     console.log(`[SERVICE] Team submissions found: ${rows.length}`);
+//     if (rows.length > 0) {
+//       console.log("Sample submission with dates:", {
+//         form_name: rows[0].form_name,
+//         active_from: rows[0].active_from,
+//         active_to: rows[0].active_to
+//       });
+//     }
+//     return rows;
+//   } catch (err) {
+//     console.error("[SERVICE] Get team submissions error:", err.message || err);
+//     throw err;
+//   }
+// };
+
 const getTeamSubmissions = async (orgId, supervisorId) => {
-  console.log(`[SERVICE] Fetching team submissions for supervisor: ${supervisorId}, org: ${orgId}`);
+  console.log(`[SERVICE] Fetching team submissions → Org: ${orgId} | Supervisor: ${supervisorId}`);
 
   const tenantPool = await getTenantPoolByOrgId(orgId);
 
@@ -343,50 +396,38 @@ const getTeamSubmissions = async (orgId, supervisorId) => {
     const [rows] = await tenantPool.query(`
       SELECT 
         fr.*,
+        ft.id AS form_id,
         ft.form_name,
         ft.form_type,
-        ft.active_from,           -- ← ADD THIS
-        ft.active_to,             -- ← ADD THIS
-        e.employee_id,
+        ft.active_from,
+        ft.active_to,
         e.first_name,
         e.middle_name,
         e.last_name,
-        CONCAT(
-          COALESCE(e.first_name, ''), ' ', 
-          COALESCE(e.middle_name, ''), ' ', 
-          COALESCE(e.last_name, '')
-        ) AS employee_name,
-        fr.submitted_at
+        CONCAT(COALESCE(e.first_name,''), ' ', 
+               COALESCE(e.middle_name,''), ' ', 
+               COALESCE(e.last_name,'')) AS employee_name
       FROM form_responses1 fr
-      INNER JOIN form_templates ft 
-        ON fr.form_id = ft.id
-      INNER JOIN employees e 
-        ON fr.employee_id = e.employee_id
-      INNER JOIN employee_professional ep 
-        ON e.employee_id = ep.employee_id
+      LEFT JOIN employees e 
+  ON fr.employee_id = e.employee_id
 
-      WHERE fr.org_id = ?
-        AND ep.supervisor_id = ?
-        AND ft.form_type = 'employee_supervisor'
+LEFT JOIN employee_professional ep 
+  ON e.employee_id = ep.employee_id
 
-      ORDER BY fr.submitted_at DESC;
+WHERE ep.supervisor_id = ?
+        AND ep.supervisor_id COLLATE utf8mb4_general_ci = ?   -- ← Fixed here
+      ORDER BY fr.submitted_at DESC
+      LIMIT 100;
     `, [orgId, supervisorId]);
 
-    console.log(`[SERVICE] Team submissions found: ${rows.length}`);
-    if (rows.length > 0) {
-      console.log("Sample submission with dates:", {
-        form_name: rows[0].form_name,
-        active_from: rows[0].active_from,
-        active_to: rows[0].active_to
-      });
-    }
-    return rows;
+    console.log(`[SERVICE] ✅ Team submissions found: ${rows.length}`);
+    return rows || [];
+
   } catch (err) {
-    console.error("[SERVICE] Get team submissions error:", err.message || err);
-    throw err;
+    console.error("❌ [SERVICE] Team submissions query failed:", err.message);
+    return [];
   }
 };
-
 const getFormAssignedEmployees = async (orgId, formId) => {
   console.log(`[SERVICE] Fetching assigned employees for form: ${formId}, org: ${orgId}`);
 

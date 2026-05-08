@@ -100,21 +100,45 @@ const getAllTasks = async (req, res) => {
 
 const updateTask = async (req, res) => {
   try {
+    console.log("PARAMS:", req.params);
+    console.log("BODY:", req.body);
+
     const orgId = getOrgIdFromHeaders(req);
-    if (!orgId)
-      return res.status(400).json({ error: "Missing x-org-id header" });
+
+    console.log("ORG:", orgId);
 
     const taskId = req.params.taskId;
+
+    console.log("TASK ID:", taskId);
+
+    if (!taskId) {
+      return res.status(400).json({
+        error: "taskId missing",
+      });
+    }
+
     const updateData = req.body;
 
     const result = await updateTaskById(taskId, updateData, orgId);
+
+    console.log("UPDATE RESULT:", result);
+
     if (result.affectedRows === 0) {
-      return res.status(404).json({ error: "Task not found" });
+      return res.status(404).json({
+        error: "Task not found",
+      });
     }
-    res.json({ success: true, message: "Task updated successfully" });
+
+    res.json({
+      success: true,
+      message: "Task updated successfully",
+    });
   } catch (err) {
-    console.error("Error updating task:", err);
-    res.status(500).json({ error: "Internal server error" });
+    console.error("UPDATE ERROR:", err);
+
+    res.status(500).json({
+      error: err.message,
+    });
   }
 };
 
