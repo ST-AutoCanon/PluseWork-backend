@@ -38,74 +38,115 @@ module.exports = {
     JOIN employee_tree et
       ON p.supervisor_id = et.employee_id
   )
-  SELECT 
-    t.task_id,
-    t.week_id,
-    t.task_date,
-    t.project_id,
-    t.project_name,
-    t.task_name,
-    t.replacement_task,
-    t.employee_id,
-    CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
-    t.emp_status,
-    t.emp_comment,
-    t.sup_status,
-    t.sup_comment,
-    t.sup_review_status,
-    t.star_rating,
-    t.created_at,
-    t.updated_at,
-    t.parent_task_id
-  FROM weekly_tasks t
-  JOIN employee_tree et 
-    ON t.employee_id = et.employee_id COLLATE utf8mb4_0900_ai_ci
-  JOIN employees e 
-    ON t.employee_id = e.employee_id COLLATE utf8mb4_0900_ai_ci
-  WHERE e.status = 'Active'
-  ORDER BY t.task_date DESC, t.task_id ASC;
+SELECT 
+  t.task_id,
+  t.week_id,
+  t.task_date,
+  t.project_id,
+  t.project_name,
+  t.task_name,
+  t.replacement_task,
+
+  t.employee_id,
+  CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
+
+  t.supervisor_id,
+  CONCAT(s.first_name, ' ', s.last_name) AS supervisor_name,
+
+  t.action_by,
+  CONCAT(a.first_name, ' ', a.last_name) AS action_by_name,
+
+  t.emp_status,
+  t.emp_comment,
+  t.sup_status,
+  t.sup_comment,
+  t.sup_review_status,
+  t.star_rating,
+
+  t.created_at,
+  t.updated_at,
+  t.parent_task_id
+
+FROM weekly_tasks t
+
+JOIN employee_tree et 
+  ON t.employee_id = et.employee_id COLLATE utf8mb4_0900_ai_ci
+
+JOIN employees e 
+  ON t.employee_id = e.employee_id COLLATE utf8mb4_0900_ai_ci
+
+LEFT JOIN employees s
+  ON t.supervisor_id = s.employee_id COLLATE utf8mb4_0900_ai_ci
+
+LEFT JOIN employees a
+  ON t.action_by = a.employee_id COLLATE utf8mb4_0900_ai_ci
+
+WHERE e.status = 'Active'
+ORDER BY t.task_date DESC, t.task_id ASC;
 `,
 
-  GET_ALL_TASKS: `
-  SELECT 
-    t.task_id,
-    t.week_id,
-    t.task_date,
-    t.project_id,
-    t.project_name,
-    t.task_name,
-    t.replacement_task,
-    t.employee_id,
-    CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
-    t.emp_status,
-    t.emp_comment,
-    t.sup_status,
-    t.sup_comment,
-    t.sup_review_status,
-    t.star_rating,
-    t.created_at,
-    t.updated_at,
-    t.parent_task_id
-  FROM weekly_tasks t
-  JOIN employees e 
-    ON t.employee_id COLLATE utf8mb4_0900_ai_ci
-     = e.employee_id COLLATE utf8mb4_0900_ai_ci
-  WHERE e.status = 'Active'
-  ORDER BY t.task_date DESC, t.task_id ASC;
+GET_ALL_TASKS: `
+SELECT 
+  t.task_id,
+  t.week_id,
+  t.task_date,
+  t.project_id,
+  t.project_name,
+  t.task_name,
+  t.replacement_task,
+
+  t.employee_id,
+  CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
+
+  t.supervisor_id,
+  CONCAT(s.first_name, ' ', s.last_name) AS supervisor_name,
+
+  t.emp_status,
+  t.emp_comment,
+  t.sup_status,
+  t.sup_comment,
+  t.sup_review_status,
+  t.star_rating,
+
+  t.action_by,
+  CONCAT(a.first_name, ' ', a.last_name) AS action_by_name,
+
+  t.created_at,
+  t.updated_at,
+  t.parent_task_id
+
+FROM weekly_tasks t
+
+JOIN employees e 
+  ON t.employee_id COLLATE utf8mb4_0900_ai_ci
+   = e.employee_id COLLATE utf8mb4_0900_ai_ci
+
+LEFT JOIN employees s
+  ON t.supervisor_id COLLATE utf8mb4_0900_ai_ci
+   = s.employee_id COLLATE utf8mb4_0900_ai_ci
+
+LEFT JOIN employees a
+  ON t.action_by COLLATE utf8mb4_0900_ai_ci
+   = a.employee_id COLLATE utf8mb4_0900_ai_ci
+
+WHERE e.status = 'Active'
+
+ORDER BY t.task_date DESC, t.task_id ASC;
 `,
 
 
-  UPDATE_TASK_BY_ID: `
-    UPDATE weekly_tasks
-    SET sup_status = ?,
-        sup_comment = ?,
-        sup_review_status = ?,
-        replacement_task = ?,
-        star_rating = ?,
-        project_id = ?,
-        project_name = ?
-    WHERE task_id = ?;
-  `,
+UPDATE_TASK_BY_ID: `
+  UPDATE weekly_tasks
+  SET sup_status = ?,
+      sup_comment = ?,
+      sup_review_status = ?,
+      replacement_task = ?,
+      star_rating = ?,
+      project_id = ?,
+      project_name = ?,
+      action_by = ?
+  WHERE task_id = ?;
+`,
 
   INSERT_NEW_TASK: `
     INSERT INTO weekly_tasks (
