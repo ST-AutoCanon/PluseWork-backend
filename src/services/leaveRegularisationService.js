@@ -39,11 +39,13 @@ function getDateRange(fromDate, toDate) {
 
   const dates = [];
   let cur = fromDate;
+
   while (cur && cur <= toDate) {
     dates.push(cur);
     if (cur === toDate) break;
     cur = addDays(cur, 1);
   }
+
   return dates;
 }
 
@@ -201,37 +203,31 @@ async function queryTenant(orgId, sql, params = []) {
   return pool.execute(sql, params);
 }
 
-function evaluateDateForReason(
-  dateKey,
-  reason,
-  attendanceMap,
-  leaveSet,
-  holidaySet,
-) {
-  if (!dateKey) return false;
-  if (holidaySet.has(dateKey)) return false;
-  if (isSunday(dateKey)) return false;
-  if (leaveSet.has(dateKey)) return false;
+async function hasColumn(orgId, tableName, columnName) {
+  if (!orgId || !tableName || !columnName) return false;
 
-  const rows = attendanceMap.get(dateKey) || [];
-  const hasRows = rows.length > 0;
-  const punchIn = hasPunchIn(rows);
-  const punchOut = hasPunchOut(rows);
-  const automatic = hasAutomaticMode(rows);
+  try {
+    const [rows] = await queryTenant(
+      orgId,
+      `
+        SELECT 1 AS exists_flag
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = ?
+          AND COLUMN_NAME = ?
+        LIMIT 1
+      `,
+      [tableName, columnName],
+    );
 
-  if (reason === "missed_punch_out") {
-    return hasRows && automatic;
+    return Array.isArray(rows) && rows.length > 0;
+  } catch (err) {
+    console.warn(
+      "[hasColumn] check failed:",
+      err?.sqlMessage || err?.message || err,
+    );
+    return false;
   }
-
-  if (reason === "late_login") {
-    return hasRows && looksLate(rows);
-  }
-
-  if (reason === "missed_apply_leave") {
-    return !hasRows || (!punchIn && !punchOut);
-  }
-
-  return false;
 }
 
 function capitalizeStatus(status) {
@@ -250,119 +246,6 @@ function normalizeRole(role) {
     .toLowerCase()
     .replace(/[_\s]+/g, " ")
     .trim();
-}
-
-async function hasColumn(orgId, tableName, columnName) {
-  const [rows] = await queryTenant(
-    orgId,
-    `
-      SELECT COUNT(*) AS cnt
-      FROM INFORMATION_SCHEMA.COLUMNS
-      WHERE TABLE_SCHEMA = DATABASE()
-        AND TABLE_NAME = ?
-        AND COLUMN_NAME = ?
-    `,
-    [tableName, columnName],
-  );
-
-  return Number(rows?.[0]?.cnt || 0) > 0;
-}
-
-function buildRegularisationListQuery({
-  orgId,
-  scope,
-  role,
-  employeeId,
-  employeeIds = [],
-  status = "",
-  fromDate = "",
-  toDate = "",
-  search = "",
-}) {
-  const normalizedScope = String(scope || "self")
-    .trim()
-    .toLowerCase();
-  const normalizedRole = normalizeRole(role);
-  const normalizedStatus = capitalizeStatus(status);
-  const searchTerm = String(search || "")
-    .trim()
-    .toLowerCase();
-
-  const where = [];
-  const params = [];
-
-  if (normalizedScope === "all" || normalizedRole === "admin") {
-    where.push("l.org_id = ?");
-    params.push(orgId);
-  } else if (normalizedScope === "team") {
-    const ids = Array.isArray(employeeIds)
-      ? employeeIds.map((v) => String(v).trim()).filter(Boolean)
-      : [];
-
-    where.push("l.org_id = ?");
-    params.push(orgId);
-
-    if (ids.length > 0) {
-      where.push(`l.employee_id IN (${ids.map(() => "?").join(",")})`);
-      params.push(...ids);
-    } else if (employeeId) {
-      where.push("l.employee_id = ?");
-      params.push(employeeId);
-    }
-  } else {
-    where.push("l.org_id = ?");
-    params.push(orgId);
-    if (employeeId) {
-      where.push("l.employee_id = ?");
-      params.push(employeeId);
-    }
-  }
-
-  if (normalizedStatus) {
-    where.push("l.status = ?");
-    params.push(normalizedStatus);
-  }
-
-  if (isValidDateString(fromDate)) {
-    where.push("DATE(COALESCE(l.primary_date, l.created_at)) >= ?");
-    params.push(fromDate);
-  }
-
-  if (isValidDateString(toDate)) {
-    where.push("DATE(COALESCE(l.primary_date, l.created_at)) <= ?");
-    params.push(toDate);
-  }
-
-  if (searchTerm) {
-    const like = `%${searchTerm}%`;
-    where.push(
-      `(LOWER(COALESCE(e.first_name, '')) LIKE ?
-        OR LOWER(COALESCE(e.last_name, '')) LIKE ?
-        OR LOWER(CONCAT(COALESCE(e.first_name, ''), ' ', COALESCE(e.last_name, ''))) LIKE ?
-        OR LOWER(l.employee_id) LIKE ?
-        OR LOWER(l.regularisation_type) LIKE ?
-        OR LOWER(COALESCE(l.comment, '')) LIKE ?
-        OR LOWER(COALESCE(l.approver_comments, '')) LIKE ?)`,
-    );
-    params.push(like, like, like, like, like, like, like);
-  }
-
-  let sql = "";
-
-  if (normalizedScope === "all" || normalizedRole === "admin") {
-    sql = LEAVE_REGULARISATION_QUERIES.GET_ALL_REGULARISATION_REQUESTS;
-  } else if (
-    normalizedScope === "team" &&
-    Array.isArray(employeeIds) &&
-    employeeIds.length > 0
-  ) {
-    sql =
-      LEAVE_REGULARISATION_QUERIES.GET_TEAM_REGULARISATION_REQUESTS_BY_EMPLOYEE_IDS;
-  } else {
-    sql = LEAVE_REGULARISATION_QUERIES.GET_MY_REGULARISATION_REQUESTS;
-  }
-
-  return { sql, params };
 }
 
 async function getEligibleDates({
@@ -409,25 +292,40 @@ async function getEligibleDates({
       LEAVE_REGULARISATION_QUERIES.GET_ATTENDANCE_RECORDS_BY_RANGE,
       [employeeId, orgId, fromDate, toDate],
     );
+  } catch (err) {
+    console.warn(
+      "[getEligibleDates] attendance query failed:",
+      err?.sqlMessage || err?.message || err,
+    );
+    attendanceRows = [];
+  }
 
+  try {
     [leaveRows] = await queryTenant(
       orgId,
       LEAVE_REGULARISATION_QUERIES.GET_APPROVED_LEAVES_BY_RANGE,
       [employeeId, orgId, toDate, fromDate],
     );
+  } catch (err) {
+    console.warn(
+      "[getEligibleDates] leave query failed:",
+      err?.sqlMessage || err?.message || err,
+    );
+    leaveRows = [];
+  }
 
+  try {
     [holidayRows] = await queryTenant(
       orgId,
       LEAVE_REGULARISATION_QUERIES.GET_HOLIDAYS_BY_RANGE,
       [fromDate, toDate],
     );
   } catch (err) {
-    console.error("[getEligibleDates] query error:", err);
-    return {
-      success: false,
-      status: 500,
-      message: "Failed to fetch eligible dates.",
-    };
+    console.warn(
+      "[getEligibleDates] holiday query failed:",
+      err?.sqlMessage || err?.message || err,
+    );
+    holidayRows = [];
   }
 
   const attendanceMap = buildAttendanceMap(attendanceRows);
@@ -451,6 +349,39 @@ async function getEligibleDates({
       totalEligible: eligibleDates.length,
     },
   };
+}
+
+function evaluateDateForReason(
+  dateKey,
+  reason,
+  attendanceMap,
+  leaveSet,
+  holidaySet,
+) {
+  if (!dateKey) return false;
+  if (holidaySet.has(dateKey)) return false;
+  if (isSunday(dateKey)) return false;
+  if (leaveSet.has(dateKey)) return false;
+
+  const rows = attendanceMap.get(dateKey) || [];
+  const hasRows = rows.length > 0;
+  const punchIn = hasPunchIn(rows);
+  const punchOut = hasPunchOut(rows);
+  const automatic = hasAutomaticMode(rows);
+
+  if (reason === "missed_punch_out") {
+    return hasRows && automatic;
+  }
+
+  if (reason === "late_login") {
+    return hasRows && looksLate(rows);
+  }
+
+  if (reason === "missed_apply_leave") {
+    return !hasRows || (!punchIn && !punchOut);
+  }
+
+  return false;
 }
 
 async function submitRegularisation({
@@ -584,7 +515,6 @@ async function getRegularisationRequests({
   fromDate = "",
   toDate = "",
   search = "",
-  employeeIds = [],
 }) {
   if (!orgId) {
     return {
@@ -599,83 +529,100 @@ async function getRegularisationRequests({
     .toLowerCase();
   const normalizedRole = normalizeRole(role);
 
-  let sql = "";
-  let params = [];
+  const applyFilters = (sql, baseParams = []) => {
+    const filters = [];
+    const filterParams = [];
+
+    if (status) {
+      const normalizedStatus = capitalizeStatus(status);
+      if (normalizedStatus) {
+        filters.push("l.status = ?");
+        filterParams.push(normalizedStatus);
+      }
+    }
+
+    if (isValidDateString(fromDate)) {
+      filters.push("DATE(COALESCE(l.primary_date, l.created_at)) >= ?");
+      filterParams.push(fromDate);
+    }
+
+    if (isValidDateString(toDate)) {
+      filters.push("DATE(COALESCE(l.primary_date, l.created_at)) <= ?");
+      filterParams.push(toDate);
+    }
+
+    if (String(search || "").trim()) {
+      const like = `%${String(search).trim().toLowerCase()}%`;
+      filters.push(
+        `(LOWER(COALESCE(e.first_name, '')) LIKE ?
+          OR LOWER(COALESCE(e.last_name, '')) LIKE ?
+          OR LOWER(CONCAT(COALESCE(e.first_name, ''), ' ', COALESCE(e.last_name, ''))) LIKE ?
+          OR LOWER(l.employee_id) LIKE ?
+          OR LOWER(l.regularisation_type) LIKE ?
+          OR LOWER(COALESCE(l.comment, '')) LIKE ?
+          OR LOWER(COALESCE(l.approver_comments, '')) LIKE ?)`,
+      );
+      filterParams.push(like, like, like, like, like, like, like);
+    }
+
+    if (filters.length > 0) {
+      const baseQuery = sql.trim().replace(/ORDER BY[\s\S]*$/i, "");
+      sql = `
+        ${baseQuery}
+        ${baseQuery.toLowerCase().includes("where") ? "AND" : "WHERE"}
+        ${filters.join(" AND ")}
+        ORDER BY l.created_at DESC
+      `;
+    }
+
+    return { sql, params: baseParams.concat(filterParams) };
+  };
 
   if (normalizedScope === "all" || normalizedRole === "admin") {
-    sql = LEAVE_REGULARISATION_QUERIES.GET_ALL_REGULARISATION_REQUESTS;
-    params = [orgId];
-  } else if (normalizedScope === "team") {
-    const ids = Array.isArray(employeeIds)
-      ? employeeIds.map((v) => String(v).trim()).filter(Boolean)
-      : [];
+    let sql = LEAVE_REGULARISATION_QUERIES.GET_ALL_REGULARISATION_REQUESTS;
+    const final = applyFilters(sql, [orgId]);
+    const [rows] = await queryTenant(orgId, final.sql, final.params);
 
-    if (ids.length > 0) {
+    return {
+      success: true,
+      status: 200,
+      message: "Regularisation requests fetched successfully.",
+      data: rows || [],
+    };
+  }
+
+  if (normalizedScope === "team") {
+    let sql = "";
+    let params = [];
+
+    if (normalizedRole === "manager") {
       sql =
-        LEAVE_REGULARISATION_QUERIES.GET_TEAM_REGULARISATION_REQUESTS_BY_EMPLOYEE_IDS;
-      params = [orgId, ids];
-      const [rows] = await queryTenant(orgId, sql, params);
-      return {
-        success: true,
-        status: 200,
-        message: "Regularisation requests fetched successfully.",
-        data: rows || [],
-      };
+        LEAVE_REGULARISATION_QUERIES.GET_TEAM_REGULARISATION_REQUESTS_BY_DEPARTMENT;
+      params = [employeeId, orgId, employeeId];
+    } else if (normalizedRole === "supervisor") {
+      sql =
+        LEAVE_REGULARISATION_QUERIES.GET_TEAM_REGULARISATION_REQUESTS_BY_SUPERVISOR;
+      params = [orgId, employeeId, employeeId];
+    } else {
+      sql =
+        LEAVE_REGULARISATION_QUERIES.GET_TEAM_REGULARISATION_REQUESTS_BY_DEPARTMENT;
+      params = [employeeId, orgId, employeeId];
     }
 
-    sql = LEAVE_REGULARISATION_QUERIES.GET_MY_REGULARISATION_REQUESTS;
-    params = [employeeId, orgId];
-  } else {
-    sql = LEAVE_REGULARISATION_QUERIES.GET_MY_REGULARISATION_REQUESTS;
-    params = [employeeId, orgId];
+    const final = applyFilters(sql, params);
+    const [rows] = await queryTenant(orgId, final.sql, final.params);
+
+    return {
+      success: true,
+      status: 200,
+      message: "Regularisation requests fetched successfully.",
+      data: rows || [],
+    };
   }
 
-  const filters = [];
-  const filterParams = [];
-
-  if (status) {
-    const normalizedStatus = capitalizeStatus(status);
-    if (normalizedStatus) {
-      filters.push("l.status = ?");
-      filterParams.push(normalizedStatus);
-    }
-  }
-
-  if (isValidDateString(fromDate)) {
-    filters.push("DATE(COALESCE(l.primary_date, l.created_at)) >= ?");
-    filterParams.push(fromDate);
-  }
-
-  if (isValidDateString(toDate)) {
-    filters.push("DATE(COALESCE(l.primary_date, l.created_at)) <= ?");
-    filterParams.push(toDate);
-  }
-
-  if (String(search || "").trim()) {
-    const like = `%${String(search).trim().toLowerCase()}%`;
-    filters.push(
-      `(LOWER(COALESCE(e.first_name, '')) LIKE ?
-        OR LOWER(COALESCE(e.last_name, '')) LIKE ?
-        OR LOWER(CONCAT(COALESCE(e.first_name, ''), ' ', COALESCE(e.last_name, ''))) LIKE ?
-        OR LOWER(l.employee_id) LIKE ?
-        OR LOWER(l.regularisation_type) LIKE ?
-        OR LOWER(COALESCE(l.comment, '')) LIKE ?
-        OR LOWER(COALESCE(l.approver_comments, '')) LIKE ?)`,
-    );
-    filterParams.push(like, like, like, like, like, like, like);
-  }
-
-  if (filters.length > 0) {
-    const baseQuery = sql.trim().replace(/ORDER BY[\s\S]*$/i, "");
-    sql = `
-      ${baseQuery}
-      ${baseQuery.toLowerCase().includes("where") ? "AND" : "WHERE"}
-      ${filters.join(" AND ")}
-      ORDER BY l.created_at DESC
-    `;
-  }
-
-  const [rows] = await queryTenant(orgId, sql, params.concat(filterParams));
+  let sql = LEAVE_REGULARISATION_QUERIES.GET_MY_REGULARISATION_REQUESTS;
+  const final = applyFilters(sql, [employeeId, orgId]);
+  const [rows] = await queryTenant(orgId, final.sql, final.params);
 
   return {
     success: true,
@@ -702,6 +649,10 @@ async function updateRegularisationRequest({
   approverComments = "",
   approverName = "",
   approverId = "",
+  regularisationType = "",
+  selectedDates = [],
+  comment = "",
+  primaryDate = "",
 }) {
   if (!orgId || !employeeId || !id) {
     return {
@@ -711,17 +662,9 @@ async function updateRegularisationRequest({
     };
   }
 
-  const normalizedStatus = capitalizeStatus(status);
-  if (!normalizedStatus) {
-    return {
-      success: false,
-      status: 400,
-      message: "Invalid status.",
-    };
-  }
-
   const normalizedRole = normalizeRole(role);
-  const canManage = [
+
+  const approverRoles = [
     "admin",
     "hr",
     "manager",
@@ -729,13 +672,168 @@ async function updateRegularisationRequest({
     "super admin",
     "superadmin",
     "super_admin",
-  ].includes(normalizedRole);
+  ];
 
-  if (!canManage) {
+  const isApprover = approverRoles.includes(normalizedRole);
+
+  const [rows] = await queryTenant(
+    orgId,
+    `
+      SELECT id, employee_id, status
+      FROM leave_regularisation_requests
+      WHERE id = ? AND org_id = ?
+      LIMIT 1
+    `,
+    [id, orgId],
+  );
+
+  const existing = rows?.[0];
+  if (!existing) {
+    return {
+      success: false,
+      status: 404,
+      message: "Regularisation request not found.",
+    };
+  }
+
+  const isOwner =
+    String(existing.employee_id).trim() === String(employeeId).trim();
+
+  const hasEditPayload =
+    (Array.isArray(selectedDates) && selectedDates.length > 0) ||
+    String(regularisationType || "").trim() !== "" ||
+    String(comment || "").trim() !== "" ||
+    String(primaryDate || "").trim() !== "";
+
+  const hasApproverPayload =
+    String(status || "").trim() !== "" ||
+    String(approverComments || "").trim() !== "" ||
+    String(approverName || "").trim() !== "";
+
+  if (isOwner && hasEditPayload) {
+    if (
+      String(existing.status || "")
+        .trim()
+        .toLowerCase() !== "pending"
+    ) {
+      return {
+        success: false,
+        status: 403,
+        message: "Only pending regularisation requests can be edited.",
+      };
+    }
+
+    const cleanDates = Array.isArray(selectedDates)
+      ? [...new Set(selectedDates.map((d) => String(d).trim()))].filter(
+          isValidDateString,
+        )
+      : [];
+
+    if (cleanDates.length === 0) {
+      return {
+        success: false,
+        status: 400,
+        message: "Please select at least one valid date.",
+      };
+    }
+
+    const tableName = "leave_regularisation_requests";
+    const canUseSelectedDatesJson = await hasColumn(
+      orgId,
+      tableName,
+      "selected_dates_json",
+    );
+    const canUseRegularisationType = await hasColumn(
+      orgId,
+      tableName,
+      "regularisation_type",
+    );
+    const canUseComment = await hasColumn(orgId, tableName, "comment");
+    const canUseComments = await hasColumn(orgId, tableName, "comments");
+
+    const setParts = [];
+    const params = [];
+
+    if (canUseRegularisationType) {
+      setParts.push("regularisation_type = ?");
+      params.push(String(regularisationType || "").trim());
+    }
+
+    setParts.push("selected_dates = ?");
+    params.push(JSON.stringify(cleanDates));
+
+    if (canUseSelectedDatesJson) {
+      setParts.push("selected_dates_json = ?");
+      params.push(JSON.stringify(cleanDates));
+    }
+
+    setParts.push("primary_date = ?");
+    params.push(primaryDate || cleanDates[0] || null);
+
+    if (canUseComment) {
+      setParts.push("comment = ?");
+      params.push(String(comment || "").trim());
+    } else if (canUseComments) {
+      setParts.push("comments = ?");
+      params.push(String(comment || "").trim());
+    }
+
+    setParts.push("updated_at = NOW()");
+
+    const sql = `
+      UPDATE leave_regularisation_requests
+      SET ${setParts.join(", ")}
+      WHERE id = ? AND org_id = ? AND employee_id = ?
+    `;
+
+    params.push(id, orgId, employeeId);
+
+    const [result] = await queryTenant(orgId, sql, params);
+
+    if (!result || result.affectedRows === 0) {
+      return {
+        success: false,
+        status: 404,
+        message: "Regularisation request not found.",
+      };
+    }
+
+    return {
+      success: true,
+      status: 200,
+      message: "Regularisation request updated successfully.",
+      data: {
+        id,
+        regularisationType: String(regularisationType || "").trim(),
+        selectedDates: cleanDates,
+        primaryDate: primaryDate || cleanDates[0] || null,
+        comment: String(comment || "").trim(),
+      },
+    };
+  }
+
+  if (hasApproverPayload && !isApprover) {
     return {
       success: false,
       status: 403,
       message: "You are not allowed to update regularisation requests.",
+    };
+  }
+
+  if (!isApprover) {
+    return {
+      success: false,
+      status: 403,
+      message: "You are not allowed to update regularisation requests.",
+    };
+  }
+
+  const normalizedStatus = capitalizeStatus(status);
+  if (!normalizedStatus) {
+    return {
+      success: false,
+      status: 400,
+      message: "Invalid status.",
     };
   }
 

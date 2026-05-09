@@ -301,6 +301,13 @@ class LeaveRegularisationHandler {
         approverName,
         approver_id,
         approverId,
+        regularisationType,
+        regularisation_type,
+        selectedDates,
+        selected_dates,
+        comment,
+        primaryDate,
+        primary_date,
       } = req.body || {};
 
       if (!orgId || !employeeId || !id) {
@@ -324,6 +331,10 @@ class LeaveRegularisationHandler {
           approverComments: approver_comments || approverComments || "",
           approverName: approver_name || approverName || "",
           approverId: approver_id || approverId || employeeId,
+          regularisationType: regularisationType || regularisation_type || "",
+          selectedDates: selectedDates || selected_dates || [],
+          comment: comment || "",
+          primaryDate: primaryDate || primary_date || "",
         });
 
       return res
