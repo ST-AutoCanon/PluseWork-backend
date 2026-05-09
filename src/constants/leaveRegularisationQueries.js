@@ -110,8 +110,8 @@ module.exports = {
     ORDER BY l.created_at DESC
   `,
 
-  GET_TEAM_REGULARISATION_REQUESTS_BY_EMPLOYEE_IDS: `
-    SELECT
+  GET_TEAM_REGULARISATION_REQUESTS_BY_DEPARTMENT: `
+    SELECT DISTINCT
       l.id,
       l.org_id,
       l.employee_id,
@@ -127,8 +127,38 @@ module.exports = {
     FROM leave_regularisation_requests l
     LEFT JOIN employees e
       ON e.employee_id = l.employee_id
+    JOIN employee_professional pr
+      ON pr.employee_id = l.employee_id
+    JOIN employee_professional mypr
+      ON mypr.employee_id = ?
     WHERE l.org_id = ?
-      AND l.employee_id IN (?)
+      AND pr.department_id = mypr.department_id
+      AND l.employee_id <> ?
+    ORDER BY l.created_at DESC
+  `,
+
+  GET_TEAM_REGULARISATION_REQUESTS_BY_SUPERVISOR: `
+    SELECT DISTINCT
+      l.id,
+      l.org_id,
+      l.employee_id,
+      CONCAT(COALESCE(e.first_name, ''), ' ', COALESCE(e.last_name, '')) AS employee_name,
+      l.regularisation_type,
+      l.selected_dates,
+      l.primary_date,
+      l.comment,
+      l.status,
+      l.approver_comments,
+      l.created_at,
+      l.updated_at
+    FROM leave_regularisation_requests l
+    LEFT JOIN employees e
+      ON e.employee_id = l.employee_id
+    JOIN employee_professional pr
+      ON pr.employee_id = l.employee_id
+    WHERE l.org_id = ?
+      AND pr.supervisor_id = ?
+      AND l.employee_id <> ?
     ORDER BY l.created_at DESC
   `,
 
