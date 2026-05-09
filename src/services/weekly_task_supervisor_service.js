@@ -65,6 +65,7 @@ const updateTaskById = async (taskId, updateData, orgId) => {
     star_rating,
     project_id,
     project_name,
+    action_by,
   } = updateData;
 
   const tenantPool = await getTenantPoolForOrgId(orgId);
@@ -72,16 +73,19 @@ const updateTaskById = async (taskId, updateData, orgId) => {
 
   try {
     await conn.beginTransaction();
+
     const [result] = await conn.query(UPDATE_TASK_BY_ID, [
       sup_status || "incomplete",
       sup_comment || null,
       sup_review_status || "pending",
       replacement_task || null,
       star_rating || 0,
-      project_id,
-      project_name,
+      project_id || null,
+      project_name || null,
+      action_by || null,
       taskId,
     ]);
+
     await conn.commit();
     return result;
   } catch (err) {
@@ -92,7 +96,6 @@ const updateTaskById = async (taskId, updateData, orgId) => {
     conn.release();
   }
 };
-
 const insertNewTask = async (taskData, orgId) => {
   if (!orgId) throw new Error("orgId is required");
 
