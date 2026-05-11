@@ -149,11 +149,22 @@ UPDATE_TASK_BY_ID: `
 `,
 
   INSERT_NEW_TASK: `
-    INSERT INTO weekly_tasks (
-      week_id, task_date, project_id, project_name, task_name,
-      employee_id, emp_status, sup_status, emp_comment,
-      sup_comment, sup_review_status, star_rating, parent_task_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+     INSERT INTO weekly_tasks (
+      week_id,
+      task_date,
+      project_id,
+      project_name,
+      task_name,
+      employee_id,
+      supervisor_id,
+      emp_status,
+      sup_status,
+      emp_comment,
+      sup_comment,
+      sup_review_status,
+      star_rating,
+      parent_task_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
   `,
 
   GET_CONFIG: `

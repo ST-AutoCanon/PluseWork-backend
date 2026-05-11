@@ -106,6 +106,8 @@ const insertNewTask = async (taskData, orgId) => {
     project_name,
     task_name,
     employee_id,
+      supervisor_id,
+
     emp_status,
     sup_status,
     emp_comment,
@@ -127,6 +129,7 @@ const insertNewTask = async (taskData, orgId) => {
       project_name,
       task_name,
       employee_id,
+        supervisor_id,
       emp_status || "not started",
       sup_status || "incomplete",
       emp_comment || null,
@@ -134,6 +137,7 @@ const insertNewTask = async (taskData, orgId) => {
       sup_review_status || "pending",
       star_rating || 0,
       parent_task_id || null,
+      
     ]);
     await conn.commit();
 
@@ -145,6 +149,8 @@ const insertNewTask = async (taskData, orgId) => {
       project_name,
       task_name,
       employee_id,
+        supervisor_id,
+
       emp_status: emp_status || "not started",
       sup_status: sup_status || "incomplete",
       emp_comment,
