@@ -79,6 +79,8 @@ module.exports = {
       l.comment,
       l.status,
       l.approver_comments,
+      l.approver_name,
+      l.approver_employee_id,
       l.created_at,
       l.updated_at
     FROM leave_regularisation_requests l
@@ -101,6 +103,8 @@ module.exports = {
       l.comment,
       l.status,
       l.approver_comments,
+      l.approver_name,
+      l.approver_employee_id,
       l.created_at,
       l.updated_at
     FROM leave_regularisation_requests l
@@ -122,6 +126,8 @@ module.exports = {
       l.comment,
       l.status,
       l.approver_comments,
+      l.approver_name,
+      l.approver_employee_id,
       l.created_at,
       l.updated_at
     FROM leave_regularisation_requests l
@@ -149,6 +155,8 @@ module.exports = {
       l.comment,
       l.status,
       l.approver_comments,
+      l.approver_name,
+      l.approver_employee_id,
       l.created_at,
       l.updated_at
     FROM leave_regularisation_requests l
@@ -175,3 +183,4 @@ module.exports = {
     LIMIT 1
   `,
 };
+
