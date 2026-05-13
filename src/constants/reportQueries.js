@@ -311,6 +311,13 @@ ORDER BY e.created_at DESC
     wt.replacement_task,
     wt.employee_id,
     CONCAT(COALESCE(e.first_name, ''), ' ', COALESCE(e.last_name, '')) AS employee_name,
+
+    wt.supervisor_id,
+    CONCAT(COALESCE(sup.first_name, ''), ' ', COALESCE(sup.last_name, '')) AS supervisor_name,
+
+    wt.action_by,
+    CONCAT(COALESCE(act.first_name, ''), ' ', COALESCE(act.last_name, '')) AS action_by_name,
+
     wt.emp_status,
     wt.emp_comment,
     wt.sup_status,
@@ -321,7 +328,12 @@ ORDER BY e.created_at DESC
     DATE_FORMAT(wt.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
     DATE_FORMAT(wt.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
   FROM weekly_tasks wt
-  LEFT JOIN employees e ON wt.employee_id COLLATE utf8mb4_general_ci = e.employee_id COLLATE utf8mb4_general_ci
+  LEFT JOIN employees e
+    ON wt.employee_id COLLATE utf8mb4_general_ci = e.employee_id COLLATE utf8mb4_general_ci
+  LEFT JOIN employees sup
+    ON wt.supervisor_id COLLATE utf8mb4_general_ci = sup.employee_id COLLATE utf8mb4_general_ci
+  LEFT JOIN employees act
+    ON wt.action_by COLLATE utf8mb4_general_ci = act.employee_id COLLATE utf8mb4_general_ci
   WHERE ( ? IS NULL OR (wt.task_date >= ? ) )
     AND ( ? IS NULL OR (wt.task_date < DATE_ADD(?, INTERVAL 1 DAY) ) )
   ORDER BY wt.task_date DESC, wt.task_id ASC
