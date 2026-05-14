@@ -1,5 +1,7 @@
 const reportService = require("../services/reportIndex");
 const reportUtils = require("../services/reportUtils");
+const queries = require("../constants/reportQueries");
+
 const {
   coerceToString,
   parseDates,
@@ -14,6 +16,18 @@ const {
 
 const MAX_DOWNLOAD_FIELDS_TASKS = 13;
 
+function getRequestRole(req) {
+  const user = req.user || req.authUser || req.session?.user || {};
+  return String(user.role || user.user_role || "")
+    .trim()
+    .toLowerCase();
+}
+
+function isAdminOrHr(req) {
+  const role = getRequestRole(req);
+  return role === "admin" || role === "hr" || role === "human resources";
+}
+
 async function getEmployeeDepartment(employeeId) {
   if (!employeeId) return null;
   try {
@@ -25,10 +39,11 @@ async function getEmployeeDepartment(employeeId) {
       Array.isArray(rows) &&
       rows[0] &&
       typeof rows[0].department_id !== "undefined"
-    )
+    ) {
       return rows[0].department_id != null
         ? String(rows[0].department_id).trim()
         : null;
+    }
     return null;
   } catch (e) {
     console.warn(
@@ -57,53 +72,54 @@ async function verifyEmployeeInDepartment(employeeId, departmentId) {
 
 async function resolveEmployeeIdsFromTypedName(typedName, departmentId) {
   if (!typedName || !typedName.trim()) return [];
+
   const q = String(typedName).trim();
+  const pattern = `%${q}%`;
+
   try {
-    let items = [];
-    if (typeof reportService.searchEmployees === "function") {
-      const res = await reportService.searchEmployees({
-        q,
-        limit: 200,
-        departmentId: departmentId || null,
-      });
-      if (Array.isArray(res)) items = res;
-      else if (res && Array.isArray(res.results)) items = res.results;
-      else if (res && Array.isArray(res.data)) items = res.data;
-    } else {
-      const pattern = `%${q}%`;
-      const sql =
-        "SELECT e.employee_id, pr.department_id FROM employees e LEFT JOIN employee_professional pr ON e.employee_id = pr.employee_id WHERE (CONCAT(COALESCE(e.first_name,''),' ',COALESCE(e.last_name,'')) LIKE ? OR e.email LIKE ? OR e.employee_id LIKE ?) LIMIT 200";
-      const rows = await reportUtils.fetchRows(sql, [
-        pattern,
-        pattern,
-        pattern,
-      ]);
-      if (Array.isArray(rows)) {
-        items = rows.map((r) => ({
-          employee_id: r.employee_id,
-          department_id:
-            r.department_id != null ? String(r.department_id).trim() : null,
-        }));
-      }
+    let sql = `
+      SELECT DISTINCT
+        e.employee_id,
+        COALESCE(pr.department_id, e.department_id, e.dept_id) AS department_id
+      FROM employees e
+      LEFT JOIN employee_professional pr ON e.employee_id = pr.employee_id
+      WHERE (
+        CONCAT(COALESCE(e.first_name, ''), ' ', COALESCE(e.last_name, '')) LIKE ?
+        OR e.email LIKE ?
+        OR e.employee_id LIKE ?
+      )
+    `;
+
+    const params = [pattern, pattern, pattern];
+
+    if (departmentId) {
+      sql += ` AND COALESCE(pr.department_id, e.department_id, e.dept_id) = ?`;
+      params.push(departmentId);
     }
 
-    const normalized = (Array.isArray(items) ? items : [])
-      .map((it) => {
-        if (!it) return null;
+    sql += ` ORDER BY e.employee_id ASC LIMIT 200`;
+
+    const rows = await reportUtils.fetchRows(sql, params);
+
+    const normalized = (Array.isArray(rows) ? rows : [])
+      .map((r) => {
+        if (!r) return null;
         return {
-          employee_id: it.employee_id || it.employeeId || it.id || null,
+          employee_id: r.employee_id || r.employeeId || r.id || null,
           department_id:
-            it.department_id ||
-            it.departmentId ||
-            it.dept_id ||
-            it.department ||
+            r.department_id ||
+            r.departmentId ||
+            r.dept_id ||
+            r.department ||
             null,
         };
       })
       .filter(Boolean);
 
     const uniqueIds = Array.from(
-      new Set(normalized.map((i) => String(i.employee_id).trim())),
+      new Set(
+        normalized.map((i) => String(i.employee_id).trim()).filter(Boolean),
+      ),
     );
 
     if (departmentId && uniqueIds.length > 0) {
@@ -113,6 +129,7 @@ async function resolveEmployeeIdsFromTypedName(typedName, departmentId) {
           `SELECT employee_id, department_id FROM employee_professional WHERE employee_id IN (${placeholders})`,
           uniqueIds,
         );
+
         const map = {};
         if (Array.isArray(profRows)) {
           for (const r of profRows) {
@@ -122,12 +139,14 @@ async function resolveEmployeeIdsFromTypedName(typedName, departmentId) {
             }
           }
         }
+
         const did = String(departmentId).trim();
         const filtered = uniqueIds.filter((eid) => {
           const m = map[eid];
           if (m == null || m === "") return false;
           return String(m).trim() === did;
         });
+
         return filtered;
       } catch (e) {
         const did = String(departmentId).trim();
@@ -137,6 +156,7 @@ async function resolveEmployeeIdsFromTypedName(typedName, departmentId) {
               n.department_id != null && String(n.department_id).trim() === did,
           )
           .map((n) => String(n.employee_id).trim());
+
         return Array.from(new Set(fallbackFiltered));
       }
     }
@@ -175,18 +195,19 @@ async function buildMetaFromReqQuery(query = {}) {
     coerceToString(query.employee_name, null) ||
     coerceToString(query.employeeName, null) ||
     coerceToString(query.employee, null);
+
   const empId =
     coerceToString(query.employee_id, null) ||
     coerceToString(query.employeeId, null);
 
   if (empId) {
-    // If we have an employee ID, look it up in the database to get proper formatting
     try {
       const rows = await reportUtils.fetchRows(
         `SELECT employee_id, first_name, last_name, email FROM employees WHERE employee_id = ? LIMIT 1`,
         [empId],
       );
       const er = Array.isArray(rows) && rows[0] ? rows[0] : null;
+
       if (er) {
         const fullName =
           `${(er.first_name || "").trim()} ${er.last_name || ""}`.trim() ||
@@ -203,7 +224,6 @@ async function buildMetaFromReqQuery(query = {}) {
         meta.employeeId = empId;
       }
     } catch (e) {
-      // If lookup fails, use what we have
       if (typedEmployeeName) {
         meta.employeeName = typedEmployeeName;
         meta.employeeId = empId;
@@ -220,11 +240,13 @@ async function buildMetaFromReqQuery(query = {}) {
     coerceToString(query.department_name, null) ||
     coerceToString(query.departmentName, null) ||
     coerceToString(query.department, null);
+
   if (typedDept) meta.department = typedDept;
   else {
     const deptId =
       coerceToString(query.department_id, null) ||
       coerceToString(query.departmentId, null);
+
     if (deptId) {
       try {
         if (typeof reportService.getDepartments === "function") {
@@ -241,8 +263,12 @@ async function buildMetaFromReqQuery(query = {}) {
               (found &&
                 (found.name || found.department_name || found.department)) ||
               deptId;
-          } else meta.department = deptId;
-        } else meta.department = deptId;
+          } else {
+            meta.department = deptId;
+          }
+        } else {
+          meta.department = deptId;
+        }
       } catch (e) {
         meta.department = deptId;
       }
@@ -254,6 +280,7 @@ async function buildMetaFromReqQuery(query = {}) {
 
 function rowMatchesStatusToken(statusToken, row) {
   if (!statusToken) return true;
+
   const candidateFields = [
     "status",
     "emp_status",
@@ -263,7 +290,9 @@ function rowMatchesStatusToken(statusToken, row) {
     "empStatus",
     "taskStatus",
   ];
+
   const candidates = new Set();
+
   for (const k of candidateFields) {
     if (row && typeof row[k] !== "undefined" && row[k] !== null) {
       candidates.add(String(row[k]));
@@ -273,16 +302,36 @@ function rowMatchesStatusToken(statusToken, row) {
       } catch (e) {}
     }
   }
-  const arr = Array.from(candidates);
-  return statusMatches(statusToken, arr);
+
+  return statusMatches(statusToken, Array.from(candidates));
+}
+
+async function fetchWeeklyTaskRowsDirect(startDate, endDate) {
+  const sql =
+    queries.GET_WEEKLY_TASK_REPORT || queries.GET_EMPLOYEE_TASK_REPORT;
+
+  if (!sql) {
+    throw new Error("Weekly task query not available");
+  }
+
+  const rows = await reportUtils.fetchRows(sql, [
+    startDate,
+    startDate,
+    endDate,
+    endDate,
+  ]);
+
+  return Array.isArray(rows) ? rows : [];
 }
 
 async function downloadTasksSupervisorReport(req, res) {
   try {
     const parsed = parseDates(req.query || {});
     let { startDate, endDate, status, format, fields } = parsed;
+
     const employeeId = coerceToString(req.query.employee_id, null);
     const departmentId = coerceToString(req.query.department_id, null);
+    const effectiveDepartmentId = isAdminOrHr(req) ? null : departmentId;
 
     const ensured = ensureTwoMonthWindow(startDate, endDate);
     if (!ensured.ok) return res.status(400).json({ message: ensured.message });
@@ -295,10 +344,11 @@ async function downloadTasksSupervisorReport(req, res) {
       });
     }
 
-    if (typeof reportService.getTaskRows !== "function")
+    if (typeof reportService.getTaskRows !== "function") {
       return res.status(500).json({ message: "Server misconfiguration" });
+    }
 
-    if (employeeId && departmentId) {
+    if (!isAdminOrHr(req) && employeeId && departmentId) {
       const ok = await verifyEmployeeInDepartment(employeeId, departmentId);
       if (!ok) {
         if (isPreviewRequest(req)) {
@@ -308,13 +358,17 @@ async function downloadTasksSupervisorReport(req, res) {
             [],
             "No task data for selected date range",
           );
-        } else {
-          return res
-            .status(404)
-            .json({ message: "No task data for selected date range" });
         }
+        return res
+          .status(404)
+          .json({ message: "No task data for selected date range" });
       }
     }
+
+    const typedEmployeeName =
+      coerceToString(req.query.employee_name, null) ||
+      coerceToString(req.query.employeeName, null) ||
+      null;
 
     const rawTasks = await reportService.getTaskRows(
       startDate,
@@ -322,19 +376,17 @@ async function downloadTasksSupervisorReport(req, res) {
       status,
       fields,
       employeeId,
-      departmentId,
+      effectiveDepartmentId,
     );
+
     let rows = Array.isArray(rawTasks) ? rawTasks : [];
 
-    const typedEmployeeName =
-      coerceToString(req.query.employee_name, null) ||
-      coerceToString(req.query.employeeName, null) ||
-      null;
     if (typedEmployeeName) {
       const resolvedIds = await resolveEmployeeIdsFromTypedName(
         typedEmployeeName,
-        departmentId,
+        effectiveDepartmentId,
       );
+
       if (!resolvedIds || resolvedIds.length === 0) {
         if (isPreviewRequest(req)) {
           return sendPreviewResponse(
@@ -343,23 +395,24 @@ async function downloadTasksSupervisorReport(req, res) {
             [],
             "No task data for selected date range",
           );
-        } else {
-          return res
-            .status(404)
-            .json({ message: "No task data for selected date range" });
         }
+        return res
+          .status(404)
+          .json({ message: "No task data for selected date range" });
       }
 
-      if (departmentId) {
+      if (effectiveDepartmentId) {
         try {
           const placeholders = resolvedIds.map(() => "?").join(",");
           const profRows = await reportUtils.fetchRows(
             `SELECT employee_id FROM employee_professional WHERE employee_id IN (${placeholders}) AND department_id = ?`,
-            [...resolvedIds, departmentId],
+            [...resolvedIds, effectiveDepartmentId],
           );
+
           const verified = Array.isArray(profRows)
             ? profRows.map((r) => String(r.employee_id).trim())
             : [];
+
           if (!verified || verified.length === 0) {
             if (isPreviewRequest(req)) {
               return sendPreviewResponse(
@@ -368,12 +421,12 @@ async function downloadTasksSupervisorReport(req, res) {
                 [],
                 "No task data for selected date range",
               );
-            } else {
-              return res
-                .status(404)
-                .json({ message: "No task data for selected date range" });
             }
+            return res
+              .status(404)
+              .json({ message: "No task data for selected date range" });
           }
+
           rows = rows.filter((r) => {
             const eid =
               r && (r.employee_id ?? r.employeeId ?? r.emp_id ?? r.empId);
@@ -391,11 +444,10 @@ async function downloadTasksSupervisorReport(req, res) {
               [],
               "No task data for selected date range",
             );
-          } else {
-            return res
-              .status(404)
-              .json({ message: "No task data for selected date range" });
           }
+          return res
+            .status(404)
+            .json({ message: "No task data for selected date range" });
         }
       } else {
         rows = rows.filter((r) => {
@@ -406,7 +458,7 @@ async function downloadTasksSupervisorReport(req, res) {
       }
     }
 
-    if (departmentId && !typedEmployeeName) {
+    if (effectiveDepartmentId && !typedEmployeeName) {
       const hasDeptIdField = rows.some(
         (r) =>
           Object.prototype.hasOwnProperty.call(r, "department_id") ||
@@ -414,11 +466,15 @@ async function downloadTasksSupervisorReport(req, res) {
           Object.prototype.hasOwnProperty.call(r, "dept_id") ||
           Object.prototype.hasOwnProperty.call(r, "department"),
       );
+
       if (hasDeptIdField) {
         rows = rows.filter((r) => {
           const v =
             r.department_id ?? r.departmentId ?? r.dept_id ?? r.department;
-          return v != null && String(v).trim() === String(departmentId).trim();
+          return (
+            v != null &&
+            String(v).trim() === String(effectiveDepartmentId).trim()
+          );
         });
       } else {
         const empIds = Array.from(
@@ -430,6 +486,7 @@ async function downloadTasksSupervisorReport(req, res) {
               .filter(Boolean),
           ),
         );
+
         if (empIds.length > 0) {
           try {
             const placeholders = empIds.map(() => "?").join(",");
@@ -437,16 +494,19 @@ async function downloadTasksSupervisorReport(req, res) {
               `SELECT employee_id, department_id FROM employee_professional WHERE employee_id IN (${placeholders})`,
               empIds,
             );
+
             const map = {};
             if (Array.isArray(profRows)) {
               for (const p of profRows) {
-                if (p && p.employee_id != null)
+                if (p && p.employee_id != null) {
                   map[String(p.employee_id).trim()] =
                     p.department_id != null
                       ? String(p.department_id).trim()
                       : null;
+                }
               }
             }
+
             rows = rows.filter((r) => {
               const eid =
                 r && r.employee_id != null
@@ -456,7 +516,7 @@ async function downloadTasksSupervisorReport(req, res) {
               const mapped = map[eid];
               return (
                 mapped != null &&
-                String(mapped).trim() === String(departmentId).trim()
+                String(mapped).trim() === String(effectiveDepartmentId).trim()
               );
             });
           } catch (e) {
@@ -495,10 +555,12 @@ async function downloadTasksSupervisorReport(req, res) {
     const filtered = rows.filter((t) =>
       rowMatchesStatusToken(statusTokenFinal, t),
     );
-    if (filtered.length === 0)
+
+    if (filtered.length === 0) {
       return res
         .status(404)
         .json({ message: "No task data for selected date range" });
+    }
 
     const tasksForExcel = pickFields(filtered, fields);
     const tasksForPdf = filtered;
@@ -509,6 +571,7 @@ async function downloadTasksSupervisorReport(req, res) {
         typeof reportService.renderTasksExcelBuffer === "function"
           ? await reportService.renderTasksExcelBuffer(tasksForExcel, [])
           : await reportService.renderExcelBuffer(tasksForExcel, null);
+
       const filename = safeFilename("tasks_supervisor_report", "xlsx");
       res.setHeader(
         "Content-Type",
@@ -535,6 +598,7 @@ async function downloadTasksSupervisorReport(req, res) {
         );
         return res.status(500).json({ message: "Failed to render PDF" });
       }
+
       if (!pdfBuf || !Buffer.isBuffer(pdfBuf) || pdfBuf.length === 0) {
         console.error(
           "[reportTasksHandler] renderPdfBuffer returned empty buffer for supervisor tasks.",
@@ -543,6 +607,7 @@ async function downloadTasksSupervisorReport(req, res) {
           .status(500)
           .json({ message: "Failed to render PDF (empty)" });
       }
+
       const filename = safeFilename("tasks_supervisor_report", "pdf");
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader(
@@ -551,7 +616,9 @@ async function downloadTasksSupervisorReport(req, res) {
       );
       res.setHeader("Content-Length", pdfBuf.length);
       return res.send(pdfBuf);
-    } else return res.status(400).json({ message: "Invalid format" });
+    }
+
+    return res.status(400).json({ message: "Invalid format" });
   } catch (err) {
     console.error(
       "[reportTasksHandler] Error rendering Tasks (Supervisor) report:",
@@ -575,6 +642,7 @@ async function downloadTasksEmployeeReport(req, res) {
 
     const employeeId = coerceToString(req.query.employee_id, null);
     const departmentId = coerceToString(req.query.department_id, null);
+    const effectiveDepartmentId = isAdminOrHr(req) ? null : departmentId;
 
     const ensured = ensureTwoMonthWindow(startDate, endDate);
     if (!ensured.ok) return res.status(400).json({ message: ensured.message });
@@ -588,96 +656,78 @@ async function downloadTasksEmployeeReport(req, res) {
       });
     }
 
-    if (typeof reportService.getWeeklyTaskRows !== "function")
-      return res.status(500).json({ message: "Server misconfiguration" });
-
-    if (employeeId && departmentId) {
-      const ok = await verifyEmployeeInDepartment(employeeId, departmentId);
-      if (!ok) {
-        if (isPreview)
-          return sendPreviewResponse(
-            req,
-            res,
-            [],
-            "No weekly task data for selected date range",
-          );
-        else
-          return res
-            .status(404)
-            .json({ message: "No weekly task data for selected date range" });
-      }
-    }
-
-    let rawWeekly;
-    try {
-      rawWeekly = await reportService.getWeeklyTaskRows(
-        startDate,
-        endDate,
-        parsedStatus,
-        fields,
-        employeeId,
-        departmentId,
-      );
-    } catch (e) {
-      console.error(
-        "[reportTasksHandler] getWeeklyTaskRows failed:",
-        e && (e.stack || e.message),
-      );
-      const msg =
-        e && e.message && typeof e.message === "string"
-          ? `Service error: ${e.message}`
-          : "Failed to fetch weekly task rows";
-      return res.status(500).json({ message: msg });
-    }
-
-    let rows = Array.isArray(rawWeekly) ? rawWeekly : [];
-
     const typedEmployeeName =
       coerceToString(req.query.employee_name, null) ||
       coerceToString(req.query.employeeName, null) ||
       null;
-    if (typedEmployeeName) {
-      const resolvedIds = await resolveEmployeeIdsFromTypedName(
-        typedEmployeeName,
-        departmentId,
-      );
-      if (!resolvedIds || resolvedIds.length === 0) {
-        if (isPreview)
+
+    if (!isAdminOrHr(req) && employeeId && departmentId) {
+      const ok = await verifyEmployeeInDepartment(employeeId, departmentId);
+      if (!ok) {
+        if (isPreview) {
           return sendPreviewResponse(
             req,
             res,
             [],
             "No weekly task data for selected date range",
           );
-        else
-          return res
-            .status(404)
-            .json({ message: "No weekly task data for selected date range" });
+        }
+        return res
+          .status(404)
+          .json({ message: "No weekly task data for selected date range" });
+      }
+    }
+
+    // HR/admin and manager both use direct fetch here so there is no hidden
+    // service-layer department restriction.
+    let rows = await fetchWeeklyTaskRowsDirect(startDate, endDate);
+
+    if (typedEmployeeName) {
+      const resolvedIds = await resolveEmployeeIdsFromTypedName(
+        typedEmployeeName,
+        effectiveDepartmentId,
+      );
+
+      if (!resolvedIds || resolvedIds.length === 0) {
+        if (isPreview) {
+          return sendPreviewResponse(
+            req,
+            res,
+            [],
+            "No weekly task data for selected date range",
+          );
+        }
+        return res
+          .status(404)
+          .json({ message: "No weekly task data for selected date range" });
       }
 
-      if (departmentId) {
+      if (effectiveDepartmentId) {
         try {
           const placeholders = resolvedIds.map(() => "?").join(",");
           const profRows = await reportUtils.fetchRows(
             `SELECT employee_id FROM employee_professional WHERE employee_id IN (${placeholders}) AND department_id = ?`,
-            [...resolvedIds, departmentId],
+            [...resolvedIds, effectiveDepartmentId],
           );
+
           const verified = Array.isArray(profRows)
             ? profRows.map((r) => String(r.employee_id).trim())
             : [];
+
           if (!verified || verified.length === 0) {
-            if (isPreview)
+            if (isPreview) {
               return sendPreviewResponse(
                 req,
                 res,
                 [],
                 "No weekly task data for selected date range",
               );
-            else
-              return res.status(404).json({
-                message: "No weekly task data for selected date range",
-              });
+            }
+            return res
+              .status(404)
+              .json({ message: "No weekly task data for selected date range" });
           }
+
           rows = rows.filter((r) => {
             const eid =
               r && (r.employee_id ?? r.employeeId ?? r.emp_id ?? r.empId);
@@ -688,17 +738,17 @@ async function downloadTasksEmployeeReport(req, res) {
             "[reportTasksHandler] employee_professional lookup failed in employee-driven filter:",
             e && e.message,
           );
-          if (isPreview)
+          if (isPreview) {
             return sendPreviewResponse(
               req,
               res,
               [],
               "No weekly task data for selected date range",
             );
-          else
-            return res
-              .status(404)
-              .json({ message: "No weekly task data for selected date range" });
+          }
+          return res
+            .status(404)
+            .json({ message: "No weekly task data for selected date range" });
         }
       } else {
         rows = rows.filter((r) => {
@@ -709,7 +759,7 @@ async function downloadTasksEmployeeReport(req, res) {
       }
     }
 
-    if (departmentId && !typedEmployeeName) {
+    if (effectiveDepartmentId && !typedEmployeeName) {
       const hasDeptIdField = rows.some(
         (r) =>
           Object.prototype.hasOwnProperty.call(r, "department_id") ||
@@ -717,11 +767,15 @@ async function downloadTasksEmployeeReport(req, res) {
           Object.prototype.hasOwnProperty.call(r, "dept_id") ||
           Object.prototype.hasOwnProperty.call(r, "department"),
       );
+
       if (hasDeptIdField) {
         rows = rows.filter((r) => {
           const v =
             r.department_id ?? r.departmentId ?? r.dept_id ?? r.department;
-          return v != null && String(v).trim() === String(departmentId).trim();
+          return (
+            v != null &&
+            String(v).trim() === String(effectiveDepartmentId).trim()
+          );
         });
       } else {
         const empIds = Array.from(
@@ -733,6 +787,7 @@ async function downloadTasksEmployeeReport(req, res) {
               .filter(Boolean),
           ),
         );
+
         if (empIds.length > 0) {
           try {
             const placeholders = empIds.map(() => "?").join(",");
@@ -740,16 +795,19 @@ async function downloadTasksEmployeeReport(req, res) {
               `SELECT employee_id, department_id FROM employee_professional WHERE employee_id IN (${placeholders})`,
               empIds,
             );
+
             const map = {};
             if (Array.isArray(profRows)) {
               for (const p of profRows) {
-                if (p && p.employee_id != null)
+                if (p && p.employee_id != null) {
                   map[String(p.employee_id).trim()] =
                     p.department_id != null
                       ? String(p.department_id).trim()
                       : null;
+                }
               }
             }
+
             rows = rows.filter((r) => {
               const eid =
                 r && r.employee_id != null
@@ -759,7 +817,7 @@ async function downloadTasksEmployeeReport(req, res) {
               const mapped = map[eid];
               return (
                 mapped != null &&
-                String(mapped).trim() === String(departmentId).trim()
+                String(mapped).trim() === String(effectiveDepartmentId).trim()
               );
             });
           } catch (e) {
@@ -794,10 +852,11 @@ async function downloadTasksEmployeeReport(req, res) {
       return sendPreviewResponse(req, res, filtered, msg);
     }
 
-    if (filtered.length === 0)
+    if (filtered.length === 0) {
       return res
         .status(404)
         .json({ message: "No weekly task data for selected date range" });
+    }
 
     const weeklyForExcel = pickFields(filtered, fields);
     const weeklyForPdf = filtered;
@@ -810,6 +869,7 @@ async function downloadTasksEmployeeReport(req, res) {
         typeof reportService.renderTasksExcelBuffer === "function"
           ? await reportService.renderTasksExcelBuffer([], weeklyForExcel)
           : await reportService.renderExcelBuffer(weeklyForExcel, null);
+
       const filename = safeFilename("tasks_employee_report", "xlsx");
       res.setHeader(
         "Content-Type",
@@ -836,6 +896,7 @@ async function downloadTasksEmployeeReport(req, res) {
         );
         return res.status(500).json({ message: "Failed to render PDF" });
       }
+
       if (!pdfBuf || !Buffer.isBuffer(pdfBuf) || pdfBuf.length === 0) {
         console.error(
           "[reportTasksHandler] renderPdfBuffer returned empty buffer for employee tasks.",
@@ -844,6 +905,7 @@ async function downloadTasksEmployeeReport(req, res) {
           .status(500)
           .json({ message: "Failed to render PDF (empty)" });
       }
+
       const filename = safeFilename("tasks_employee_report", "pdf");
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader(
@@ -852,7 +914,9 @@ async function downloadTasksEmployeeReport(req, res) {
       );
       res.setHeader("Content-Length", pdfBuf.length);
       return res.send(pdfBuf);
-    } else return res.status(400).json({ message: "Invalid format" });
+    } else {
+      return res.status(400).json({ message: "Invalid format" });
+    }
   } catch (err) {
     console.error(
       "[reportTasksHandler] Error rendering Tasks (Employee) report:",
@@ -862,4 +926,7 @@ async function downloadTasksEmployeeReport(req, res) {
   }
 }
 
-module.exports = { downloadTasksSupervisorReport, downloadTasksEmployeeReport };
+module.exports = {
+  downloadTasksSupervisorReport,
+  downloadTasksEmployeeReport,
+};
