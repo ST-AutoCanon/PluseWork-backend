@@ -392,32 +392,46 @@ const getTeamSubmissions = async (orgId, supervisorId) => {
   const tenantPool = await getTenantPoolByOrgId(orgId);
 
   try {
-    const [rows] = await tenantPool.query(`
-      SELECT 
-        fr.*,
-        ft.id AS form_id,
-        ft.form_name,
-        ft.form_type,
-        ft.active_from,
-        ft.active_to,
-        e.first_name,
-        e.middle_name,
-        e.last_name,
-        CONCAT(COALESCE(e.first_name,''), ' ', 
-               COALESCE(e.middle_name,''), ' ', 
-               COALESCE(e.last_name,'')) AS employee_name
-      FROM form_responses1 fr
-      LEFT JOIN employees e 
-  ON fr.employee_id = e.employee_id
+   const [rows] = await tenantPool.query(`
+  SELECT 
+    fr.*,
 
-LEFT JOIN employee_professional ep 
-  ON e.employee_id = ep.employee_id
+    ft.id AS form_id,
+    ft.form_name,
+    ft.form_type,
+    ft.active_from,
+    ft.active_to,
 
-WHERE ep.supervisor_id = ?
-        AND ep.supervisor_id COLLATE utf8mb4_general_ci = ?   -- ← Fixed here
-      ORDER BY fr.submitted_at DESC
-      LIMIT 100;
-    `, [orgId, supervisorId]);
+    e.employee_id,
+    e.first_name,
+    e.middle_name,
+    e.last_name,
+
+    CONCAT(
+      COALESCE(e.first_name,''), ' ',
+      COALESCE(e.middle_name,''), ' ',
+      COALESCE(e.last_name,'')
+    ) AS employee_name
+
+  FROM form_responses1 fr
+
+  INNER JOIN form_templates ft
+    ON fr.form_id = ft.id
+
+  INNER JOIN employees e
+    ON fr.employee_id COLLATE utf8mb4_general_ci =
+       e.employee_id COLLATE utf8mb4_general_ci
+
+  INNER JOIN employee_professional ep
+    ON e.employee_id COLLATE utf8mb4_general_ci =
+       ep.employee_id COLLATE utf8mb4_general_ci
+
+  WHERE ep.supervisor_id COLLATE utf8mb4_general_ci = ?
+    AND fr.org_id = ?
+
+  ORDER BY fr.submitted_at DESC
+
+`, [supervisorId, orgId]);
 
     console.log(`[SERVICE] ✅ Team submissions found: ${rows.length}`);
     return rows || [];
