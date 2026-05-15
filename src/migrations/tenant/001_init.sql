@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS employee_personal (
 
 CREATE TABLE IF NOT EXISTS employee_professional (
   employee_id VARCHAR(20) PRIMARY KEY,
-  domain VARCHAR(10),
+  sub_org_id INT,
   employee_type VARCHAR(50),
   role VARCHAR(50),
   department_id INT,
@@ -1155,3 +1155,42 @@ CREATE TABLE org_project_visibility (
   updated_by varchar(100) COLLATE utf8mb4_general_ci DEFAULT NULL,
   PRIMARY KEY (org_id)
 ) ;
+
+CREATE TABLE supervisor_assignment_settings (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  org_id BIGINT NOT NULL,
+  department_id BIGINT NULL,
+  rank_mode ENUM('TOP_N', 'ALL_ABOVE') NOT NULL DEFAULT 'TOP_N',
+  above_rank_count INT NULL,
+  department_scope ENUM('SAME_DEPARTMENT', 'ANY_DEPARTMENT') NOT NULL DEFAULT 'SAME_DEPARTMENT',
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_org_dept_active (org_id, department_id, is_active)
+);
+
+CREATE TABLE sub_orgs (
+    id INT NOT NULL AUTO_INCREMENT,
+    org_id INT NOT NULL,
+
+    name VARCHAR(255) NOT NULL,
+    code VARCHAR(100) DEFAULT NULL,
+    description TEXT DEFAULT NULL,
+
+    status ENUM('Active', 'Inactive') NOT NULL DEFAULT 'Active',
+
+    created_by VARCHAR(100) DEFAULT NULL,
+    updated_by VARCHAR(100) DEFAULT NULL,
+
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+
+    CONSTRAINT uq_sub_org_name_per_org
+        UNIQUE (org_id, name),
+
+    CONSTRAINT uq_sub_org_code_per_org
+        UNIQUE (org_id, code)
+);

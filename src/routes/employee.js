@@ -43,6 +43,8 @@ router.get("/positions/supervisors", employeeHandler.listSupervisorsByPosition);
 
 router.put("/full/:employeeId", upload, employeeHandler.updateFullEmployee);
 
+router.get("/sub-orgs", employeeHandler.listSubOrgs);
+
 router.put(
   "/admin/employees/:employeeId/deactivate",
   employeeHandler.deactivateEmployee,

@@ -401,6 +401,52 @@ exports.updateFullEmployee = async (req, res) => {
   }
 };
 
+exports.listSubOrgs = async (req, res) => {
+  try {
+    const orgId =
+      req.headers["x-org-id"] ||
+      req.query.org_id ||
+      req.query.orgId ||
+      req.body.org_id ||
+      req.body.orgId ||
+      null;
+
+    if (!orgId) {
+      return res
+        .status(400)
+        .json(ErrorHandler.generateErrorResponse(400, "org_id is required."));
+    }
+
+    const tenantDb = await getTenantPoolByOrgId(orgId);
+
+    const [rows] = await tenantDb.execute(
+      `
+      SELECT id, name
+      FROM sub_orgs
+      WHERE org_id = ? AND status = 'Active'
+      ORDER BY name ASC
+      `,
+      [orgId],
+    );
+
+    return res
+      .status(200)
+      .json(
+        ErrorHandler.generateSuccessResponse(200, "Sub orgs fetched.", rows),
+      );
+  } catch (err) {
+    console.error("[listSubOrgs] error:", err);
+    return res
+      .status(500)
+      .json(
+        ErrorHandler.generateErrorResponse(
+          500,
+          err.message || "Failed to fetch sub orgs.",
+        ),
+      );
+  }
+};
+
 exports.getFullEmployee = async (req, res) => {
   try {
     const employeeId = req.params.employeeId;
