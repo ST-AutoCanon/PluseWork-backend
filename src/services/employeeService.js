@@ -323,11 +323,11 @@ async function addFullEmployeeUsingConnection(conn, data, options = {}) {
 
   await conn.execute(queries.ADD_EMPLOYEE_PRO, [
     eid,
-    data.domain || null,
     data.employee_type || null,
     data.joining_date || null,
     data.role || null,
     data.department_id || null,
+    data.sub_org_id || null,
     data.position || null,
     data.supervisor_id || null,
     data.salary || null,
@@ -815,11 +815,11 @@ exports.editFullEmployee = async (data) => {
     const normalizedResume = normalizeToSingleUrl(chosenResume);
 
     await conn.execute(queries.UPDATE_EMPLOYEE_PRO, [
-      pick("domain") || null,
       pick("employee_type") || null,
       pick("joining_date") || null,
       pick("role"),
       pick("department_id") || null,
+      pick("sub_org_id") || null,
       pick("position") || null,
       pick("supervisor_id") || null,
       pick("salary") || null,
@@ -1094,39 +1094,70 @@ exports.getPositions = async (role) => {
   }
 };
 
-exports.getSupervisorsByPosition = async (position, department_id, orgId) => {
+exports.getSupervisorsByPosition = async (position, departmentId, orgId) => {
   if (!orgId) throw new Error("orgId required");
 
   const tenantPool = await getTenantPoolForOrgId(orgId);
 
-  const [rankRows] = await db.execute(queries.GET_POSITION_RANK, [position]);
+  // 1) Fetch rule from DB
+  const [ruleRows] = await tenantPool.execute(
+    queries.GET_SUPERVISOR_ASSIGNMENT_RULE,
+    [orgId, departmentId || null],
+  );
+
+  const rule = ruleRows?.[0] || {
+    rank_mode: "TOP_N",
+    above_rank_count: 3,
+    department_scope: "SAME_DEPARTMENT",
+  };
+
+  // 2) Get current position rank
+  const [rankRows] = await tenantPool.execute(queries.GET_POSITION_RANK, [
+    position,
+  ]);
 
   const currentRank = rankRows?.[0]?.rank;
   if (!currentRank) return [];
 
-  const minRank = Math.max(1, currentRank - 3);
+  // 3) Calculate rank window dynamically
+  const minRank =
+    rule.rank_mode === "ALL_ABOVE"
+      ? 1
+      : Math.max(1, currentRank - Number(rule.above_rank_count || 3));
+
   const maxRank = currentRank - 1;
+
   if (minRank > maxRank) return [];
 
-  const [posRows] = await db.execute(
-    queries.GET_MASTER_POSITIONS_BY_RANK_RANGE,
-    [minRank, maxRank, department_id || null],
-  );
+  // 4) Build query dynamically
+  let sql = `
+    SELECT
+      e.employee_id,
+      CONCAT(e.first_name, ' ', e.last_name) AS name,
+      p.position,
+      p.department_id,
+      pos.\`rank\`,
+      d.name AS department
+    FROM employees e
+    JOIN employee_professional p USING (employee_id)
+    JOIN positions pos
+      ON pos.name = p.position
+    LEFT JOIN departments d ON p.department_id = d.id
+    WHERE pos.\`rank\` BETWEEN ? AND ?
+      AND e.status = 'Active'
+      AND e.org_id = ?
+  `;
 
-  if (!posRows?.length) return [];
+  const params = [minRank, maxRank, orgId];
 
-  const positionNames = posRows.map((r) => r.name);
+  if (rule.department_scope === "SAME_DEPARTMENT") {
+    sql += ` AND p.department_id = ? `;
+    params.push(departmentId);
+  }
 
-  const placeholders = positionNames.map(() => "?").join(",");
+  sql += ` ORDER BY pos.\`rank\` DESC`;
 
-  const finalQuery = queries.GET_SUPERVISORS_BY_POSITION_FILTERED.replace(
-    /%POSITION_LIST%/g,
-    placeholders,
-  );
-
-  const params = [...positionNames, orgId, ...positionNames];
-
-  const [rows] = await tenantPool.execute(finalQuery, params);
+  const [rows] = await tenantPool.execute(sql, params);
   return rows;
 };
 

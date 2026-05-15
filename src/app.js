@@ -115,11 +115,12 @@ const allowedOrigins = [
   "capacitor://localhost",
   "https://sukalpatechsolutions.com",
   "https://sts-test.site",
-
+  "https://sukalpatest.sts-test.site",
   "http://localhost:3001",
   "http://127.0.0.1:3001",
   "http://192.168.1.2:3001",
   "http://122.166.77.12:3001",
+  "https://test.sts-test.online",
 ].filter(Boolean);
 
 app.use((req, res, next) => {
@@ -430,18 +431,11 @@ app.use((req, res, next) => {
     }
 
     const io = new Server(server, {
-      cors: { origin: process.env.FRONTEND_URL || "*", credentials: true },
+      cors: {
+        origin: ["https://test.sts-test.online"],
+        credentials: true,
+      },
       path: "/api/socket.io",
-    });
-    app.set("io", io);
-
-    io.use((socket, next) => {
-      sessionMiddleware(socket.request, {}, (err) => {
-        if (err) {
-          console.error("[socket] session middleware error:", err);
-        }
-        return next();
-      });
     });
 
     io.use((socket, next) => {
