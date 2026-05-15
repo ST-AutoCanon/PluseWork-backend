@@ -520,18 +520,18 @@ SELECT employee_id
     p.spouse_gov_doc_url,
     DATE_FORMAT(p.marriage_date, '%Y-%m-%d')  AS marriage_date,
     p.aadhaar_number, p.aadhaar_doc_url,
-    p.pan_number, p.pan_doc_url,
-    p.passport_number, p.passport_doc_url,
-    p.driving_license_number, p.driving_license_doc_url,
-    p.voter_id, p.voter_id_doc_url,
-    p.uan_number, p.pf_number, p.esi_number, p.photo_url,
-    p.alternate_email, p.alternate_number, p.blood_group, p.emergency_contact_person,
-    p.emergency_name, p.emergency_number,
-    DATE_FORMAT(p.father_dob, '%Y-%m-%d') AS father_dob, p.father_gov_doc_url,
-    DATE_FORMAT(p.mother_dob, '%Y-%m-%d') AS mother_dob, p.mother_gov_doc_url,
-    p.child1_name, DATE_FORMAT(p.child1_dob, '%Y-%m-%d') AS child1_dob, p.child1_gov_doc_url,
-    p.child2_name, DATE_FORMAT(p.child2_dob, '%Y-%m-%d') AS child2_dob, p.child2_gov_doc_url,
-    p.child3_name, DATE_FORMAT(p.child3_dob, '%Y-%m-%d') AS child3_dob, p.child3_gov_doc_url,
+  p.pan_number, p.pan_doc_url,
+  p.passport_number, p.passport_doc_url,
+  p.driving_license_number, p.driving_license_doc_url,
+  p.voter_id, p.voter_id_doc_url,
+  p.uan_number, p.pf_number, p.esi_number, p.photo_url,
+  p.alternate_email, p.alternate_number, p.blood_group, p.emergency_contact_person,
+  p.emergency_name, p.emergency_number,
+  DATE_FORMAT(p.father_dob, '%Y-%m-%d') AS father_dob, p.father_gov_doc_url,
+  DATE_FORMAT(p.mother_dob, '%Y-%m-%d') AS mother_dob, p.mother_gov_doc_url,
+  p.child1_name, DATE_FORMAT(p.child1_dob, '%Y-%m-%d') AS child1_dob, p.child1_gov_doc_url,
+  p.child2_name, DATE_FORMAT(p.child2_dob, '%Y-%m-%d') AS child2_dob, p.child2_gov_doc_url,
+  p.child3_name, DATE_FORMAT(p.child3_dob, '%Y-%m-%d') AS child3_dob, p.child3_gov_doc_url,
     p.photo_url,
 
     ed.tenth_institution,
@@ -556,22 +556,22 @@ SELECT employee_id
     ed.pg_cert_url,
 
     (
-      SELECT JSON_ARRAYAGG(
-        JSON_OBJECT(
-          'name', ac.cert_name,
-          'institution', ac.institution,
-          'year', ac.year,
-          'files',
-            CASE
-              WHEN ac.file_urls IS NULL THEN JSON_ARRAY()
-              WHEN JSON_VALID(ac.file_urls) THEN CAST(ac.file_urls AS JSON)
-              ELSE JSON_ARRAY(ac.file_urls)
-            END
-        )
-      )
-      FROM employee_additional_certs ac
-      WHERE ac.employee_id = e.employee_id
-    ) AS additional_certs,
+  SELECT JSON_ARRAYAGG(
+    JSON_OBJECT(
+      'name', ac.cert_name,
+      'institution', ac.institution,
+      'year', ac.year,
+      'files',
+        CASE
+          WHEN ac.file_urls IS NULL THEN JSON_ARRAY()
+          WHEN JSON_VALID(ac.file_urls) THEN CAST(ac.file_urls AS JSON)
+          ELSE JSON_ARRAY(ac.file_urls) -- fallback for legacy single string
+        END
+    )
+  )
+  FROM employee_additional_certs ac
+  WHERE ac.employee_id = e.employee_id
+) AS additional_certs,
 
     pr.sub_org_id,
     so.name AS sub_org_name,
@@ -600,59 +600,60 @@ SELECT employee_id
   LEFT JOIN employee_personal     p  ON e.employee_id = p.employee_id
   LEFT JOIN employee_education    ed ON e.employee_id = ed.employee_id
   LEFT JOIN employee_professional pr ON e.employee_id = pr.employee_id
-  LEFT JOIN sub_orgs so              ON pr.sub_org_id = so.id
+  LEFT JOIN sub_orgs              so ON pr.sub_org_id = so.id
   LEFT JOIN departments           d  ON pr.department_id = d.id
   LEFT JOIN employee_bank_details bd ON e.employee_id = bd.employee_id
   LEFT JOIN employees             sup ON pr.supervisor_id = sup.employee_id
 
   LEFT JOIN (
-    SELECT employee_id,
-           JSON_ARRAYAGG(
-             JSON_OBJECT(
-               'company', company,
-               'designation', designation,
-               'start_date', DATE_FORMAT(start_date, '%Y-%m-%d'),
-               'end_date', DATE_FORMAT(end_date, '%Y-%m-%d'),
-               'doc_url',
-                 CASE
-                   WHEN doc_url IS NULL THEN JSON_ARRAY()
-                   WHEN JSON_VALID(doc_url) THEN CAST(doc_url AS JSON)
-                   ELSE JSON_ARRAY(doc_url)
-                 END
-             )
-           ) AS exp_json
-    FROM employee_experience
-    GROUP BY employee_id
-  ) exp ON e.employee_id = exp.employee_id
+  SELECT employee_id,
+         JSON_ARRAYAGG(
+           JSON_OBJECT(
+             'company', company,
+             'designation', designation,
+             'start_date', DATE_FORMAT(start_date, '%Y-%m-%d'),
+             'end_date', DATE_FORMAT(end_date, '%Y-%m-%d'),
+             'doc_url',
+               CASE
+                 WHEN doc_url IS NULL THEN JSON_ARRAY()
+                 WHEN JSON_VALID(doc_url) THEN CAST(doc_url AS JSON)
+                 ELSE JSON_ARRAY(doc_url)
+               END
+           )
+         ) AS exp_json
+  FROM employee_experience
+  GROUP BY employee_id
+) exp ON e.employee_id = exp.employee_id
 
-  LEFT JOIN (
-    SELECT employee_id,
-           JSON_ARRAYAGG(other_doc_url) AS docs_json
-    FROM employee_documents
-    GROUP BY employee_id
-  ) docs ON e.employee_id = docs.employee_id
+LEFT JOIN (
+  SELECT employee_id,
+         JSON_ARRAYAGG(other_doc_url) AS docs_json
+  FROM employee_documents
+  GROUP BY employee_id
+) docs ON e.employee_id = docs.employee_id
 
-  LEFT JOIN (
-    SELECT t1.employee_id, t1.hr_final_lwd
-    FROM employee_exit_requests1 t1
-    INNER JOIN (
-      SELECT employee_id, MAX(id) AS latest_id
-      FROM employee_exit_requests1
-      GROUP BY employee_id
-    ) t2 
-    ON t1.employee_id COLLATE utf8mb4_0900_ai_ci 
-     = t2.employee_id COLLATE utf8mb4_0900_ai_ci 
-    AND t1.id = t2.latest_id
-  ) exit_req ON e.employee_id COLLATE utf8mb4_0900_ai_ci 
-     = exit_req.employee_id COLLATE utf8mb4_0900_ai_ci
+LEFT JOIN (
+  SELECT t1.employee_id, t1.hr_final_lwd
+  FROM employee_exit_requests1 t1
+  INNER JOIN (
+    SELECT employee_id, MAX(id) AS latest_id
+    FROM employee_exit_requests1
+    
+    GROUP BY employee_id
+  ) t2 
+  ON t1.employee_id COLLATE utf8mb4_0900_ai_ci 
+   = t2.employee_id COLLATE utf8mb4_0900_ai_ci 
+  AND t1.id = t2.latest_id
+) exit_req ON e.employee_id COLLATE utf8mb4_0900_ai_ci 
+   = exit_req.employee_id COLLATE utf8mb4_0900_ai_ci
+
 
   WHERE (
     e.first_name    LIKE ? OR
     e.last_name     LIKE ? OR
     e.email         LIKE ? OR
     e.employee_id   LIKE ? OR
-    d.name          LIKE ? OR
-    so.name         LIKE ?
+    d.name          LIKE ?
   )
     AND e.org_id = ?
   ORDER BY e.employee_id;
