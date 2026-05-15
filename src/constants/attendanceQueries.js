@@ -128,6 +128,30 @@ leave_days AS (
         FROM expanded_leaves
 WHERE leave_date IN (SELECT work_date FROM working_days)
 ),
+regularisation_days AS (
+    SELECT DISTINCT STR_TO_DATE(
+        TRIM(BOTH '"' FROM JSON_UNQUOTE(JSON_EXTRACT(lrr.selected_dates, CONCAT('$[', seq, ']')))),
+        '%Y-%m-%d'
+    ) AS regularisation_date
+    FROM leave_regularisation_requests lrr
+    JOIN (
+        SELECT 0 AS seq UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4
+        UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9
+        UNION ALL SELECT 10 UNION ALL SELECT 11 UNION ALL SELECT 12 UNION ALL SELECT 13 UNION ALL SELECT 14
+    ) nums ON TRUE
+    WHERE lrr.employee_id = ?
+    AND lrr.status = 'Approved'
+    AND lrr.regularisation_type IN ('missed_apply_leave', 'missed_punch_in')
+    AND JSON_UNQUOTE(JSON_EXTRACT(lrr.selected_dates, CONCAT('$[', seq, ']'))) IS NOT NULL
+    AND MONTH(STR_TO_DATE(
+        TRIM(BOTH '"' FROM JSON_UNQUOTE(JSON_EXTRACT(lrr.selected_dates, CONCAT('$[', seq, ']')))),
+        '%Y-%m-%d'
+    )) = MONTH(NOW())
+    AND YEAR(STR_TO_DATE(
+        TRIM(BOTH '"' FROM JSON_UNQUOTE(JSON_EXTRACT(lrr.selected_dates, CONCAT('$[', seq, ']')))),
+        '%Y-%m-%d'
+    )) = YEAR(NOW())
+),
 present_days AS (
     SELECT DISTINCT DATE(punchin_time) AS punch_date FROM emp_attendence
     WHERE employee_id = ?
@@ -150,10 +174,18 @@ SELECT
     (SELECT COUNT(*) FROM working_days) AS total_working_days,  
     (SELECT COUNT(*) FROM leave_days) AS leave_count,           
     (SELECT COUNT(*) FROM past_working_days 
-        WHERE work_date IN (SELECT punch_date FROM present_days)
+        WHERE work_date IN (
+            SELECT punch_date FROM present_days
+            UNION
+            SELECT regularisation_date FROM regularisation_days
+        )
         AND work_date NOT IN (SELECT leave_date FROM leave_days)) AS present_count,  
     (SELECT COUNT(*) FROM past_working_days 
-        WHERE work_date NOT IN (SELECT punch_date FROM present_days)  
+        WHERE work_date NOT IN (
+            SELECT punch_date FROM present_days
+            UNION
+            SELECT regularisation_date FROM regularisation_days
+        )  
         AND work_date NOT IN (SELECT leave_date FROM leave_days)) AS absent_count;
 `,
 
