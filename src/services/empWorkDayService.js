@@ -19,6 +19,7 @@ class EmpAttendanceService {
         employeeId,
         employeeId,
         employeeId,
+        employeeId,
       ]);
 
       return rows.length > 0 ? rows[0] : null;
