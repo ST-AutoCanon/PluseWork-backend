@@ -352,6 +352,16 @@ CREATE TABLE IF NOT EXISTS leavequeries (
   KEY idx_leavequeries_start_date (start_date),
   KEY idx_leavequeries_end_date (end_date)
 );
+CREATE TABLE employee_leave_balances (
+  id int NOT NULL AUTO_INCREMENT,
+  employee_id varchar(20) NOT NULL,
+  leave_type varchar(64) NOT NULL,
+  remaining int NOT NULL DEFAULT '0',
+  updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `ux_emp_leave_type` (`employee_id`,`leave_type`),
+  CONSTRAINT `employee_leave_balances_ibfk_1` FOREIGN KEY (`employee_id`) REFERENCES `employees` (`employee_id`) ON DELETE CASCADE
+) ;
 
 CREATE TABLE employee_leave_carry_forward (
   id bigint unsigned NOT NULL AUTO_INCREMENT,
@@ -394,7 +404,7 @@ CREATE TABLE IF NOT EXISTS reimbursement (
   CONSTRAINT reimbursement_ibfk_2 FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS reimbursement_lines (
+CREATE TABLE reimbursement_lines (
   id bigint NOT NULL AUTO_INCREMENT,
   reimbursement_id int NOT NULL,
   line_index int NOT NULL DEFAULT '0',
@@ -416,10 +426,11 @@ CREATE TABLE IF NOT EXISTS reimbursement_lines (
   meta json DEFAULT NULL,
   created_at datetime DEFAULT CURRENT_TIMESTAMP,
   updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (id),
-  KEY reimbursement_id (reimbursement_id,line_index),
-  CONSTRAINT fk_rl_reimbursement FOREIGN KEY (reimbursement_id) REFERENCES reimbursement (id) ON DELETE CASCADE
+  PRIMARY KEY (`id`),
+  KEY `reimbursement_id` (`reimbursement_id`,`line_index`),
+  CONSTRAINT `fk_rl_reimbursement` FOREIGN KEY (`reimbursement_id`) REFERENCES `reimbursement` (`id`) ON DELETE CASCADE
 );
+
 
 CREATE TABLE IF NOT EXISTS reimbursement_attachments (
   id bigint NOT NULL AUTO_INCREMENT,
@@ -704,7 +715,7 @@ CREATE TABLE `employee_lop_records` (
   PRIMARY KEY (`id`)
 ) ;
 
-CREATE TABLE `lop_records` (
+CREATE TABLE lop_records (
   id bigint unsigned NOT NULL AUTO_INCREMENT,
   employee_id varchar(64) NOT NULL,
   leave_id bigint unsigned NOT NULL,
@@ -716,8 +727,19 @@ CREATE TABLE `lop_records` (
   KEY `leave_id` (`leave_id`)
 ) ;
 
+CREATE TABLE leave_audit (
+  id int NOT NULL AUTO_INCREMENT,
+  leave_id int NOT NULL,
+  actor_id varchar(20) DEFAULT NULL,
+  action varchar(100) NOT NULL,
+  detail json DEFAULT NULL,
+  created_at datetime DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_leave` (`leave_id`)
+);
 
-CREATE TABLE `leave_attachments` (
+
+CREATE TABLE leave_attachments (
   id bigint unsigned NOT NULL AUTO_INCREMENT,
   leave_id bigint NOT NULL,
   file_name varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL,
