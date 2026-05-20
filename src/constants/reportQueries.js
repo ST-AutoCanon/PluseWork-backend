@@ -270,6 +270,7 @@ ORDER BY e.created_at DESC
       DATE_FORMAT(punchout_time, '%Y-%m-%d %H:%i:%s') AS punchout_time,
       punchout_device,
       punchout_location,
+      CONCAT(FLOOR(IFNULL(TIMESTAMPDIFF(MINUTE, punchin_time, punchout_time), 0) / 60), 'h ', MOD(IFNULL(TIMESTAMPDIFF(MINUTE, punchin_time, punchout_time), 0), 60), 'm') AS total_login_hours,
       punchmode,
       DATE_FORMAT(punchin_time, '%Y-%m-%d %H:%i:%s') AS created_at
     FROM emp_attendence

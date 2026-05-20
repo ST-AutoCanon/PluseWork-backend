@@ -13,6 +13,7 @@ const LABEL_OVERRIDES = {
   sup_review_status: "Supervisor Review Status",
   punchin_time: "Punch In Time",
   punchout_time: "Punch Out Time",
+  total_login_hours: "Total Login Hours",
   created_at: "Created At",
   updated_at: "Updated At",
   employee_id: "Employee ID",
@@ -802,6 +803,7 @@ async function getAttendanceRows(
     "punchout_time",
     "punchout_device",
     "punchout_location",
+    "total_login_hours",
     "punchmode",
     "created_at",
   ];
