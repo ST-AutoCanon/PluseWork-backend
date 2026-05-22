@@ -255,6 +255,24 @@ app.use((req, res, next) => {
       { timezone: "Asia/Kolkata" },
     );
 
+    cron.schedule(
+      "*/15 * * * *",
+      async () => {
+        try {
+          const closedCount =
+            await EmployeeQueries.autoCloseExpiredThreadsAllOrgs();
+          if (closedCount > 0) {
+            console.log(
+              `[cron] auto-closed ${closedCount} expired query threads`,
+            );
+          }
+        } catch (err) {
+          console.error("[cron] employee query auto-close error:", err);
+        }
+      },
+      { timezone: "Asia/Kolkata" },
+    );
+
     cron.schedule("0 20 * * *", async () => {
       const payload = JSON.stringify({
         title: "Friendly Reminder",

@@ -205,4 +205,58 @@ ORDER BY t.updated_at DESC;
     SET latest_message = ?, updated_at = NOW()
     WHERE id = ?
   `,
+
+  GET_THREAD_META: `
+  SELECT id, sender_id, recipient_id, status, close_requested_at
+  FROM threads
+  WHERE id = ?
+  LIMIT 1;
+`,
+
+  REQUEST_CLOSE_THREAD: `
+  UPDATE threads
+  SET status = 'pending_close',
+      close_requested_by = ?,
+      close_requested_at = NOW(),
+      updated_at = NOW()
+  WHERE id = ? AND status <> 'closed';
+`,
+
+  APPROVE_CLOSE_THREAD: `
+  UPDATE threads
+  SET status = 'closed',
+      feedback = ?,
+      closed_by = ?,
+      closed_at = NOW(),
+      updated_at = NOW()
+  WHERE id = ? AND status = 'pending_close';
+`,
+
+  REOPEN_THREAD: `
+  UPDATE threads
+  SET status = 'open',
+      close_requested_by = NULL,
+      close_requested_at = NULL,
+      updated_at = NOW()
+  WHERE id = ? AND status = 'pending_close';
+`,
+
+  AUTO_CLOSE_EXPIRED_THREADS: `
+  UPDATE threads
+  SET status = 'closed',
+      auto_closed = 1,
+      closed_by = NULL,
+      closed_at = NOW(),
+      updated_at = NOW()
+  WHERE org_id = ?
+    AND status = 'pending_close'
+    AND close_requested_at IS NOT NULL
+    AND close_requested_at <= DATE_SUB(NOW(), INTERVAL 2 DAY);
+`,
+
+  GET_ALL_ORG_IDS: `
+  SELECT id
+  FROM organizations
+  WHERE db_name IS NOT NULL AND db_name <> ''
+`,
 };
