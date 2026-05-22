@@ -104,8 +104,11 @@ exports.addMessage = async (req, res) => {
     const { thread_id } = req.params;
     const { sender_id, sender_role, message, recipient_id } = req.body;
 
+    const rawMessage = typeof message === "string" ? message.trim() : "";
+    const finalMessage = rawMessage.length > 0 ? rawMessage : null;
+
     const attachment_url = req.file
-      ? `${req.protocol}://${req.get("host")}/attachments/${req.file.filename}`
+      ? `${req.protocol}://${req.get("host")}/empquery/attachments/${req.file.filename}`
       : null;
 
     if (!recipient_id) {
@@ -120,7 +123,7 @@ exports.addMessage = async (req, res) => {
       thread_id,
       sender_id,
       sender_role,
-      message,
+      finalMessage,
       recipient_id,
       attachment_url,
       orgId,
@@ -138,16 +141,18 @@ exports.addMessage = async (req, res) => {
 
     const newMessage = {
       id: messageId,
-      thread_id,
+      thread_id: String(thread_id),
       sender_id,
       sender_role,
-      message,
+      message: finalMessage,
       attachment_url,
       created_at,
     };
 
     const io = req.app.get("io");
-    if (io) io.to(`query_${thread_id}`).emit("newMessage", newMessage);
+    if (io) {
+      io.to(`query_${String(thread_id)}`).emit("newMessage", newMessage);
+    }
 
     res.status(200).json({
       status: "success",
@@ -203,21 +208,38 @@ exports.closeThread = async (req, res) => {
         );
     }
 
+    const actorId =
+      req.headers["x-employee-id"] || req.body.actor_id || req.body.sender_id;
+
+    if (!actorId) {
+      return res
+        .status(400)
+        .send(ErrorHandler.generateErrorResponse(400, "actor id is required"));
+    }
+
     const { thread_id } = req.params;
-    const { feedback, note } = req.body;
-    await EmployeeQueries.closeThread(thread_id, feedback, note, orgId);
-    const response = ErrorHandler.generateSuccessResponse(
-      200,
-      "Thread closed successfully with feedback.",
+    const { feedback } = req.body;
+
+    await EmployeeQueries.approveCloseThread(
+      thread_id,
+      actorId,
+      feedback,
+      orgId,
     );
-    res.status(200).send(response);
+
+    res
+      .status(200)
+      .send(ErrorHandler.generateSuccessResponse(200, "Thread closed."));
   } catch (error) {
     console.error("[closeThread] error:", error);
-    const response = ErrorHandler.generateErrorResponse(
-      500,
-      error.message || "Failed to close thread.",
-    );
-    res.status(500).send(response);
+    res
+      .status(500)
+      .send(
+        ErrorHandler.generateErrorResponse(
+          500,
+          error.message || "Failed to close thread.",
+        ),
+      );
   }
 };
 
@@ -310,5 +332,143 @@ exports.markMessagesAsRead = async (req, res) => {
       "Failed to mark messages as read.",
     );
     res.status(500).send(response);
+  }
+};
+
+exports.requestCloseThread = async (req, res) => {
+  try {
+    const orgId = resolveOrgIdFromReq(req);
+    if (!orgId) {
+      return res
+        .status(400)
+        .send(
+          ErrorHandler.generateErrorResponse(400, "orgId header is required"),
+        );
+    }
+
+    const actorId =
+      req.headers["x-employee-id"] || req.body.actor_id || req.body.sender_id;
+
+    const actorRole =
+      req.headers["x-role"] || req.body.user_role || req.body.sender_role;
+
+    if (!actorId) {
+      return res
+        .status(400)
+        .send(ErrorHandler.generateErrorResponse(400, "actor id is required"));
+    }
+
+    const { thread_id } = req.params;
+
+    await EmployeeQueries.requestCloseThread(
+      thread_id,
+      actorId,
+      actorRole,
+      orgId,
+    );
+
+    res
+      .status(200)
+      .send(
+        ErrorHandler.generateSuccessResponse(
+          200,
+          "Thread marked as resolved. Waiting for sender approval.",
+        ),
+      );
+  } catch (error) {
+    console.error("[requestCloseThread] error:", error);
+    res
+      .status(500)
+      .send(
+        ErrorHandler.generateErrorResponse(
+          500,
+          error.message || "Failed to request close.",
+        ),
+      );
+  }
+};
+
+exports.approveCloseThread = async (req, res) => {
+  try {
+    const orgId = resolveOrgIdFromReq(req);
+    if (!orgId) {
+      return res
+        .status(400)
+        .send(
+          ErrorHandler.generateErrorResponse(400, "orgId header is required"),
+        );
+    }
+
+    const actorId =
+      req.headers["x-employee-id"] || req.body.actor_id || req.body.sender_id;
+
+    if (!actorId) {
+      return res
+        .status(400)
+        .send(ErrorHandler.generateErrorResponse(400, "actor id is required"));
+    }
+
+    const { thread_id } = req.params;
+    const { feedback } = req.body;
+
+    await EmployeeQueries.approveCloseThread(
+      thread_id,
+      actorId,
+      feedback,
+      orgId,
+    );
+
+    res
+      .status(200)
+      .send(ErrorHandler.generateSuccessResponse(200, "Thread closed."));
+  } catch (error) {
+    console.error("[approveCloseThread] error:", error);
+    res
+      .status(500)
+      .send(
+        ErrorHandler.generateErrorResponse(
+          500,
+          error.message || "Failed to close thread.",
+        ),
+      );
+  }
+};
+
+exports.reopenThread = async (req, res) => {
+  try {
+    const orgId = resolveOrgIdFromReq(req);
+    if (!orgId) {
+      return res
+        .status(400)
+        .send(
+          ErrorHandler.generateErrorResponse(400, "orgId header is required"),
+        );
+    }
+
+    const actorId =
+      req.headers["x-employee-id"] || req.body.actor_id || req.body.sender_id;
+
+    if (!actorId) {
+      return res
+        .status(400)
+        .send(ErrorHandler.generateErrorResponse(400, "actor id is required"));
+    }
+
+    const { thread_id } = req.params;
+    await EmployeeQueries.reopenThread(thread_id, actorId, orgId);
+
+    res
+      .status(200)
+      .send(ErrorHandler.generateSuccessResponse(200, "Thread reopened."));
+  } catch (error) {
+    console.error("[reopenThread] error:", error);
+    res
+      .status(500)
+      .send(
+        ErrorHandler.generateErrorResponse(
+          500,
+          error.message || "Failed to reopen thread.",
+        ),
+      );
   }
 };

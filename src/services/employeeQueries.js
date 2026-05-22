@@ -20,7 +20,7 @@ class EmployeeQueries {
     subject,
     message,
     recipientRole,
-    orgId
+    orgId,
   ) {
     if (!orgId) throw new Error("orgId required");
 
@@ -42,11 +42,11 @@ class EmployeeQueries {
     } else if (recipientRole === "Manager") {
       const [managers] = await tenantPool.query(
         queries.GET_MANAGER_BY_DEPARTMENT,
-        [department_id, orgId]
+        [department_id, orgId],
       );
       if (!managers || managers.length === 0) {
         throw new Error(
-          "No department manager found for this organization/department."
+          "No department manager found for this organization/department.",
         );
       }
       recipient_id = managers[0].employee_id;
@@ -79,7 +79,7 @@ class EmployeeQueries {
       await EmployeeQueries.markMessageUnreadForRecipientsTenant(
         tenantConn,
         messageId,
-        [recipient_id]
+        [recipient_id],
       );
 
       await tenantConn.commit();
@@ -114,7 +114,7 @@ class EmployeeQueries {
     conn,
     thread_id,
     message,
-    attachment_url
+    attachment_url,
   ) {
     let latestMessageValue = "";
     if (message && message.trim().length > 0) {
@@ -134,7 +134,7 @@ class EmployeeQueries {
     thread_id,
     message,
     attachment_url,
-    orgId
+    orgId,
   ) {
     if (!orgId) throw new Error("orgId required");
     const tenantPool = await getTenantPoolForOrgId(orgId);
@@ -144,7 +144,7 @@ class EmployeeQueries {
         conn,
         thread_id,
         message,
-        attachment_url
+        attachment_url,
       );
     } finally {
       try {
@@ -160,34 +160,63 @@ class EmployeeQueries {
     message,
     recipient_id,
     attachment_url = null,
-    orgId
+    orgId,
   ) {
     if (!orgId) throw new Error("orgId required");
     const tenantPool = await getTenantPoolForOrgId(orgId);
     const tenantConn = await tenantPool.getConnection();
+
     try {
       await tenantConn.beginTransaction();
+
+      const [threadRows] = await tenantConn.execute(queries.GET_THREAD_META, [
+        thread_id,
+      ]);
+      const thread = threadRows?.[0];
+
+      if (!thread) {
+        throw new Error("Thread not found");
+      }
+
+      if (thread.status === "closed") {
+        throw new Error("Thread is already closed.");
+      }
+
+      const normalizedMessage =
+        typeof message === "string" ? message.trim() : "";
+
+      const dbMessage =
+        attachment_url && !normalizedMessage ? null : normalizedMessage;
+
       const [result] = await tenantConn.execute(queries.ADD_MESSAGE, [
         thread_id,
         sender_id,
         sender_role,
-        message,
+        dbMessage,
         attachment_url,
       ]);
+
       const messageId = result.insertId;
 
       await EmployeeQueries.updateThreadLatestMessageTenant(
         tenantConn,
         thread_id,
-        message,
-        attachment_url
+        dbMessage,
+        attachment_url,
       );
 
       await EmployeeQueries.markMessageUnreadForRecipientsTenant(
         tenantConn,
         messageId,
-        [recipient_id]
+        [recipient_id],
       );
+
+      if (
+        String(thread.sender_id) === String(sender_id) &&
+        thread.status === "pending_close"
+      ) {
+        await tenantConn.execute(queries.REOPEN_THREAD, [thread_id]);
+      }
 
       await tenantConn.commit();
       return messageId;
@@ -206,7 +235,7 @@ class EmployeeQueries {
   static async markMessageUnreadForRecipientsTenant(
     conn,
     messageId,
-    recipientIds
+    recipientIds,
   ) {
     if (!Array.isArray(recipientIds) || recipientIds.length === 0) return;
     const values = recipientIds.map((id) => [messageId, id, false]);
@@ -221,7 +250,7 @@ class EmployeeQueries {
       await EmployeeQueries.markMessageUnreadForRecipientsTenant(
         conn,
         messageId,
-        recipientIds
+        recipientIds,
       );
     } finally {
       try {
@@ -292,6 +321,97 @@ class EmployeeQueries {
       console.error("Error fetching threads by employee:", error);
       throw new Error("Error fetching threads");
     }
+  }
+
+  static async getThreadMeta(thread_id, orgId) {
+    if (!orgId) throw new Error("orgId required");
+    const tenantPool = await getTenantPoolForOrgId(orgId);
+    const [rows] = await tenantPool.query(queries.GET_THREAD_META, [thread_id]);
+    return rows?.[0] || null;
+  }
+
+  static async requestCloseThread(thread_id, actorId, actorRole, orgId) {
+    if (!orgId) throw new Error("orgId required");
+    const tenantPool = await getTenantPoolForOrgId(orgId);
+    const thread = await EmployeeQueries.getThreadMeta(thread_id, orgId);
+
+    if (!thread) throw new Error("Thread not found");
+    if (thread.status === "closed") {
+      throw new Error("Thread is already closed.");
+    }
+
+    const isReceiver = String(thread.recipient_id) === String(actorId);
+    const isAdmin = String(actorRole || "").toLowerCase() === "admin";
+
+    if (!isReceiver && !isAdmin) {
+      throw new Error("Only the receiver or an admin can request close.");
+    }
+
+    await tenantPool.query(queries.REQUEST_CLOSE_THREAD, [actorId, thread_id]);
+  }
+
+  static async approveCloseThread(thread_id, actorId, feedback, orgId) {
+    if (!orgId) throw new Error("orgId required");
+    const tenantPool = await getTenantPoolForOrgId(orgId);
+    const thread = await EmployeeQueries.getThreadMeta(thread_id, orgId);
+
+    if (!thread) throw new Error("Thread not found");
+    if (String(thread.sender_id) !== String(actorId)) {
+      throw new Error("Only the original sender can approve close.");
+    }
+    if (thread.status !== "pending_close") {
+      throw new Error("Thread is not waiting for close approval.");
+    }
+
+    await tenantPool.query(queries.APPROVE_CLOSE_THREAD, [
+      feedback || null,
+      actorId,
+      thread_id,
+    ]);
+  }
+
+  static async reopenThread(thread_id, actorId, orgId) {
+    if (!orgId) throw new Error("orgId required");
+    const tenantPool = await getTenantPoolForOrgId(orgId);
+    const thread = await EmployeeQueries.getThreadMeta(thread_id, orgId);
+
+    if (!thread) throw new Error("Thread not found");
+    if (String(thread.sender_id) !== String(actorId)) {
+      throw new Error("Only the original sender can reopen.");
+    }
+    if (thread.status !== "pending_close") {
+      return;
+    }
+
+    await tenantPool.query(queries.REOPEN_THREAD, [thread_id]);
+  }
+
+  static async autoCloseExpiredThreadsForOrg(orgId) {
+    if (!orgId) return 0;
+    const tenantPool = await getTenantPoolForOrgId(orgId);
+    const [result] = await tenantPool.query(
+      queries.AUTO_CLOSE_EXPIRED_THREADS,
+      [orgId],
+    );
+    return result?.affectedRows || 0;
+  }
+
+  static async autoCloseExpiredThreadsAllOrgs() {
+    const [orgRows] = await db.execute(queries.GET_ALL_ORG_IDS);
+    let total = 0;
+
+    for (const row of orgRows || []) {
+      const orgId = row.id;
+      if (!orgId) continue;
+
+      try {
+        total += await EmployeeQueries.autoCloseExpiredThreadsForOrg(orgId);
+      } catch (err) {
+        console.error(`[autoCloseExpiredThreadsAllOrgs] orgId=${orgId}`, err);
+      }
+    }
+
+    return total;
   }
 }
 

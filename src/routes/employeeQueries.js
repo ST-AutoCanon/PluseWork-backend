@@ -161,4 +161,16 @@ router.put(
   employeeQueriesHandler.markMessagesAsRead,
 );
 
+router.put(
+  "/threads/:thread_id/request-close",
+  (req, res, next) => next(),
+  employeeQueriesHandler.requestCloseThread,
+);
+
+router.put(
+  "/threads/:thread_id/reopen",
+  (req, res, next) => next(),
+  employeeQueriesHandler.reopenThread,
+);
+
 module.exports = router;
