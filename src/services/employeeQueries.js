@@ -64,6 +64,7 @@ class EmployeeQueries {
         recipient_id,
         subject,
         department_id || null,
+        message,
       ]);
       const threadId = result.insertId;
 

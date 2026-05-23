@@ -1,7 +1,7 @@
 module.exports = {
   CREATE_THREAD: `
-    INSERT INTO threads (org_id, sender_id, recipient_id, subject, department_id)
-    VALUES (?, ?, ?, ?, ?);
+    INSERT INTO threads (org_id, sender_id, recipient_id, subject, department_id, latest_message)
+    VALUES (?, ?, ?, ?, ?, ?);
   `,
 
   ADD_MESSAGE: `
@@ -133,24 +133,26 @@ ORDER BY t.updated_at DESC;
 
   FETCH_THREADS: `
   SELECT
-    t.id AS id,
-    ANY_VALUE(t.subject) AS subject,
-    ANY_VALUE(
-      CASE
-        WHEN t.sender_id = ? THEN t.recipient_id
-        ELSE t.sender_id
-      END
-    )                                   AS recipient_id,
-    ANY_VALUE(CONCAT(e.first_name, ' ', e.last_name)) AS recipient_name,
-    ANY_VALUE(p.photo_url)              AS photo_url,
-    ANY_VALUE(pr.role)                  AS role,
-    ANY_VALUE(p.gender)                 AS gender,
-    ANY_VALUE(t.department_id)          AS department_id,
-    ANY_VALUE(DATE_FORMAT(t.created_at, '%Y-%m-%d %H:%i:%s')) AS created_at,
-    ANY_VALUE(DATE_FORMAT(t.updated_at, '%Y-%m-%d %H:%i:%s')) AS updated_at,
-    ANY_VALUE(t.status)                 AS status,
-    ANY_VALUE(t.latest_message)         AS latest_message,
-    COUNT(CASE WHEN mrs.is_read = 0 THEN 1 END) AS unread_message_count
+  t.id AS id,
+  t.sender_id AS thread_sender_id,
+  t.recipient_id AS thread_recipient_id,
+  ANY_VALUE(t.subject) AS subject,
+  ANY_VALUE(
+    CASE
+      WHEN t.sender_id = ? THEN t.recipient_id
+      ELSE t.sender_id
+    END
+  ) AS counterpart_id,
+  ANY_VALUE(CONCAT(e.first_name, ' ', e.last_name)) AS recipient_name,
+  ANY_VALUE(p.photo_url) AS photo_url,
+  ANY_VALUE(pr.role) AS role,
+  ANY_VALUE(p.gender) AS gender,
+  ANY_VALUE(t.department_id) AS department_id,
+  ANY_VALUE(DATE_FORMAT(t.created_at, '%Y-%m-%d %H:%i:%s')) AS created_at,
+  ANY_VALUE(DATE_FORMAT(t.updated_at, '%Y-%m-%d %H:%i:%s')) AS updated_at,
+  ANY_VALUE(t.status) AS status,
+  ANY_VALUE(t.latest_message) AS latest_message,
+  COUNT(CASE WHEN mrs.is_read = 0 THEN 1 END) AS unread_message_count
 
   FROM threads t
 
