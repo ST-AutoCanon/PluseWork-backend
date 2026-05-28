@@ -61,8 +61,11 @@ const GET_ALL_EMPLOYEE_FULL_NAMES = `
 `;
 
 const GET_ALL_DEPARTMENT_NAMES = `
-  SELECT id, name
+  SELECT 
+    id, 
+    name
   FROM departments
+  WHERE Org_id = ?
   ORDER BY name ASC;
 `;
 

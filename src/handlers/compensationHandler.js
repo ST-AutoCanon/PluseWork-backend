@@ -139,8 +139,29 @@ const getAllEmployeeNamesHandler = async (req, res) => {
 };
 
 const getAllDepartmentNamesHandler = async (req, res) => {
-  const data = await getAllDepartmentNames();
-  res.status(200).json({ success: true, data });
+  const orgId = getOrgIdFromRequest(req);
+
+  if (!orgId) {
+    return res.status(400).json({
+      error: "org_id is required",
+    });
+  }
+
+  try {
+    const data = await getAllDepartmentNames(orgId);
+
+    res.status(200).json({
+      success: true,
+      data,
+    });
+  } catch (error) {
+    console.error("Error fetching departments:", error);
+
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch departments",
+    });
+  }
 };
 
 const handleGetEmployeesByDepartmentId = async (req, res) => {

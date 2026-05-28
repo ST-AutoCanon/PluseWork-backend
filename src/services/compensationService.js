@@ -126,9 +126,13 @@ const getAllEmployeeNames = async (orgId) => {
   return rows;
 };
 
-const getAllDepartmentNames = async () => {
-  const pool = await getTenantPoolForOrg(1);
-  const [rows] = await pool.query(GET_ALL_DEPARTMENT_NAMES);
+const getAllDepartmentNames = async (orgId) => {
+  const pool = await getTenantPoolForOrg(orgId);
+
+  const [rows] = await pool.query(GET_ALL_DEPARTMENT_NAMES, [
+    orgId,
+  ]);
+
   return rows;
 };
 
