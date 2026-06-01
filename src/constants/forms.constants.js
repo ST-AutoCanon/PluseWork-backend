@@ -42,30 +42,47 @@ const FORM_QUERIES = {
     WHERE id = ?
   `,
 
-  SUBMIT_RESPONSE: `
-    INSERT INTO form_responses1 (form_id, employee_id, org_id, response_json)
-    VALUES (?, ?, ?, ?)
-  `,
+ SUBMIT_RESPONSE: `
+  INSERT INTO form_responses1 
+    (form_id, employee_id, org_id, response_json, status) 
+  VALUES (?, ?, ?, ?, ?)
+`,
+UPDATE_RESPONSE: `
+  UPDATE form_responses1
+  SET response_json = ?, 
+      status = ?,
+      submitted_at = NOW()
+  WHERE id = ?
+`,
+GET_RESPONSES: `
+  SELECT *
+  FROM form_responses1
+  WHERE form_id = ? 
+    AND org_id = ?
+  ORDER BY submitted_at DESC
+`,
+GET_RESPONSES_BY_ORG: `
+  SELECT fr.*, ft.form_name
+  FROM form_responses1 fr
+  LEFT JOIN form_templates ft ON fr.form_id = ft.id
+  WHERE fr.org_id = ?
+  ORDER BY fr.submitted_at DESC
+`,
+GET_RESPONSE_BY_FORM_EMPLOYEE: `
+  SELECT * FROM form_responses1 
+  WHERE form_id = ? 
+    AND employee_id = ? 
+    AND org_id = ?
+  LIMIT 1
+`,
 
-  GET_RESPONSES: `
-    SELECT *
-    FROM form_responses1
-    WHERE form_id = ? AND org_id = ?
-    ORDER BY submitted_at DESC
-  `,
-
-  GET_RESPONSE_BY_FORM_EMPLOYEE: `
-    SELECT *
-    FROM form_responses1
-    WHERE form_id = ? AND employee_id = ? AND org_id = ?
-    LIMIT 1
-  `,
-
-  UPDATE_RESPONSE: `
-    UPDATE form_responses1
-    SET response_json = ?, submitted_at = NOW()
-    WHERE id = ?
-  `,
+ UPDATE_RESPONSE: `
+  UPDATE form_responses1
+  SET response_json = ?, 
+      status = ?,
+      submitted_at = NOW()
+  WHERE id = ?
+`,
 
  ASSIGN_FORM_TO_EMPLOYEES: `
   INSERT INTO form_assignments 
