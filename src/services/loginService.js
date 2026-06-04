@@ -1,6 +1,7 @@
 const db = require("../config");
 const queries = require("../constants/loginQueries");
 const moment = require("moment");
+const crypto = require("crypto");
 const { getTenantPool, sanitizeDbName } = require("../db/tenantPoolManager");
 
 async function getTenantPoolForOrgId(orgId) {
@@ -76,7 +77,7 @@ class LoginService {
           tenantErr.code === "ER_DBACCESS_DENIED_ERROR")
       ) {
         const err = new Error(
-          `Tenant schema for org ${orgId} is not provisioned or inaccessible`
+          `Tenant schema for org ${orgId} is not provisioned or inaccessible`,
         );
         err.code = "TENANT_SCHEMA";
         err.original =
@@ -110,7 +111,7 @@ class LoginService {
 
       const [accessRows] = await tenantPool.query(
         queries.GET_SIDEBAR_ACCESS_BY_ROLE,
-        [orgId, role]
+        [orgId, role],
       );
 
       if (!accessRows || accessRows.length === 0) return [];
@@ -136,7 +137,7 @@ class LoginService {
     } catch (err) {
       console.error(
         "[fetchSidebarMenu] unexpected error:",
-        err && (err.stack || err)
+        err && (err.stack || err),
       );
       throw new Error("Failed to fetch sidebar menu");
     }
@@ -164,7 +165,7 @@ class LoginService {
 
       const absent = Math.max(
         0,
-        (totalEmployees || 0) - (present || 0) - (approved_leave || 0)
+        (totalEmployees || 0) - (present || 0) - (approved_leave || 0),
       );
 
       return {
@@ -178,7 +179,7 @@ class LoginService {
     } catch (error) {
       console.error("Error fetching attendance status count:", error);
       throw new Error(
-        "Failed to fetch attendance status count: " + (error.message || error)
+        "Failed to fetch attendance status count: " + (error.message || error),
       );
     }
   }
@@ -189,7 +190,7 @@ class LoginService {
       const tenantDb = await getTenantPoolForOrgId(orgId);
       const [rows] = await tenantDb.query(
         queries.GET_EMPLOYEE_LOGIN_DATA_COUNT,
-        [orgId]
+        [orgId],
       );
       return rows || [];
     } catch (error) {
@@ -230,13 +231,13 @@ class LoginService {
       const tenantDb = await getTenantPoolForOrgId(orgId);
       const [rows] = await tenantDb.query(
         queries.GET_EMPLOYEE_COUNT_BY_DEPARTMENT,
-        [orgId]
+        [orgId],
       );
       return rows || [];
     } catch (error) {
       console.error("Error fetching employee count by department:", error);
       throw new Error(
-        "Failed to fetch employee count by department: " + error.message
+        "Failed to fetch employee count by department: " + error.message,
       );
     }
   }
@@ -261,6 +262,55 @@ class LoginService {
       console.error("Error fetching employee payroll data:", error);
       throw new Error("Failed to fetch payroll data: " + error.message);
     }
+  }
+
+  static hashAutoLoginToken(token) {
+    return crypto.createHash("sha256").update(String(token)).digest("hex");
+  }
+
+  static async createAutoLoginLink({
+    token,
+    orgId,
+    email,
+    allowedIp = null,
+    expiresAt,
+    maxUses = 999999,
+    createdBy = null,
+  }) {
+    const tokenHash = LoginService.hashAutoLoginToken(token);
+
+    const [result] = await db.execute(queries.INSERT_AUTO_LOGIN_LINK, [
+      tokenHash,
+      orgId,
+      email,
+      allowedIp,
+      expiresAt,
+      maxUses,
+      createdBy,
+    ]);
+
+    return result;
+  }
+
+  static async fetchAutoLoginLinkByToken(token) {
+    const tokenHash = LoginService.hashAutoLoginToken(token);
+    const [rows] = await db.execute(queries.GET_AUTO_LOGIN_LINK_BY_TOKEN_HASH, [
+      tokenHash,
+    ]);
+    return rows?.[0] || null;
+  }
+
+  static async markAutoLoginLinkUsed(id) {
+    await db.execute(queries.UPDATE_AUTO_LOGIN_LINK_USAGE, [id]);
+  }
+
+  static async listAutoLoginLinks() {
+    const [rows] = await db.execute(queries.LIST_AUTO_LOGIN_LINKS);
+    return rows || [];
+  }
+
+  static async disableAutoLoginLink(id) {
+    await db.execute(queries.DISABLE_AUTO_LOGIN_LINK, [id]);
   }
 }
 

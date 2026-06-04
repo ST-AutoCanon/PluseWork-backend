@@ -204,4 +204,65 @@ ORDER BY STR_TO_DATE(SUBSTRING_INDEX(punchin_label, ' ', 1), '%H');
 FROM sidebar_menu sm
 JOIN sidebar_menu_access sma ON sm.id = sma.sidebar_item_id
 WHERE sma.role = ? AND sma.org_id = ?`,
+
+  GET_AUTO_LOGIN_LINK_BY_TOKEN_HASH: `
+  SELECT
+    id,
+    token_hash,
+    org_id,
+    email,
+    allowed_ip,
+    expires_at,
+    max_uses,
+    current_uses,
+    is_active,
+    created_by,
+    created_at,
+    last_used_at
+  FROM auto_login_links
+  WHERE token_hash = ?
+  LIMIT 1;
+`,
+
+  INSERT_AUTO_LOGIN_LINK: `
+  INSERT INTO auto_login_links
+    (token_hash, org_id, email, allowed_ip, expires_at, max_uses, created_by)
+  VALUES
+    (?, ?, ?, ?, ?, ?, ?);
+`,
+
+  UPDATE_AUTO_LOGIN_LINK_USAGE: `
+  UPDATE auto_login_links
+  SET
+    current_uses = current_uses + 1,
+    last_used_at = NOW(),
+    is_active = CASE
+      WHEN current_uses + 1 >= max_uses THEN 0
+      ELSE is_active
+    END
+  WHERE id = ?;
+`,
+
+  DISABLE_AUTO_LOGIN_LINK: `
+  UPDATE auto_login_links
+  SET is_active = 0
+  WHERE id = ?;
+`,
+
+  LIST_AUTO_LOGIN_LINKS: `
+  SELECT
+    id,
+    org_id,
+    email,
+    allowed_ip,
+    expires_at,
+    max_uses,
+    current_uses,
+    is_active,
+    created_by,
+    created_at,
+    last_used_at
+  FROM auto_login_links
+  ORDER BY created_at DESC;
+`,
 };

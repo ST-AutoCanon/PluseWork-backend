@@ -1,11 +1,9 @@
 module.exports = (req, res, next) => {
   const idleLimit = 5 * 60 * 1000;
 
-  if (
-    req.path === "/login" ||
-    req.path === "/orgs" ||
-    req.path === "/forgot-password"
-  ) {
+  const publicPaths = ["/login", "/orgs", "/forgot-password"];
+
+  if (publicPaths.includes(req.path) || req.path.startsWith("/auto-login/")) {
     return next();
   }
 
@@ -32,14 +30,11 @@ module.exports = (req, res, next) => {
         });
       }
 
-      if (req.path !== "/") {
-        return res.status(401).json({
-          status: "error",
-          code: 401,
-          message: "Session expired due to inactivity.",
-        });
-      }
-      next();
+      return res.status(401).json({
+        status: "error",
+        code: 401,
+        message: "Session expired due to inactivity.",
+      });
     });
   } else {
     req.session.lastActive = now;

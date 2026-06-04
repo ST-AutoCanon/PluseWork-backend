@@ -110,12 +110,11 @@ ORDER BY t.updated_at DESC;
     SELECT ep.employee_id
     FROM employee_professional ep
     JOIN employees e ON ep.employee_id = e.employee_id
-    WHERE ep.role = 'Manager'
+    WHERE ep.role = 'HR'
       AND ep.department_id = (
         SELECT id
         FROM departments
         WHERE name = 'HR' AND org_id = ?
-        LIMIT 1
       )
       AND e.org_id = ?
       AND e.status = 'Active';
