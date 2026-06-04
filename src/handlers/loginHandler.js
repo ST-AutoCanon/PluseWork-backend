@@ -1,4 +1,5 @@
 const bcrypt = require("bcrypt");
+const crypto = require("crypto");
 const LoginService = require("../services/loginService");
 const ErrorHandler = require("../utils/errorHandler");
 const { redisClient } = require("../lib/sessionStore");
@@ -475,6 +476,281 @@ class LoginHandler {
       });
     } catch (err) {
       console.error("Error fetching employee payroll data:", err);
+      return res
+        .status(500)
+        .json(ErrorHandler.generateErrorResponse(500, "Internal server error"));
+    }
+  }
+
+  static normalizeIp(ip) {
+    if (!ip) return "";
+    const raw = Array.isArray(ip) ? ip[0] : String(ip);
+    return raw.replace(/^::ffff:/, "").trim();
+  }
+
+  static getClientIp(req) {
+    const xff = req.headers["x-forwarded-for"];
+    const rawIp =
+      (typeof xff === "string" && xff.split(",")[0]) ||
+      req.socket?.remoteAddress ||
+      req.ip ||
+      "";
+    return LoginHandler.normalizeIp(rawIp);
+  }
+
+  static async createAutoLoginLink(req, res) {
+    try {
+      const {
+        orgId,
+        email,
+        allowedIp = null,
+        expiresInDays = 365,
+        maxUses = 999999,
+        createdBy = null,
+      } = req.body || {};
+
+      if (!orgId || !email) {
+        return res
+          .status(400)
+          .json(
+            ErrorHandler.generateErrorResponse(
+              400,
+              "orgId and email are required",
+            ),
+          );
+      }
+
+      const token = crypto.randomBytes(32).toString("hex");
+      const expiresAt = new Date(
+        Date.now() + Number(expiresInDays || 365) * 24 * 60 * 60 * 1000,
+      );
+
+      await LoginService.createAutoLoginLink({
+        token,
+        orgId,
+        email,
+        allowedIp,
+        expiresAt,
+        maxUses: Number(maxUses) || 999999,
+        createdBy,
+      });
+
+      return res.status(201).json({
+        status: "success",
+        code: 201,
+        message: {
+          token,
+          autoLoginUrl: `${process.env.FRONTEND_URL}/auto-login/${token}`,
+          orgId,
+          email,
+          allowedIp,
+          expiresAt,
+        },
+      });
+    } catch (err) {
+      console.error("createAutoLoginLink error:", err);
+      return res
+        .status(500)
+        .json(ErrorHandler.generateErrorResponse(500, "Internal server error"));
+    }
+  }
+
+  static async autoLogin(req, res) {
+    try {
+      const { token } = req.params;
+
+      if (!token) {
+        return res
+          .status(400)
+          .json(ErrorHandler.generateErrorResponse(400, "Token is required"));
+      }
+
+      const link = await LoginService.fetchAutoLoginLinkByToken(token);
+
+      if (!link) {
+        return res
+          .status(401)
+          .json(ErrorHandler.generateErrorResponse(401, "Invalid token"));
+      }
+
+      if (!link.is_active) {
+        return res
+          .status(403)
+          .json(ErrorHandler.generateErrorResponse(403, "Link is disabled"));
+      }
+
+      const now = new Date();
+      const expiry = new Date(link.expires_at);
+
+      if (Number.isNaN(expiry.getTime()) || expiry < now) {
+        return res
+          .status(403)
+          .json(ErrorHandler.generateErrorResponse(403, "Link expired"));
+      }
+
+      if (link.current_uses >= link.max_uses) {
+        return res
+          .status(403)
+          .json(
+            ErrorHandler.generateErrorResponse(403, "Link usage limit reached"),
+          );
+      }
+
+      const clientIp = LoginHandler.getClientIp(req);
+      const allowedIp = LoginHandler.normalizeIp(link.allowed_ip);
+
+      if (allowedIp && allowedIp !== clientIp) {
+        return res
+          .status(403)
+          .json(
+            ErrorHandler.generateErrorResponse(
+              403,
+              "Device not allowed from this IP address",
+            ),
+          );
+      }
+
+      const user = await LoginService.fetchUserByEmail(link.email, {
+        orgId: link.org_id,
+        superAdmin: false,
+      });
+
+      if (!user) {
+        return res
+          .status(401)
+          .json(ErrorHandler.generateErrorResponse(401, "User not found"));
+      }
+
+      if (user.status === "Inactive") {
+        return res
+          .status(403)
+          .json(
+            ErrorHandler.generateErrorResponse(
+              403,
+              "Account is Inactive. Please contact your administrator.",
+            ),
+          );
+      }
+
+      const org = await LoginService.fetchOrganizationById(user.Org_id);
+      if (org && org.end_date) {
+        const today = moment().startOf("day");
+        const orgEnd = moment(org.end_date).endOf("day");
+        if (orgEnd.isBefore(today, "day")) {
+          return res
+            .status(403)
+            .json(
+              ErrorHandler.generateErrorResponse(
+                403,
+                "Your subscription ended. To renew, please contact Administrator.",
+              ),
+            );
+        }
+      }
+
+      req.session.lastActive = Date.now();
+      req.session.userRole = user.role;
+      req.session.user = {
+        id: user.employee_id,
+        role: user.role,
+        role_id: user.role_id || null,
+        orgId: user.Org_id,
+        name: user.name,
+        gender: user.gender,
+        photo_url: user.photo_url || null,
+        photoUrl: user.photoUrl ?? user.photo_url ?? null,
+        email: user.email || null,
+        employeeId: user.employee_id || null,
+        department_id: user.department_id || null,
+        department: user.department || null,
+        dashboard: {
+          department: user.department || null,
+        },
+      };
+
+      if (redisClient && typeof redisClient.sadd === "function") {
+        redisClient
+          .sadd(`user_sessions:${user.employee_id}`, req.sessionID)
+          .catch((err) => {
+            console.error("Redis error storing session:", err);
+          });
+
+        redisClient
+          .publish(
+            "auth:changes",
+            JSON.stringify({
+              type: "login",
+              userId: user.employee_id,
+              role: user.role,
+            }),
+          )
+          .catch((err) => console.error("Redis publish error:", err));
+      }
+
+      await LoginService.markAutoLoginLinkUsed(link.id);
+
+      req.session.save((err) => {
+        if (err) console.error("Session save error:", err);
+
+        return res.status(200).json({
+          status: "success",
+          code: 200,
+          message: {
+            role: user.role,
+            role_id: user.role_id,
+            name: user.name,
+            org_id: user.Org_id,
+            gender: user.gender,
+            photo_url: user.photo_url || null,
+            photoUrl: user.photoUrl ?? user.photo_url ?? null,
+            employeeId: user.employee_id,
+            department_id: user.department_id || null,
+            department: user.department || null,
+          },
+        });
+      });
+    } catch (err) {
+      console.error("autoLogin error:", err);
+      return res
+        .status(500)
+        .json(ErrorHandler.generateErrorResponse(500, "Internal server error"));
+    }
+  }
+
+  static async listAutoLoginLinks(req, res) {
+    try {
+      const links = await LoginService.listAutoLoginLinks();
+      return res.status(200).json({
+        status: "success",
+        code: 200,
+        message: links,
+      });
+    } catch (err) {
+      console.error("listAutoLoginLinks error:", err);
+      return res
+        .status(500)
+        .json(ErrorHandler.generateErrorResponse(500, "Internal server error"));
+    }
+  }
+
+  static async disableAutoLoginLink(req, res) {
+    try {
+      const { id } = req.params;
+      if (!id) {
+        return res
+          .status(400)
+          .json(ErrorHandler.generateErrorResponse(400, "id is required"));
+      }
+
+      await LoginService.disableAutoLoginLink(id);
+
+      return res.status(200).json({
+        status: "success",
+        code: 200,
+        message: "Auto login link disabled",
+      });
+    } catch (err) {
+      console.error("disableAutoLoginLink error:", err);
       return res
         .status(500)
         .json(ErrorHandler.generateErrorResponse(500, "Internal server error"));

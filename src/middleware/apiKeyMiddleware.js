@@ -4,6 +4,7 @@ const PUBLIC_PATHS = [
   "/me",
   "/orgs",
   "/login",
+  "/auto-login/",
   "/forgot-password",
   "/password-reset",
   "/vapidPublicKey",
@@ -24,10 +25,17 @@ const PUBLIC_PREFIXES = [
 
 function isPublicPath(req) {
   const p = req.path || "";
+
   if (PUBLIC_PATHS.includes(p)) return true;
+
+  if (p.startsWith("/auto-login/")) {
+    return true;
+  }
+
   for (const prefix of PUBLIC_PREFIXES) {
     if (p.startsWith(prefix)) return true;
   }
+
   return false;
 }
 
@@ -49,18 +57,18 @@ module.exports = function apiKeyMiddleware(req, res, next) {
     }
 
     console.warn(
-      `[apiKeyMiddleware] Rejecting request ${req.method} ${req.originalUrl} - no valid session or x-api-key`
+      `[apiKeyMiddleware] Rejecting request ${req.method} ${req.originalUrl} - no valid session or x-api-key`,
     );
 
     const errorResponse = ErrorHandler.generateErrorResponse(
       403,
-      "Forbidden: Invalid or missing credentials"
+      "Forbidden: Invalid or missing credentials",
     );
     return res.status(403).json(errorResponse);
   } catch (err) {
     console.error(
       "apiKeyMiddleware error:",
-      err && err.message ? err.message : err
+      err && err.message ? err.message : err,
     );
     return res
       .status(500)
