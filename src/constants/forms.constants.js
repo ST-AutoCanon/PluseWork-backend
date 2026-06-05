@@ -62,9 +62,12 @@ GET_RESPONSES: `
   ORDER BY submitted_at DESC
 `,
 GET_RESPONSES_BY_ORG: `
-  SELECT fr.*, ft.form_name
+  SELECT fr.*, ft.form_name, ft.form_json,
+         e.first_name AS requester_first_name,
+         e.last_name AS requester_last_name
   FROM form_responses1 fr
   LEFT JOIN form_templates ft ON fr.form_id = ft.id
+  LEFT JOIN employees e ON fr.employee_id COLLATE utf8mb4_0900_ai_ci = e.employee_id
   WHERE fr.org_id = ?
   ORDER BY fr.submitted_at DESC
 `,

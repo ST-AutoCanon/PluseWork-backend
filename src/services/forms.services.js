@@ -741,6 +741,76 @@ const getFeedbackRequests = async (orgId, employeeId) => {
     return null;
   };
 
+  const safelyParseJson = (value) => {
+    if (!value) return null;
+    if (typeof value === 'object') return value;
+    try {
+      return JSON.parse(value);
+    } catch (err) {
+      return null;
+    }
+  };
+
+  const getFieldLabelFromFormJson = (formJson, targetFieldId) => {
+    const json = safelyParseJson(formJson);
+    if (!json) return null;
+
+    const normalizedTarget = String(targetFieldId || "");
+
+    const getLabelFromObject = (obj) => {
+      if (!obj || typeof obj !== 'object') return null;
+      return obj.label || obj.title || obj.name || obj.placeholder || obj.question || obj.displayName || null;
+    };
+
+    const matchesFieldId = (value) => {
+      if (value === undefined || value === null) return false;
+      return String(value) === normalizedTarget;
+    };
+
+    const scanForLabel = (obj) => {
+      if (!obj || typeof obj !== 'object') return null;
+
+      if (Array.isArray(obj)) {
+        for (const item of obj) {
+          const found = scanForLabel(item);
+          if (found) return found;
+        }
+        return null;
+      }
+
+      const objectLabel = getLabelFromObject(obj);
+      if ((matchesFieldId(obj.id) || matchesFieldId(obj.fieldId) || matchesFieldId(obj.name)) && objectLabel) {
+        return objectLabel;
+      }
+
+      if (obj.employee && (matchesFieldId(obj.employee.id) || matchesFieldId(obj.employee.fieldId) || matchesFieldId(obj.employee.name))) {
+        return getLabelFromObject(obj.employee);
+      }
+
+      if (obj.supervisor && (matchesFieldId(obj.supervisor.id) || matchesFieldId(obj.supervisor.fieldId) || matchesFieldId(obj.supervisor.name))) {
+        return getLabelFromObject(obj.supervisor);
+      }
+
+      if (obj.supervisorFields && Array.isArray(obj.supervisorFields)) {
+        for (const field of obj.supervisorFields) {
+          const found = scanForLabel(field);
+          if (found) return found;
+        }
+      }
+
+      for (const value of Object.values(obj)) {
+        if (value && typeof value === 'object') {
+          const found = scanForLabel(value);
+          if (found) return found;
+        }
+      }
+
+      return null;
+    };
+
+    return scanForLabel(json);
+  };
+
   const scanObjectForRequests = (obj, row) => {
     if (!obj || typeof obj !== 'object') return;
 
@@ -754,11 +824,17 @@ const getFeedbackRequests = async (orgId, employeeId) => {
         const requestedFor = getObjectValue(value);
         if (String(requestedFor) === String(employeeId)) {
           const fieldId = key.replace(/_feedback_request_to$/, '');
-          const fieldLabel = fieldId;
+          const rawFieldLabel = getFieldLabelFromFormJson(row.form_json, fieldId);
+          const fieldLabel = rawFieldLabel || null;
           let fieldValue = getObjectValue(obj[fieldId]);
           if (!fieldValue) {
             fieldValue = getObjectValue(findObjectValue(row.response_json, fieldId));
           }
+          const requestReason =
+            getObjectValue(obj[`${fieldId}_feedback_request_reason`]) ||
+            getObjectValue(obj[`${fieldId}_feedback_request_comment`]) ||
+            getObjectValue(obj[`${fieldId}_feedback_request_note`]) ||
+            null;
           const feedbackKey = `${fieldId}_others_feedback_from_${employeeId}`;
           const alreadyProvided = row.response_json && row.response_json[feedbackKey] !== undefined && row.response_json[feedbackKey] !== null && row.response_json[feedbackKey] !== "";
           if (!alreadyProvided) {
@@ -766,11 +842,13 @@ const getFeedbackRequests = async (orgId, employeeId) => {
               form_id: row.form_id,
               form_name: row.form_name || null,
               requester_id: row.employee_id,
-              requester_first_name: row.first_name || null,
-              requester_last_name: row.last_name || null,
+              requester_first_name: row.requester_first_name || null,
+              requester_last_name: row.requester_last_name || null,
               fieldId,
-              fieldLabel,
+              fieldLabel: fieldLabel || fieldValue || fieldId,
               fieldValue,
+              requestContext: fieldValue,
+              requestReason,
               requestKey: key,
               feedbackKey,
               recipient_id: employeeId,
