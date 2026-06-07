@@ -649,6 +649,8 @@ const submitLeaveRequest = async ({
     const newEndStr = endDate;
     const isSingleOrHalf = newStartStr === newEndStr || h_f_day === "Half Day";
     const hasOverlap = existingLeaves.some((leave) => {
+      // ignore previously rejected leaves so employee can reapply for same dates
+      if (String(leave.status || "").toLowerCase() === "rejected") return false;
       const existingStartStr = toLocalDateString(leave.start_date);
       const existingEndStr = toLocalDateString(leave.end_date);
       if (isSingleOrHalf)

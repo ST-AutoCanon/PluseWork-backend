@@ -611,6 +611,9 @@ class LeaveHandler {
         h_f_day === "Half Day";
 
       const hasOverlap = existingLeaves.some((leave) => {
+        // ignore previously rejected leaves so employee can reapply for same dates
+        if (String(leave.status || "").toLowerCase() === "rejected")
+          return false;
         const existingStart = new Date(leave.start_date);
         const existingEnd = new Date(leave.end_date);
         const existingStartStr = existingStart.toISOString().split("T")[0];
@@ -842,6 +845,9 @@ class LeaveHandler {
         h_f_day === "Half Day";
 
       const hasOverlap = existingLeaves.some((leave) => {
+        // ignore previously rejected leaves so employee can reapply for same dates
+        if (String(leave.status || "").toLowerCase() === "rejected")
+          return false;
         if (String(leave.id) === String(leaveId)) return false;
         const existingStart = new Date(leave.start_date);
         const existingEnd = new Date(leave.end_date);

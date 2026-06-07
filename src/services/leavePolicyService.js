@@ -299,6 +299,22 @@ function computeEarnedLeavesFromWorked(
   return Number((ratio * Number(earnedLeavesGrant)).toFixed(1));
 }
 
+function countDaysExcludingSundays(startDate, endDate) {
+  if (!startDate || !endDate) return 0;
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  start.setHours(0, 0, 0, 0);
+  end.setHours(0, 0, 0, 0);
+  if (end < start) return 0;
+  let count = 0;
+  let current = new Date(start);
+  while (current <= end) {
+    if (current.getDay() !== 0) count += 1;
+    current.setDate(current.getDate() + 1);
+  }
+  return count;
+}
+
 async function computeAndStoreMonthlyLOP(employeeId, month, year, orgId) {
   if (!employeeId) throw new Error("employeeId required");
   if (!orgId) throw new Error("orgId required");
@@ -399,8 +415,15 @@ async function computeAndStoreMonthlyLOP(employeeId, month, year, orgId) {
 
       let earnedUntilMonthEnd = 0;
       if (isEarned) {
+        const method = String(
+          setting.earned_credit_method || "attendance",
+        ).toLowerCase();
+        const daysForEarned =
+          method === "policy"
+            ? countDaysExcludingSundays(active.year_start, periodEnd)
+            : workedUntilMonthEnd;
         earnedUntilMonthEnd = computeEarnedLeavesFromWorked(
-          workedUntilMonthEnd,
+          daysForEarned,
           Number(setting.working_days || 0),
           Number(setting.earned_leaves || 0),
         );
@@ -609,11 +632,20 @@ const getLeaveBalance = async (employeeId, orgId) => {
     const annual = Number(setting.value || 0);
     const earnedFromAttendance =
       typeKey === "earned"
-        ? computeEarnedLeavesFromWorked(
-            workedDays,
-            Number(setting.working_days || 0),
-            Number(setting.earned_leaves || 0),
-          )
+        ? (() => {
+            const method = String(
+              setting.earned_credit_method || "attendance",
+            ).toLowerCase();
+            const daysForEarned =
+              method === "policy"
+                ? countDaysExcludingSundays(active.year_start, upToDate)
+                : workedDays;
+            return computeEarnedLeavesFromWorked(
+              daysForEarned,
+              Number(setting.working_days || 0),
+              Number(setting.earned_leaves || 0),
+            );
+          })()
         : 0;
     const allowance =
       (typeKey === "earned" ? earnedFromAttendance : annual) + carryForward;
