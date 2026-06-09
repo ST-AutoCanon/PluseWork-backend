@@ -379,6 +379,7 @@ app.use((req, res, next) => {
     app.use("/", faceDataRoutes);
     app.use(checkFaceRoute);
     app.use("/api", assetsRoutes);
+    app.use("/api/attendance", attendanceRoutes);
     app.use("/api/attendance", adminAttendanceRoutes);
     app.use("/admin/attendance", adminAttendanceRoutes);
     app.use("/admin-attendance", adminAttendanceRoutes);

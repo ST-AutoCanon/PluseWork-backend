@@ -1,3 +1,44 @@
+// Queries related to attendance and login-hours configuration
+
+const GET_LOGIN_HOURS_CONFIG = `
+    SELECT *
+    FROM login_hours_config
+    WHERE org_id = ?
+    LIMIT 1
+`;
+
+const UPSERT_LOGIN_HOURS_CONFIG = `
+    INSERT INTO login_hours_config (
+        org_id,
+        punch_in_start,
+        punch_out_start,
+        buffer_minutes,
+        late_login_enabled,
+        late_streak_days,
+        auto_mark_late,
+        escalation_mode,
+        action_roles,
+        required_daily_minutes,
+        deficit_detection_enabled,
+        allowed_late_streaks,
+        streak_period
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+    ON DUPLICATE KEY UPDATE
+        punch_in_start = VALUES(punch_in_start),
+        punch_out_start = VALUES(punch_out_start),
+        buffer_minutes = VALUES(buffer_minutes),
+        late_login_enabled = VALUES(late_login_enabled),
+        late_streak_days = VALUES(late_streak_days),
+        auto_mark_late = VALUES(auto_mark_late),
+        escalation_mode = VALUES(escalation_mode),
+        action_roles = VALUES(action_roles),
+        required_daily_minutes = VALUES(required_daily_minutes),
+        deficit_detection_enabled = VALUES(deficit_detection_enabled),
+        allowed_late_streaks = VALUES(allowed_late_streaks),
+        streak_period = VALUES(streak_period),
+        updated_at = CURRENT_TIMESTAMP
+`;
+
 const EMP_ATTENDANCE_QUERIES = {
   GET_EMPLOYEE_ATTENDANCE: `
       SELECT 
@@ -333,4 +374,8 @@ SELECT 'Monthly' AS view, JSON_OBJECT(
 `,
 };
 
-module.exports = EMP_ATTENDANCE_QUERIES;
+module.exports = {
+  GET_LOGIN_HOURS_CONFIG,
+  UPSERT_LOGIN_HOURS_CONFIG,
+  ...EMP_ATTENDANCE_QUERIES,
+};

@@ -5,7 +5,7 @@ const extractOrgId = (req) =>
   req.headers["x-org-id"] ||
   req.query.orgId ||
   (req.user && (req.user.orgId || req.user.Org_id || req.user.org_id)) ||
-  "1"; 
+  "1";
 
 const attendanceHandler = {
   getEmployeeAttendance: async (req, res) => {
@@ -19,7 +19,10 @@ const attendanceHandler = {
           .json({ success: false, message: "Employee ID is required" });
       }
 
-      const records = await attendanceService.getEmployeeAttendance(employeeId, orgId);
+      const records = await attendanceService.getEmployeeAttendance(
+        employeeId,
+        orgId,
+      );
       res.status(200).json({ success: true, data: records });
     } catch (error) {
       console.error("[GET_ATTENDANCE] Error:", error.message);
@@ -40,7 +43,7 @@ const attendanceHandler = {
 
       const lastPunchStatus = await attendanceService.getLastPunchStatus(
         employeeId,
-        orgId
+        orgId,
       );
       if (lastPunchStatus === "Punch In") {
         return res
@@ -48,16 +51,52 @@ const attendanceHandler = {
           .json({ success: false, message: "Already punched in." });
       }
 
+      let lateLogin = false;
+      try {
+        const loginConfig = await attendanceService.getLoginHoursConfig(orgId);
+        if (loginConfig?.late_login_enabled) {
+          const punchInStart =
+            loginConfig.punch_in_start ?? loginConfig.punchInStart;
+          const bufferMinutes = Number(
+            loginConfig.buffer_minutes ?? loginConfig.bufferMinutes ?? 10,
+          );
+          if (punchInStart) {
+            const timeMatch = punchInStart.match(
+              /^([01]\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?$/,
+            );
+            if (timeMatch) {
+              const now = new Date();
+              const hour = Number(timeMatch[1]);
+              const minute = Number(timeMatch[2]);
+              const threshold = new Date(now);
+              threshold.setHours(hour, minute, 0, 0);
+              threshold.setMinutes(threshold.getMinutes() + bufferMinutes);
+              if (now > threshold) {
+                lateLogin = true;
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("Unable to compute late login status:", err);
+      }
+
       const punchId = await attendanceService.addPunchIn(
         employeeId,
         device,
         location,
         punchMode,
-        orgId
+        orgId,
+        lateLogin,
       );
-      res
-        .status(201)
-        .json({ success: true, message: "Punch In successful", punchId });
+      res.status(201).json({
+        success: true,
+        message: lateLogin
+          ? "Punch In successful - Late login recorded"
+          : "Punch In successful",
+        punchId,
+        lateLogin,
+      });
     } catch (error) {
       console.error("[PUNCH_IN] Error:", error.message);
       res.status(500).json({ success: false, message: error.message });
@@ -82,7 +121,7 @@ const attendanceHandler = {
 
       const lastPunchStatus = await attendanceService.getLastPunchStatus(
         employeeId,
-        orgId
+        orgId,
       );
       if (lastPunchStatus !== "Punch In") {
         return res.status(400).json({
@@ -96,7 +135,7 @@ const attendanceHandler = {
         device,
         location,
         punchMode,
-        orgId
+        orgId,
       );
       if (updatedRows > 0) {
         res
@@ -147,7 +186,10 @@ const attendanceHandler = {
           .json({ success: false, message: "orgId is required" });
       }
 
-      const record = await attendanceService.getLatestPunchIn(employeeId, orgId);
+      const record = await attendanceService.getLatestPunchIn(
+        employeeId,
+        orgId,
+      );
 
       if (record) {
         res.status(200).json({ success: true, data: record });
@@ -177,7 +219,10 @@ const attendanceHandler = {
           .json({ success: false, message: "orgId is required" });
       }
 
-      const record = await attendanceService.getLatestPunchOut(employeeId, orgId);
+      const record = await attendanceService.getLatestPunchOut(
+        employeeId,
+        orgId,
+      );
 
       if (record) {
         res.status(200).json({ success: true, data: record });
@@ -203,9 +248,12 @@ const attendanceHandler = {
       }
 
       if (!orgId && employeeId) {
-        const prefix = employeeId.split('-')[0];
+        const prefix = employeeId.split("-")[0];
         if (prefix) {
-          const [rows] = await db.query('SELECT id FROM organizations WHERE UPPER(employee_prefix) = ?', [prefix.toUpperCase()]);
+          const [rows] = await db.query(
+            "SELECT id FROM organizations WHERE UPPER(employee_prefix) = ?",
+            [prefix.toUpperCase()],
+          );
           if (rows.length > 0) {
             orgId = rows[0].id;
           }
@@ -220,7 +268,7 @@ const attendanceHandler = {
 
       const latestPunch = await attendanceService.fetchLatestPunchRecord(
         employeeId,
-        orgId
+        orgId,
       );
 
       if (!latestPunch) {
@@ -235,6 +283,40 @@ const attendanceHandler = {
     } catch (error) {
       console.error("Error fetching latest punch record:", error);
       res.status(500).json({ success: false, message: "Server error" });
+    }
+  },
+
+  getLateLoginDates: async (req, res) => {
+    try {
+      const { employeeId } = req.params;
+      const orgId = extractOrgId(req);
+
+      if (!employeeId) {
+        return res
+          .status(400)
+          .json({ success: false, message: "Employee ID is required" });
+      }
+
+      if (!orgId) {
+        return res
+          .status(400)
+          .json({ success: false, message: "orgId is required" });
+      }
+
+      // Query last 90 days of late login records
+      const lateDates = await attendanceService.getLateLoginDates(
+        employeeId,
+        orgId,
+        90,
+      );
+
+      res.status(200).json({
+        success: true,
+        data: { lateDates: lateDates || [] },
+      });
+    } catch (error) {
+      console.error("[GET_LATE_LOGIN_DATES] Error:", error.message);
+      res.status(500).json({ success: false, message: error.message });
     }
   },
 };
