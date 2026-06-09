@@ -29,8 +29,8 @@ async function initSessionStore() {
       redisClient.on("error", (err) =>
         console.error(
           "[ioredis] error:",
-          err && err.message ? err.message : err
-        )
+          err && err.message ? err.message : err,
+        ),
       );
       redisClient.on("connect", () => console.info("[ioredis] connecting..."));
       redisClient.on("ready", () => console.info("[ioredis] ready"));
@@ -39,7 +39,7 @@ async function initSessionStore() {
       await Promise.race([
         redisClient.ping(),
         new Promise((_, rej) =>
-          setTimeout(() => rej(new Error("PING_TIMEOUT")), 5000)
+          setTimeout(() => rej(new Error("PING_TIMEOUT")), 5000),
         ),
       ]);
 
@@ -48,7 +48,7 @@ async function initSessionStore() {
     } catch (err) {
       console.error(
         "[sessionStore] Redis init failed:",
-        err && err.message ? err.message : err
+        err && err.message ? err.message : err,
       );
       throw err;
     }

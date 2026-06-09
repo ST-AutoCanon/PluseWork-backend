@@ -1,5 +1,6 @@
 const express = require("express");
 const attendanceHandler = require("../handlers/attendanceHandler");
+const loginHoursConfigHandler = require("../handlers/loginHoursConfigHandler");
 
 const router = express.Router();
 
@@ -13,7 +14,7 @@ router.get(
     }
     next();
   },
-  attendanceHandler.getEmployeeAttendance
+  attendanceHandler.getEmployeeAttendance,
 );
 
 router.post(
@@ -27,7 +28,7 @@ router.post(
     }
     next();
   },
-  attendanceHandler.punchIn
+  attendanceHandler.punchIn,
 );
 
 router.post(
@@ -41,23 +42,39 @@ router.post(
     }
     next();
   },
-  attendanceHandler.punchOut
+  attendanceHandler.punchOut,
 );
 
 router.get("/today", attendanceHandler.getTodayAttendance);
 
 router.get(
   "/employee/:employeeId/latest-punch",
-  attendanceHandler.getLatestPunchRecord
+  attendanceHandler.getLatestPunchRecord,
 );
 
 router.get(
   "/employee/:employeeId/latest-punch-in",
-  attendanceHandler.getLatestPunchIn
+  attendanceHandler.getLatestPunchIn,
 );
 router.get(
   "/employee/:employeeId/latest-punch-out",
-  attendanceHandler.getLatestPunchOut
+  attendanceHandler.getLatestPunchOut,
+);
+
+router.get(
+  "/employee/:employeeId/late-login-dates",
+  attendanceHandler.getLateLoginDates,
+);
+
+// Login hours configuration endpoints
+router.get(
+  "/login-hours-config",
+  loginHoursConfigHandler.getLoginHoursConfigHandler,
+);
+
+router.post(
+  "/login-hours-config",
+  loginHoursConfigHandler.upsertLoginHoursConfigHandler,
 );
 
 module.exports = router;
