@@ -28,7 +28,10 @@ module.exports = {
   hrSetFinalPlannedDates,
 
   // NEW
-  saveHrFinalEvaluation
+    getAllActiveEmployees,
+  saveHrFinalEvaluation,
+  directExit,
+
 };
 
 // ───────────────────────────────────────────────
@@ -349,3 +352,72 @@ async function hrSetFinalPlannedDates(req, res) {
 
   
 }
+async function directExit(req, res) {          // ← ADD THIS FUNCTION
+  try {
+    const orgId = req.headers["x-org-id"];
+    const actionBy = req.headers["x-employee-id"];
+    const { employeeId, hr_final_lwd, hr_rating, hr_evaluation_comments, reason = "Direct Exit by HR/Admin" } = req.body;
+
+    if (!employeeId || !hr_final_lwd) {
+      return res.status(400).json({ 
+        success: false, 
+        error: "employeeId and Last Working Day (hr_final_lwd) are required" 
+      });
+    }
+
+    const result = await exitService.directExit({
+      orgId,
+      employeeId,
+      hr_final_lwd,
+      hr_rating: hr_rating ? parseInt(hr_rating) : null,
+      hr_evaluation_comments: hr_evaluation_comments || null,
+      reason,
+      actionBy
+    });
+
+    res.json({ success: true, message: "Direct exit completed successfully", data: result });
+  } catch (err) {
+    console.error("[Direct Exit] Error:", err);
+    res.status(400).json({ success: false, error: err.message });
+  }
+}
+async function getAllActiveEmployees(req, res) {
+  try {
+    const orgId = req.headers["x-org-id"];
+
+    if (!orgId) {
+      return res.status(400).json({ success: false, error: "Missing orgId" });
+    }
+
+    console.log(`[getAllActiveEmployees] Fetching for org: ${orgId}`);
+
+    // FIXED: Use exitService (not teamService)
+    const employees = await exitService.getAllActiveEmployees(orgId);
+
+    console.log(`[getAllActiveEmployees] Found ${employees.length} active employees`);
+
+    res.json({ success: true, employees });
+  } catch (err) {
+    console.error("=== getAllActiveEmployees ERROR ===", err);
+    res.status(500).json({ 
+      success: false, 
+      error: err.message || "Failed to fetch active employees" 
+    });
+  }
+}
+exports.submitOthersFeedback = async (req, res) => {
+  try {
+    const orgId = req.headers["x-org-id"];
+    const recipientId = req.headers["x-employee-id"];
+    const { id: formId } = req.params;
+    const { requesterEmployeeId, feedbackEntries } = req.body;
+
+    if (!orgId || !recipientId || !formId || !requesterEmployeeId) return res.status(400).json({ error: "Required params missing" });
+
+    const id = await service.submitOthersFeedback(orgId, formId, requesterEmployeeId, recipientId, feedbackEntries || {});
+    res.json({ success: true, id });
+  } catch (err) {
+    console.error("❌ [HANDLER] submitOthersFeedback error:", err.message);
+    res.status(500).json({ error: "Failed to submit others feedback" });
+  }
+};

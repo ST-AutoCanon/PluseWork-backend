@@ -360,7 +360,71 @@ async function saveHrFinalEvaluation(
 
   return { success: true };
 }
+async function directExit(data) {
+  const { orgId, employeeId, hr_final_lwd, hr_rating, hr_evaluation_comments, reason, actionBy } = data;
+  const pool = await getTenantPoolByOrgId(orgId);
+
+  // 1. Check if employee exists and is active
+  const [empCheck] = await pool.execute(
+    `SELECT employee_id FROM employees WHERE employee_id = ? AND org_id = ?`,
+    [employeeId, orgId]
+  );
+  if (empCheck.length === 0) throw new Error("Employee not found");
+
+  // 2. Create direct exit record
+  const [result] = await pool.execute(`
+    INSERT INTO employee_exit_requests1 
+    (org_id, employee_id, reason, proposed_lwd, final_lwd, hr_final_lwd,
+     hr_status, supervisor_status, final_outcome, is_active,
+     hr_action_at, hr_action_by, hr_rating, hr_evaluation_comments)
+    VALUES (?, ?, ?, ?, ?, ?, 'APPROVED', 'APPROVED', 'RESIGNED', 0, NOW(), ?, ?, ?)
+  `, [
+    orgId,
+    employeeId,
+    reason,
+    hr_final_lwd,
+    hr_final_lwd,
+    hr_final_lwd,
+    actionBy,
+    hr_rating,
+    hr_evaluation_comments || null
+  ]);
+
+  const exitId = result.insertId;
+
+  // 3. Mark employee as inactive (adjust table/column as per your schema)
+  await pool.execute(`
+    UPDATE employees 
+    SET status = 'inactive', 
+        updated_at = NOW()
+    WHERE employee_id = ? AND org_id = ?
+  `, [employeeId, orgId]);
+
+  // Optional: Update employee_professional if you have a separate status there
+  // await pool.execute(`UPDATE employee_professional SET is_active = 0 WHERE employee_id = ?`, [employeeId]);
+
+  return { exitId, message: "Direct exit completed" };
+}
+
+async function getAllActiveEmployees(orgId) {
+  const pool = await getTenantPoolByOrgId(orgId);
+
+  const [employees] = await pool.execute(`
+    SELECT 
+      employee_id, 
+      first_name, 
+      last_name
+    FROM employees 
+    WHERE org_id = ? 
+      AND (status = 'active' OR status IS NULL OR status = '' OR status = 'Active')
+    ORDER BY first_name ASC, last_name ASC
+  `, [orgId]);
+
+  return employees;
+}
 module.exports = {
+    directExit,
+
   applyResignation,
   requestWithdrawal,
   supervisorNormalAction,
@@ -379,7 +443,8 @@ module.exports = {
   hrSetFinalPlannedDates,
   hrUpdateClearanceStatus,
   getMyTeamAllRequests,
+  getAllActiveEmployees,
+
   getAllOrgExitRequests,
     saveHrFinalEvaluation,
-
 };
