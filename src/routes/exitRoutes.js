@@ -18,7 +18,10 @@ const {
   getMyTeamAllRequests,     // ← new
   getAllOrgExitRequests,
   hrFinalApproveWithdraw,
-  saveHrFinalEvaluation
+  saveHrFinalEvaluation,
+  directExit,
+  
+  getAllActiveEmployees,
 } = require("../handlers/exitHandler");
 
 // Employee
@@ -52,4 +55,9 @@ router.put(
 );
 // Add this alongside the existing one
 router.get("/hr/resigned-clearance", getHrResignedClearance);
+// Inside your router
+router.post("/direct-exit", directExit);   // ← NEW
+
+router.get("/all-active-employees", getAllActiveEmployees);
+
 module.exports = router;
