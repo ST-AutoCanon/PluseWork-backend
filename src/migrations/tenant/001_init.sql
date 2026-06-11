@@ -143,6 +143,15 @@ CREATE TABLE IF NOT EXISTS sidebar_menu_access (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS positions (
+  id int NOT NULL AUTO_INCREMENT,
+  name varchar(255) DEFAULT NULL,
+  department_id int DEFAULT NULL,
+  rank tinyint DEFAULT NULL,
+  PRIMARY KEY (id)
+);
+
+
 CREATE TABLE IF NOT EXISTS add_project (
   id INT AUTO_INCREMENT PRIMARY KEY,
   org_id INT UNSIGNED,
@@ -1221,3 +1230,47 @@ CREATE TABLE sub_orgs (
     CONSTRAINT uq_sub_org_code_per_org
         UNIQUE (org_id, code)
 );
+
+CREATE TABLE recruitment_candidates (
+  id int NOT NULL AUTO_INCREMENT,
+  org_id int DEFAULT NULL,
+  name varchar(255)  DEFAULT NULL,
+  email varchar(255)  DEFAULT NULL,
+  phone varchar(50)  DEFAULT NULL,
+  applied_position varchar(255)  DEFAULT NULL,
+  department varchar(255)  DEFAULT NULL,
+  current_ctc decimal(10,2) DEFAULT NULL,
+  expected_ctc decimal(10,2) DEFAULT NULL,
+  notice_period varchar(100)  DEFAULT NULL,
+  total_experience varchar(100)  DEFAULT NULL,
+  status varchar(100)  DEFAULT 'Applied',
+  source varchar(255) DEFAULT NULL,
+  resume_url text,
+  documents json DEFAULT NULL,
+  offer_ctc decimal(12,2) DEFAULT NULL,
+  offer_letter_url text ,
+  joining_date date DEFAULT NULL,
+  created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id)
+);
+
+CREATE TABLE recruitment_assessments (
+  id int NOT NULL AUTO_INCREMENT,
+  recruitment_candidate_id int NOT NULL,
+  org_id int NOT NULL,
+  round_name varchar(100)  NOT NULL,
+  interviewer_id varchar(20)  DEFAULT NULL,
+  interview_date datetime DEFAULT NULL,
+  interview_link text ,
+  send_interview_email tinyint(1) DEFAULT '0',
+  email_body longtext ,
+  email_subject text ,
+  score int DEFAULT NULL,
+  decision varchar(50)  DEFAULT NULL,
+  feedback text ,
+  created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id)
+);
+

@@ -673,14 +673,6 @@ LEFT JOIN (
    ORDER BY id
 `,
 
-  GET_POSITION_RANK: `
-  SELECT \`rank\`
-    FROM positions
-   WHERE name = ?
-     AND department_id IS NULL
-   LIMIT 1
-`,
-
   GET_POSITIONS_BY_ROLE_AND_DEPT: `
   SELECT
     p.name
