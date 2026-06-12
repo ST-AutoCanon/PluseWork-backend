@@ -391,7 +391,7 @@ CREATE TABLE IF NOT EXISTS reimbursement (
   employee_id varchar(10) NOT NULL,
   department_id int DEFAULT NULL,
   project varchar(255) DEFAULT NULL,
-  claim_type enum('Transportation','Meals','Telecommunication','Miscellaneous','Stationary') NOT NULL,
+  claim_type varchar(100) NOT NULL,
   transport_type enum('Outstation','Intercity','Fuel') DEFAULT NULL,
   participants json DEFAULT NULL,
   comments text,
@@ -412,6 +412,7 @@ CREATE TABLE IF NOT EXISTS reimbursement (
   CONSTRAINT fk_reimbursement_employee FOREIGN KEY (employee_id) REFERENCES employees (employee_id) ON DELETE CASCADE ON UPDATE CASCADE,
   CONSTRAINT reimbursement_ibfk_2 FOREIGN KEY (department_id) REFERENCES departments (id) ON DELETE CASCADE
 );
+
 
 CREATE TABLE reimbursement_lines (
   id bigint NOT NULL AUTO_INCREMENT,
@@ -438,15 +439,13 @@ CREATE TABLE reimbursement_lines (
   PRIMARY KEY (`id`),
   KEY `reimbursement_id` (`reimbursement_id`,`line_index`),
   CONSTRAINT `fk_rl_reimbursement` FOREIGN KEY (`reimbursement_id`) REFERENCES `reimbursement` (`id`) ON DELETE CASCADE
-);
-
+) ;
 
 CREATE TABLE IF NOT EXISTS reimbursement_attachments (
   id bigint NOT NULL AUTO_INCREMENT,
   reimbursement_id int NOT NULL,
   line_id bigint DEFAULT NULL,
   file_name varchar(512) NOT NULL,
-  file_path varchar(2048) NOT NULL,
   file_size bigint DEFAULT '0',
   mime_type varchar(128) DEFAULT NULL,
   created_at datetime DEFAULT CURRENT_TIMESTAMP,
