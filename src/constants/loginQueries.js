@@ -37,7 +37,16 @@ module.exports = {
     WHERE e.email = ?;
   `,
 
-  GET_END_DATE: `SELECT id, name, start_date, end_date FROM organizations WHERE id = ?`,
+  GET_END_DATE: `
+  SELECT
+    id,
+    name,
+    employee_prefix,
+    start_date,
+    end_date
+  FROM organizations
+  WHERE id = ?
+`,
 
   GET_ORG_ID_NAME_LIST: `
     SELECT id, name

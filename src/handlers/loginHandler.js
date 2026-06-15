@@ -109,11 +109,15 @@ class LoginHandler {
           .json(ErrorHandler.generateErrorResponse(401, "Invalid credentials"));
       }
 
+      let org = null;
+
       try {
-        const org = await LoginService.fetchOrganizationById(user.Org_id);
+        org = await LoginService.fetchOrganizationById(user.Org_id);
+
         if (org && org.end_date) {
           const today = moment().startOf("day");
           const orgEnd = moment(org.end_date).endOf("day");
+
           if (orgEnd.isBefore(today, "day")) {
             return res
               .status(403)
@@ -137,6 +141,7 @@ class LoginHandler {
         role: user.role,
         role_id: user.role_id || null,
         orgId: user.Org_id,
+        orgPrefix: org?.employee_prefix || null,
         name: user.name,
         gender: user.gender,
         photo_url: user.photo_url || null,
@@ -180,6 +185,7 @@ class LoginHandler {
             role_id: user.role_id,
             name: user.name,
             org_id: user.Org_id,
+            org_prefix: org?.employee_prefix || null,
             gender: user.gender,
             photo_url: user.photo_url || null,
             photoUrl: user.photoUrl ?? user.photo_url ?? null,

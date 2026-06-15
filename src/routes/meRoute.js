@@ -16,6 +16,7 @@ router.get("/me", async (req, res) => {
     // This ensures that updates (e.g., profile photo changes) are reflected immediately.
     let photoUrl = sessUser.photoUrl ?? sessUser.photo_url ?? null;
     let department = sessUser.department ?? null;
+    let orgPrefix = sessUser.orgPrefix ?? null;
 
     if (sessUser.employeeId && sessUser.orgId) {
       try {
@@ -45,6 +46,7 @@ router.get("/me", async (req, res) => {
       role: sessUser.role,
       name: sessUser.name,
       org_id: sessUser.orgId,
+      orgPrefix,
       gender: sessUser.gender ?? null,
       photo_url: photoUrl,
       photoUrl: photoUrl,
