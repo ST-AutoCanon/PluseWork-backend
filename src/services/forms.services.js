@@ -836,24 +836,28 @@ const getFeedbackRequests = async (orgId, employeeId) => {
             getObjectValue(obj[`${fieldId}_feedback_request_note`]) ||
             null;
           const feedbackKey = `${fieldId}_others_feedback_from_${employeeId}`;
-          const alreadyProvided = row.response_json && row.response_json[feedbackKey] !== undefined && row.response_json[feedbackKey] !== null && row.response_json[feedbackKey] !== "";
-          if (!alreadyProvided) {
-            requests.push({
-              form_id: row.form_id,
-              form_name: row.form_name || null,
-              requester_id: row.employee_id,
-              requester_first_name: row.requester_first_name || null,
-              requester_last_name: row.requester_last_name || null,
-              fieldId,
-              fieldLabel: fieldLabel || fieldValue || fieldId,
-              fieldValue,
-              requestContext: fieldValue,
-              requestReason,
-              requestKey: key,
-              feedbackKey,
-              recipient_id: employeeId,
-            });
-          }
+          const providedValue = row.response_json ? row.response_json[feedbackKey] : undefined;
+          const alreadyProvided = providedValue !== undefined && providedValue !== null && String(providedValue).trim() !== "";
+
+          // Always include the request so the UI can show requests even after responding.
+          requests.push({
+            form_id: row.form_id,
+            form_name: row.form_name || null,
+            requester_id: row.employee_id,
+            requester_first_name: row.requester_first_name || null,
+            requester_last_name: row.requester_last_name || null,
+            fieldId,
+            fieldLabel: fieldLabel || fieldValue || fieldId,
+            fieldValue,
+            requestContext: fieldValue,
+            requestReason,
+            requestKey: key,
+            feedbackKey,
+            recipient_id: employeeId,
+            alreadyProvided,
+            providedValue: alreadyProvided ? providedValue : null,
+            requesterResponseSubmittedAt: row.submitted_at || row.__submitted_at || null,
+          });
         }
       }
 
@@ -883,58 +887,70 @@ const getFeedbackRequests = async (orgId, employeeId) => {
 
 const submitOthersFeedback = async (orgId, formId, requesterId, recipientId, feedbackEntries) => {
   console.log(`[SERVICE] submitOthersFeedback: form ${formId}, requester ${requesterId}, recipient ${recipientId}`);
+  console.log(`[SERVICE] Received feedbackEntries:`, feedbackEntries);
+
   const tenantPool = await getTenantPoolByOrgId(orgId);
-  // find existing response for requester
-  const [existingRows] = await tenantPool.query(QUERIES.GET_RESPONSE_BY_FORM_EMPLOYEE, [formId, requesterId, orgId]);
+
+  // Find existing response for the ORIGINAL requester
+  const [existingRows] = await tenantPool.query(
+    QUERIES.GET_RESPONSE_BY_FORM_EMPLOYEE, 
+    [formId, requesterId, orgId]
+  );
+
   const existing = existingRows[0];
 
   const safeParse = (json) => {
     if (!json) return {};
-    try { return typeof json === 'object' ? json : JSON.parse(json); } catch (_) { return {}; }
+    try { 
+      return typeof json === 'object' ? json : JSON.parse(json); 
+    } catch (_) { 
+      return {}; 
+    }
   };
 
   let existingData = existing ? safeParse(existing.response_json) : {};
+
   let hasChanges = false;
 
-  // Merge feedback entries into existing response JSON
-  Object.keys(feedbackEntries || {}).forEach(k => {
-    const value = feedbackEntries[k];
-    // If key ends with '_others_feedback_from_<requesterId>' (as recipient UI renders), replace that requesterId with recipientId
-    const m = k.match(/^(.*)_others_feedback_from_\d+$/);
-    let destKey;
-    if (m) {
-      const base = m[1];
-      destKey = `${base}_others_feedback_from_${recipientId}`;
-    } else {
-      // Fallback: try to convert *_feedback_request_to -> _others_feedback_from_<recipientId>
-      if (/(_feedback_request_to)$/.test(k)) {
-        const base = k.replace(/_feedback_request_to$/, '');
-        destKey = `${base}_others_feedback_from_${recipientId}`;
-      } else {
-        destKey = `${k}_others_feedback_from_${recipientId}`;
-      }
-    }
+  // === FIXED MERGING LOGIC ===
+  Object.keys(feedbackEntries || {}).forEach(baseField => {
+    const value = feedbackEntries[baseField];
 
-    const existingValue = existingData[destKey];
-    const hasExistingValue = existingValue !== undefined && existingValue !== null && String(existingValue).trim() !== "";
-    if (hasExistingValue) {
-      return;
-    }
-
-    if (value !== undefined && value !== null && String(value).trim() !== "") {
+    if (value && String(value).trim() !== "") {
+      // Store under: {fieldId}_others_feedback_from_{recipientId}
+      const destKey = `${baseField}_others_feedback_from_${recipientId}`;
+      
       existingData[destKey] = value;
       hasChanges = true;
+
+      console.log(`[SERVICE] Saved feedback: ${destKey} = ${value}`);
     }
   });
 
+  if (!hasChanges) {
+    console.log("[SERVICE] No changes to save");
+    return existing ? existing.id : null;
+  }
+
   if (existing) {
-    if (!hasChanges) {
-      return existing.id;
-    }
-    await tenantPool.query(QUERIES.UPDATE_RESPONSE, [JSON.stringify(existingData), 'submitted', existing.id]);
+    // Update existing response
+    await tenantPool.query(QUERIES.UPDATE_RESPONSE, [
+      JSON.stringify(existingData),
+      'submitted',
+      existing.id
+    ]);
+    console.log(`[SERVICE] Updated existing response with ID: ${existing.id}`);
     return existing.id;
   } else {
-    const [result] = await tenantPool.query(QUERIES.SUBMIT_RESPONSE, [formId, requesterId, orgId, JSON.stringify(existingData), 'submitted']);
+    // Create new response (rare case)
+    const [result] = await tenantPool.query(QUERIES.SUBMIT_RESPONSE, [
+      formId,
+      requesterId,
+      orgId,
+      JSON.stringify(existingData),
+      'submitted'
+    ]);
+    console.log(`[SERVICE] Created new response with ID: ${result.insertId}`);
     return result.insertId;
   }
 };
