@@ -333,9 +333,28 @@ CREATE TABLE IF NOT EXISTS emp_attendence (
   punchout_device varchar(255) DEFAULT NULL,
   punchout_location varchar(255) DEFAULT NULL,
   punchmode enum('Manual','Automatic') NOT NULL DEFAULT 'Manual',
+   late_login tinyint(1) NOT NULL DEFAULT '0',
   KEY employee_id (employee_id),
   CONSTRAINT emp_attendence_ibfk_1 FOREIGN KEY (employee_id) REFERENCES employees (employee_id) ON DELETE CASCADE ON UPDATE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS leave_regularisation_requests (
+  id int NOT NULL AUTO_INCREMENT,
+  org_id int NOT NULL,
+  employee_id varchar(20) COLLATE utf8mb4_general_ci NOT NULL,
+  regularisation_type enum('missed_punch_out','missed_punch_in','late_login','missed_apply_leave') COLLATE utf8mb4_general_ci NOT NULL,
+  selected_dates json NOT NULL,
+  primary_date date NOT NULL,
+  comment text COLLATE utf8mb4_general_ci NOT NULL,
+  status enum('Pending','Approved','Rejected') COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'Pending',
+  approver_comments text COLLATE utf8mb4_general_ci,
+  approver_name varchar(150) COLLATE utf8mb4_general_ci DEFAULT NULL,
+  approver_employee_id varchar(20) COLLATE utf8mb4_general_ci DEFAULT NULL,
+  created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id)
+) ;
+
 
 CREATE TABLE IF NOT EXISTS leavequeries (
   id int NOT NULL AUTO_INCREMENT,
@@ -361,7 +380,7 @@ CREATE TABLE IF NOT EXISTS leavequeries (
   KEY idx_leavequeries_start_date (start_date),
   KEY idx_leavequeries_end_date (end_date)
 );
-CREATE TABLE employee_leave_balances (
+CREATE TABLE IF NOT EXISTS employee_leave_balances (
   id int NOT NULL AUTO_INCREMENT,
   employee_id varchar(20) NOT NULL,
   leave_type varchar(64) NOT NULL,
@@ -372,7 +391,7 @@ CREATE TABLE employee_leave_balances (
   CONSTRAINT `employee_leave_balances_ibfk_1` FOREIGN KEY (`employee_id`) REFERENCES `employees` (`employee_id`) ON DELETE CASCADE
 ) ;
 
-CREATE TABLE employee_leave_carry_forward (
+CREATE TABLE IF NOT EXISTS employee_leave_carry_forward (
   id bigint unsigned NOT NULL AUTO_INCREMENT,
   employee_id varchar(64) NOT NULL,
   year int NOT NULL,
@@ -414,7 +433,7 @@ CREATE TABLE IF NOT EXISTS reimbursement (
 );
 
 
-CREATE TABLE reimbursement_lines (
+CREATE TABLE IF NOT EXISTS reimbursement_lines (
   id bigint NOT NULL AUTO_INCREMENT,
   reimbursement_id int NOT NULL,
   line_index int NOT NULL DEFAULT '0',
@@ -1020,7 +1039,7 @@ CREATE TABLE IF NOT EXISTS weekly_tasks (
   KEY fk_parent_task (parent_task_id),
   CONSTRAINT fk_parent_task FOREIGN KEY (parent_task_id) REFERENCES weekly_tasks (task_id)
 );
-CREATE TABLE leave_types (
+CREATE TABLE IF NOT EXISTS leave_types (
   id int NOT NULL AUTO_INCREMENT,
   org_id int NOT NULL,
   type_key varchar(50) COLLATE utf8mb4_general_ci NOT NULL,
