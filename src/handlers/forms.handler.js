@@ -437,16 +437,28 @@ exports.getFeedbackRequests = async (req, res) => {
 exports.submitOthersFeedback = async (req, res) => {
   try {
     const orgId = req.headers["x-org-id"];
-    const recipientId = req.headers["x-employee-id"];
+    const recipientId = req.headers["x-employee-id"];   // The person providing feedback
     const { id: formId } = req.params;
     const { requesterEmployeeId, feedbackEntries } = req.body;
 
-    if (!orgId || !recipientId || !formId || !requesterEmployeeId) return res.status(400).json({ error: "Required params missing" });
+    if (!orgId || !recipientId || !formId || !requesterEmployeeId) {
+      return res.status(400).json({ error: "Required params missing" });
+    }
 
-    const id = await service.submitOthersFeedback(orgId, formId, requesterEmployeeId, recipientId, feedbackEntries || {});
+    console.log(`[HANDLER] submitOthersFeedback - Form: ${formId}, Requester: ${requesterEmployeeId}, Recipient: ${recipientId}`);
+    console.log(`[HANDLER] Feedback Entries:`, feedbackEntries);
+
+    const id = await service.submitOthersFeedback(
+      orgId, 
+      formId, 
+      requesterEmployeeId, 
+      recipientId, 
+      feedbackEntries || {}
+    );
+
     res.json({ success: true, id });
   } catch (err) {
     console.error("❌ [HANDLER] submitOthersFeedback error:", err.message);
-    res.status(500).json({ error: "Failed to submit others feedback" });
+    res.status(500).json({ error: err.message || "Failed to submit others feedback" });
   }
 };
