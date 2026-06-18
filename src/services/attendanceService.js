@@ -20,7 +20,12 @@ const attendanceService = {
     try {
       const tenantPool = await getTenantPoolByOrgId(orgId);
       const [rows] = await tenantPool.execute(
-        `SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ? LIMIT 1`,
+        `SELECT 1
+         FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME = ?
+           AND COLUMN_NAME = ?
+         LIMIT 1`,
         [tableName, columnName],
       );
       return Array.isArray(rows) && rows.length > 0;
@@ -101,20 +106,30 @@ const attendanceService = {
   getLoginHoursConfig: async (orgId) => {
     try {
       const tenantPool = await getTenantPoolByOrgId(orgId);
+
+      // Always fetch the latest record for this organization
       const [rows] = await tenantPool.execute(
-        attendanceQueries.GET_LOGIN_HOURS_CONFIG,
+        `SELECT *
+         FROM login_hours_config
+         WHERE org_id = ?
+         ORDER BY id DESC
+         LIMIT 1`,
         [orgId],
       );
+
       if (!rows || rows.length === 0) return null;
-      // Parse JSON column if present
+
       const row = rows[0];
+
+      // Parse JSON column if present
       try {
         if (row.action_roles && typeof row.action_roles === "string") {
           row.action_roles = JSON.parse(row.action_roles);
         }
       } catch (e) {
-        // ignore parse errors and leave raw value
+        // ignore parse errors and leave raw value as-is
       }
+
       return row;
     } catch (error) {
       console.error("Error in getLoginHoursConfig:", error);
@@ -205,7 +220,10 @@ const attendanceService = {
                 punchout_time, punchout_device, punchout_location, punchmode
          FROM emp_attendence
          WHERE employee_id = ?
-         ORDER BY GREATEST(COALESCE(punchin_time, '0000-00-00'), COALESCE(punchout_time, '0000-00-00')) DESC
+         ORDER BY GREATEST(
+           COALESCE(punchin_time, '0000-00-00'),
+           COALESCE(punchout_time, '0000-00-00')
+         ) DESC
          LIMIT 1`,
         [employeeId],
       );
@@ -223,12 +241,12 @@ const attendanceService = {
         `SELECT DISTINCT DATE(punchin_time) as late_date
          FROM emp_attendence
          WHERE employee_id = ?
-         AND late_login = 1
-         AND punchin_time >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+           AND late_login = 1
+           AND punchin_time >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
          ORDER BY late_date DESC`,
         [employeeId, daysBack],
       );
-      // Convert to YYYY-MM-DD format for frontend
+
       return rows.map((r) => {
         const d = new Date(r.late_date);
         const year = d.getFullYear();
