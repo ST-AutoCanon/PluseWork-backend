@@ -5,6 +5,8 @@ const fs = require("fs");
 const { generateDocx } = require("../services/docxService");
 const { convertDocxToPdf } = require("../services/pdfService");
 const queries = require("../constants/reimbursementQueries");
+const db = require("../config");
+const organizationQueries = require("../constants/organizationTableQueries");
 const XLSX = require("xlsx");
 
 const { sanitizeDbName, getTenantPool } = require("../db/tenantPoolManager");
@@ -429,8 +431,6 @@ function buildAttachmentsFromFiles(reqFiles = [], attachmentsMeta = {}) {
   });
 }
 
-/* ---------- Handlers (tenant-aware) ---------- */
-
 exports.generateReimbursementPDF = async (req, res) => {
   try {
     const { claimId } = req.params;
@@ -441,10 +441,16 @@ exports.generateReimbursementPDF = async (req, res) => {
 
     const tenantPool = await getTenantPoolForOrgId(orgId);
 
+    const [orgRows] = await db.execute(organizationQueries.SELECT_ORG_BY_ID, [
+      orgId,
+    ]);
+    const orgName = orgRows?.[0]?.name || "";
+
     const [claimRows] = await tenantPool.query(queries.GET_CLAIM_DETAILS, [
       claimId,
     ]);
     const claim = Array.isArray(claimRows) ? claimRows[0] : claimRows;
+
     if (!claim || !claim.employee_id) {
       return res.status(404).json({ error: "Claim not found" });
     }
@@ -456,9 +462,11 @@ exports.generateReimbursementPDF = async (req, res) => {
     const employee = Array.isArray(employeeRows)
       ? employeeRows[0]
       : employeeRows;
+
     if (!employee || !employee.name) {
       return res.status(404).json({ error: "Employee details not found" });
     }
+
     const [attachmentsRows] = await tenantPool.query(queries.GET_ATTACHMENTS, [
       claimId,
     ]);
@@ -472,6 +480,7 @@ exports.generateReimbursementPDF = async (req, res) => {
       try {
         const file_name =
           (a && (a.file_name || a.filename || a.name || a.fileName)) || null;
+
         const empIdFromRow =
           a && (a.employee_id || a.emp_id || a.employeeId)
             ? String(a.employee_id || a.emp_id || a.employeeId)
@@ -507,6 +516,7 @@ exports.generateReimbursementPDF = async (req, res) => {
               }
             }
           }
+
           if (fs.existsSync(candidate)) {
             attObj.file_path = candidate;
             attachmentsResolved.push(attObj);
@@ -516,18 +526,17 @@ exports.generateReimbursementPDF = async (req, res) => {
           }
         }
 
-        if (!file_name) {
-          continue;
-        }
+        if (!file_name) continue;
 
         let created =
           claim && (claim.created_at || claim.date)
             ? new Date(claim.created_at || claim.date)
             : null;
+
         if (!created || isNaN(created.getTime())) created = new Date();
+
         const year = `${created.getFullYear()}`;
         const month = String(created.getMonth() + 1).padStart(2, "0");
-
         const empId = claim.employee_id || attObj.employee_id || "unknown";
 
         const constructed = path.join(
@@ -542,6 +551,7 @@ exports.generateReimbursementPDF = async (req, res) => {
           String(empId),
           file_name,
         );
+
         if (fs.existsSync(constructed)) {
           attObj.file_path = constructed;
           attachmentsResolved.push(attObj);
@@ -565,6 +575,7 @@ exports.generateReimbursementPDF = async (req, res) => {
               withFileTypes: true,
             });
             let found = null;
+
             for (const e of entries) {
               if (!e.isDirectory()) continue;
               const possible = path.join(candidateDir, e.name, file_name);
@@ -573,6 +584,7 @@ exports.generateReimbursementPDF = async (req, res) => {
                 break;
               }
             }
+
             if (found) {
               attObj.file_path = found;
               attachmentsResolved.push(attObj);
@@ -595,10 +607,12 @@ exports.generateReimbursementPDF = async (req, res) => {
             "reimbursement",
             String(orgId),
           );
+
           const searchYears = [year];
           for (const y of searchYears) {
             const dirToWalk = path.join(topTenantDir, y);
             if (!fs.existsSync(dirToWalk)) continue;
+
             const walk = (dir) => {
               const items = fs.readdirSync(dir, { withFileTypes: true });
               for (const it of items) {
@@ -612,6 +626,7 @@ exports.generateReimbursementPDF = async (req, res) => {
               }
               return null;
             };
+
             const foundAny = walk(dirToWalk);
             if (foundAny) {
               attObj.file_path = foundAny;
@@ -638,16 +653,6 @@ exports.generateReimbursementPDF = async (req, res) => {
       );
     }
 
-    attachmentsWithFiles.forEach((att) => {
-      if (!path.isAbsolute(att.file_path)) {
-        att.file_path = path.join(__dirname, "..", "..", "..", att.file_path);
-      }
-      if (!fs.existsSync(att.file_path)) {
-        console.warn(`File not found on disk (post-resolve): ${att.file_path}`);
-      } else {
-      }
-    });
-
     const [linesRows] = await tenantPool.query(
       queries.GET_LINES_BY_REIMBURSEMENT_IDS,
       [[claimId]],
@@ -656,8 +661,13 @@ exports.generateReimbursementPDF = async (req, res) => {
     const lines = (linesRows || [])
       .sort((a, b) => (a.line_index || 0) - (b.line_index || 0))
       .map((l) => {
-        const payload =
-          typeof l.meta === "string" ? JSON.parse(l.meta) : l.meta || {};
+        let payload = {};
+        try {
+          payload =
+            typeof l.meta === "string" ? JSON.parse(l.meta) : l.meta || {};
+        } catch {
+          payload = {};
+        }
         return {
           ...l,
           payload,
@@ -689,12 +699,17 @@ exports.generateReimbursementPDF = async (req, res) => {
     claim.total_amount = total_amount.toFixed(2);
     claim.invoices = Array.from(invoiceSet);
 
-    const docxPath = await generateDocx(claim, employee, attachmentsWithFiles);
+    const docxPath = await generateDocx(claim, employee, {
+      orgId,
+      orgName,
+      attachments: attachmentsWithFiles,
+    });
 
     const pdfPath = await convertDocxToPdf(
       docxPath,
       claim,
       attachmentsWithFiles,
+      orgId,
     );
 
     const fileNameBase = (employee.name || `claim_${claimId}`).replace(
