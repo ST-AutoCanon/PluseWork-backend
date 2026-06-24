@@ -41,11 +41,11 @@ function convertWithSoffice(docxPath, outDir) {
     child.on("exit", (code) => {
       const pdfPath = path.join(
         outDir,
-        path.basename(docxPath).replace(/\.docx$/i, ".pdf")
+        path.basename(docxPath).replace(/\.docx$/i, ".pdf"),
       );
       if (code === 0 && fs.existsSync(pdfPath)) return resolve(pdfPath);
       return reject(
-        new Error(`soffice conversion failed (code=${code}) ${stderr}`)
+        new Error(`soffice conversion failed (code=${code}) ${stderr}`),
       );
     });
   });
@@ -108,22 +108,24 @@ async function resolveAttachmentFilePath(att = {}, orgId = null) {
             "..",
             "reimbursement",
             String(orgId),
-            att.file_path
-          )
+            att.file_path,
+          ),
         );
       }
       candidatePaths.push(
-        path.join(__dirname, "..", "reimbursement", att.file_path)
+        path.join(__dirname, "..", "reimbursement", att.file_path),
       );
     }
 
     const fileName =
       att.file_name || (att.file_path ? path.basename(att.file_path) : null);
+
     if (fileName) {
       const m = String(fileName).match(/^(\d{4})[-_](\d{2})/);
       if (m) {
         const year = m[1];
         const month = m[2];
+
         if (orgId && att.employee_id) {
           candidatePaths.push(
             path.join(
@@ -134,10 +136,11 @@ async function resolveAttachmentFilePath(att = {}, orgId = null) {
               year,
               month,
               String(att.employee_id),
-              fileName
-            )
+              fileName,
+            ),
           );
         }
+
         if (orgId) {
           candidatePaths.push(
             path.join(
@@ -147,10 +150,11 @@ async function resolveAttachmentFilePath(att = {}, orgId = null) {
               String(orgId),
               year,
               month,
-              fileName
-            )
+              fileName,
+            ),
           );
         }
+
         candidatePaths.push(
           path.join(
             __dirname,
@@ -159,14 +163,14 @@ async function resolveAttachmentFilePath(att = {}, orgId = null) {
             year,
             month,
             att.employee_id ? String(att.employee_id) : "",
-            fileName
-          )
+            fileName,
+          ),
         );
       }
 
       if (orgId && att.employee_id) {
         candidatePaths.push(
-          path.join(__dirname, "..", "reimbursement", String(orgId), fileName)
+          path.join(__dirname, "..", "reimbursement", String(orgId), fileName),
         );
         candidatePaths.push(
           path.join(
@@ -175,13 +179,13 @@ async function resolveAttachmentFilePath(att = {}, orgId = null) {
             "reimbursement",
             String(orgId),
             String(att.employee_id),
-            fileName
-          )
+            fileName,
+          ),
         );
       }
 
       candidatePaths.push(
-        path.join(__dirname, "..", "reimbursement", fileName)
+        path.join(__dirname, "..", "reimbursement", fileName),
       );
     }
 
@@ -197,6 +201,7 @@ async function resolveAttachmentFilePath(att = {}, orgId = null) {
       } catch {}
     }
   } catch (e) {}
+
   return null;
 }
 
@@ -221,7 +226,7 @@ async function mergeAttachments(pdfPath, attachments = [], orgId = null) {
           const total = otherPdf.getPageCount();
           const pages = await pdfDoc.copyPages(
             otherPdf,
-            Array.from({ length: total }, (_, i) => i)
+            Array.from({ length: total }, (_, i) => i),
           );
           pages.forEach((page) => pdfDoc.addPage(page));
 
@@ -233,6 +238,7 @@ async function mergeAttachments(pdfPath, attachments = [], orgId = null) {
                 im.type === "png"
                   ? await pdfDoc.embedPng(buf)
                   : await pdfDoc.embedJpg(buf);
+
               const page = pdfDoc.addPage();
               const { width: pw, height: ph } = page.getSize();
               const { width: iw, height: ih } = embedded.scale(1);
@@ -241,6 +247,7 @@ async function mergeAttachments(pdfPath, attachments = [], orgId = null) {
               const ratio = Math.min(maxW / iw, maxH / ih, 1);
               const drawW = iw * ratio;
               const drawH = ih * ratio;
+
               page.drawImage(embedded, {
                 x: (pw - drawW) / 2,
                 y: (ph - drawH) / 2,
@@ -255,7 +262,7 @@ async function mergeAttachments(pdfPath, attachments = [], orgId = null) {
           console.error(
             "Failed to import PDF pages:",
             resolved,
-            err.message || err
+            err.message || err,
           );
         }
       } else if (["png", "jpg", "jpeg"].includes(ext)) {
@@ -265,6 +272,7 @@ async function mergeAttachments(pdfPath, attachments = [], orgId = null) {
             ext === "png"
               ? await pdfDoc.embedPng(buf)
               : await pdfDoc.embedJpg(buf);
+
           const page = pdfDoc.addPage();
           const { width: pw, height: ph } = page.getSize();
           const { width: iw, height: ih } = embedded.scale(1);
@@ -273,6 +281,7 @@ async function mergeAttachments(pdfPath, attachments = [], orgId = null) {
           const ratio = Math.min(maxW / iw, maxH / ih, 1);
           const drawW = iw * ratio;
           const drawH = ih * ratio;
+
           page.drawImage(embedded, {
             x: (pw - drawW) / 2,
             y: (ph - drawH) / 2,
@@ -283,7 +292,7 @@ async function mergeAttachments(pdfPath, attachments = [], orgId = null) {
           console.error(
             "Failed to optimize/embed image:",
             resolved,
-            err.message || err
+            err.message || err,
           );
           continue;
         }
@@ -294,7 +303,7 @@ async function mergeAttachments(pdfPath, attachments = [], orgId = null) {
       console.warn(
         "Error processing attachment (skipping):",
         att,
-        outerErr.message || outerErr
+        outerErr.message || outerErr,
       );
       continue;
     }
@@ -310,7 +319,7 @@ exports.convertDocxToPdf = async (
   docxPath,
   claim = {},
   attachments = [],
-  orgId = "unknown"
+  orgId = "unknown",
 ) => {
   if (!docxPath) throw new Error("docxPath required");
   const absDocx = path.resolve(docxPath);
@@ -325,13 +334,14 @@ exports.convertDocxToPdf = async (
 
   try {
     const docxBuffer = await fsp.readFile(absDocx);
-    if (!docxBuffer || docxBuffer.length === 0)
+    if (!docxBuffer || docxBuffer.length === 0) {
       throw new Error("DOCX buffer empty");
+    }
 
     const pdfBuffer = await new Promise((resolve, reject) => {
-      let timeout = setTimeout(
+      const timeout = setTimeout(
         () => reject(new Error("libre.convert timeout")),
-        2 * 60 * 1000
+        2 * 60 * 1000,
       );
       try {
         libre.convert(docxBuffer, ".pdf", undefined, (err, done) => {
@@ -350,7 +360,7 @@ exports.convertDocxToPdf = async (
   } catch (err) {
     console.warn(
       "libreoffice-convert failed:",
-      err && err.message ? err.message : err
+      err && err.message ? err.message : err,
     );
 
     if (isSofficeAvailable()) {
@@ -362,12 +372,12 @@ exports.convertDocxToPdf = async (
       } catch (sErr) {
         console.error(
           "soffice fallback failed:",
-          sErr && sErr.message ? sErr.message : sErr
+          sErr && sErr.message ? sErr.message : sErr,
         );
       }
     } else {
       console.error(
-        "soffice is not available on PATH; please install LibreOffice."
+        "soffice is not available on PATH; please install LibreOffice.",
       );
     }
 
@@ -375,20 +385,20 @@ exports.convertDocxToPdf = async (
       throw new Error(
         `DOCX to PDF conversion failed: ${
           err && err.message ? err.message : err
-        }`
+        }`,
       );
     }
   }
 
-  const valid =
-    attachments && Array.isArray(attachments)
-      ? attachments.filter((att) => att && (att.file_path || att.file_name))
-      : [];
+  const valid = Array.isArray(attachments)
+    ? attachments.filter((att) => att && (att.file_path || att.file_name))
+    : [];
+
   if (valid.length !== (attachments || []).length) {
     console.warn(
       `Filtered out ${
         (attachments || []).length - valid.length
-      } attachments without file_path/file_name`
+      } attachments without file_path/file_name`,
     );
   }
 
@@ -403,7 +413,7 @@ exports.convertDocxToPdf = async (
     } catch (mergeErr) {
       console.error(
         "mergeAttachments failed:",
-        mergeErr && mergeErr.message ? mergeErr.message : mergeErr
+        mergeErr && mergeErr.message ? mergeErr.message : mergeErr,
       );
       return convertedPdfPath;
     }

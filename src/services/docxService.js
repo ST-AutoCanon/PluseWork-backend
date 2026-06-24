@@ -12,16 +12,19 @@ const fs = require("fs");
 const path = require("path");
 const numberToWords = require("number-to-words");
 
-exports.generateDocx = async (claim, employee, orgId = "unknown") => {
+exports.generateDocx = async (claim, employee, options = {}) => {
   if (!claim || !claim.id) {
     console.error("Invalid Claim ID:", claim);
     throw new Error("Claim ID is undefined, cannot generate document.");
   }
 
+  const orgId = options.orgId || "unknown";
+  const orgName = String(options.orgName || "").trim();
+
   const companyHeader = new Paragraph({
     children: [
       new TextRun({
-        text: "Sukalpa Tech Solutions Pvt Ltd.",
+        text: orgName || "Sukalpa Tech Solutions Pvt Ltd.",
         bold: true,
         size: 36,
       }),
@@ -72,7 +75,7 @@ exports.generateDocx = async (claim, employee, orgId = "unknown") => {
           new TextRun({ text: claim.invoices.join(", ") }),
         ],
         spacing: { after: 200 },
-      })
+      }),
     );
   }
 
@@ -166,11 +169,11 @@ exports.generateDocx = async (claim, employee, orgId = "unknown") => {
             margins: { top: 100, bottom: 100, left: 100, right: 100 },
           }),
         ],
-      })
+      }),
     );
   };
 
-  let formattedDate = claim.display_date
+  const formattedDate = claim.display_date
     ? new Date(claim.display_date).toLocaleDateString()
     : "-";
 
@@ -181,7 +184,7 @@ exports.generateDocx = async (claim, employee, orgId = "unknown") => {
       p.purpose || p.description || "-",
       "1",
       line.total_amount,
-      line.total_amount
+      line.total_amount,
     );
   });
 
@@ -214,7 +217,7 @@ exports.generateDocx = async (claim, employee, orgId = "unknown") => {
           ],
         }),
       ],
-    })
+    }),
   );
 
   const reimbursementTable = new Table({
@@ -225,6 +228,7 @@ exports.generateDocx = async (claim, employee, orgId = "unknown") => {
 
   let aggNum = parseFloat(claim.aggregated_total || 0);
   if (!Number.isFinite(aggNum)) aggNum = 0;
+
   const amountWordsRaw = numberToWords.toWords(Math.floor(aggNum));
   const formattedAmountWords = amountWordsRaw
     ? amountWordsRaw.charAt(0).toUpperCase() +
@@ -325,13 +329,12 @@ exports.generateDocx = async (claim, employee, orgId = "unknown") => {
     ],
   });
 
-  const tempDir = path.join(__dirname, "../temp", String(orgId || "unknown"));
+  const tempDir = path.join(__dirname, "./temp", String(orgId || "unknown"));
   if (!fs.existsSync(tempDir)) {
     fs.mkdirSync(tempDir, { recursive: true });
   }
 
   const docxPath = path.join(tempDir, `Reimbursement_${claim.id}.docx`);
-
   const buffer = await Packer.toBuffer(doc);
   fs.writeFileSync(docxPath, buffer);
 
