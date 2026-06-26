@@ -54,37 +54,19 @@ const getFinancialYear = (invoiceDate) => {
     .trim();
 };
 
-async function getOrgNameMaster(connection, orgId) {
-  if (!orgId) return null;
+async function getOrganizationPrefix(connection, orgId) {
+  if (!orgId) return "STS";
+
   try {
-    const [rows] = await connection.execute(
-      `SELECT Name AS name FROM Organizations WHERE id = ? LIMIT 1`,
-      [orgId],
-    );
-    if (rows && rows.length > 0) return String(rows[0].name).trim();
-  } catch (e) {}
-  return null;
-}
+    const [rows] = await db.execute(invoiceQueries.GET_ORGANIZATION_PREFIX, [
+      orgId,
+    ]);
 
-function makeOrgAcronym(orgName) {
-  if (!orgName || typeof orgName !== "string") return "STS";
-
-  const cleaned = orgName
-    .replace(/[^A-Za-z0-9\s]/g, " ")
-    .trim()
-    .replace(/\s+/g, " ");
-
-  if (!cleaned) return "STS";
-
-  const words = cleaned.split(" ").filter(Boolean);
-
-  if (words.length >= 2) {
-    const letters = words.slice(0, 3).map((w) => w[0].toUpperCase());
-    return letters.join("");
+    return rows[0]?.employee_prefix?.trim()?.toUpperCase() || "STS";
+  } catch (err) {
+    console.error(err);
+    return "STS";
   }
-
-  const single = words[0];
-  return (single && single.slice(0, 3).toUpperCase()) || "STS";
 }
 
 const getNextSequenceMaster = async (invoiceType, financialYear, orgId) => {
@@ -152,12 +134,7 @@ const generateTemplateInvoiceNo = async (invoiceType, orgId = null) => {
   const conn = await tenantPool.getConnection();
 
   try {
-    const orgName = await getOrgNameMaster(conn, orgId);
-    let acronym = makeOrgAcronym(orgName);
-
-    if (Number(orgId) === 32) {
-      acronym = "AM";
-    }
+    const acronym = await getOrganizationPrefix(conn, orgId);
 
     const [rows] = await conn.execute(invoiceQueries.GET_NEXT_SEQUENCE, [
       invoiceType,
@@ -198,12 +175,7 @@ const generateInvoiceNo = async (invoiceDate, invoiceType, orgId) => {
   const conn = await tenantPool.getConnection();
 
   try {
-    const orgName = await getOrgNameMaster(conn, orgId);
-    let acronym = makeOrgAcronym(orgName);
-
-    if (Number(orgId) === 32) {
-      acronym = "AM";
-    }
+    const acronym = await getOrganizationPrefix(conn, orgId);
 
     const [rows] = await conn.execute(invoiceQueries.GET_NEXT_SEQUENCE, [
       invoiceType,
