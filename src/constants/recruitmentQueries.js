@@ -7,6 +7,7 @@ module.exports = {
       phone,
       applied_position,
       department,
+      skills,
       current_ctc,
       expected_ctc,
       notice_period,
@@ -19,7 +20,7 @@ module.exports = {
       joining_date,
       created_at,
       updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
   `,
 
   GET_RECRUITMENT_CANDIDATES: `
@@ -44,6 +45,7 @@ module.exports = {
       phone = ?,
       applied_position = ?,
       department = ?,
+      skills = ?,
       current_ctc = ?,
       expected_ctc = ?,
       notice_period = ?,

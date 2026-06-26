@@ -336,4 +336,11 @@ WHERE i.id = ?;
     cancelled_at = NOW()
   WHERE org_id = ? AND id = ?
 `,
+
+  GET_ORGANIZATION_PREFIX: `
+SELECT employee_prefix
+FROM organizations
+WHERE id = ?
+LIMIT 1
+`,
 };

@@ -102,25 +102,314 @@ async function getOrganizationById(orgId) {
 }
 
 function normalizeResumeText(text = "") {
-  return String(text || "").replace(/\u0000/g, " ");
+  return String(text || "")
+    .replace(/\u0000/g, " ")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
 }
 
 function splitLines(text = "") {
   return String(text || "")
-    .split(/\r?\n/)
+    .split(/\n/)
     .map((line) =>
       String(line || "")
-        .replace(/\s+/g, " ")
+        .replace(/[ \t]+/g, " ")
         .trim(),
     )
     .filter(Boolean);
 }
 
+function collapseSpaces(value = "") {
+  return String(value || "")
+    .replace(/[ \t]+/g, " ")
+    .trim();
+}
+
 function firstMatch(text, patterns) {
   for (const pattern of patterns) {
     const match = text.match(pattern);
-    if (match && match[1]) return String(match[1]).replace(/\s+/g, " ").trim();
+    if (match) {
+      if (match[1]) return collapseSpaces(match[1]);
+      return collapseSpaces(match[0]);
+    }
   }
+  return "";
+}
+
+function normalizePhone(value = "") {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+
+  const hasPlus = raw.startsWith("+");
+  const digits = raw.replace(/\D/g, "");
+
+  if (!digits) return "";
+
+  return hasPlus ? `+${digits}` : digits;
+}
+
+function isLikelyPhone(value = "") {
+  const digits = String(value || "").replace(/\D/g, "");
+  return digits.length >= 10 && digits.length <= 15;
+}
+
+function extractPhone(text = "", lines = []) {
+  const sourceText = `${text || ""}\n${(lines || []).join("\n")}`;
+
+  const patterns = [
+    /\b(?:mobile|phone|contact|whatsapp|cell|mobile no|phone no|contact no\.?)[:\-\s]*((?:\+?91[\s-]?)?[6-9]\d{9})\b/i,
+    /\b((?:\+?91[\s-]?)?[6-9]\d{9})\b/i,
+    /\b(\+?\d{1,3}[\s-]?\d{7,12})\b/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = sourceText.match(pattern);
+    if (!match) continue;
+
+    const candidate = normalizePhone(match[1] || match[0]);
+    if (isLikelyPhone(candidate)) return candidate;
+  }
+
+  return "";
+}
+
+function formatExperience(years = 0, months = 0) {
+  let y = Number(years) || 0;
+  let m = Number(months) || 0;
+
+  if (m >= 12) {
+    y += Math.floor(m / 12);
+    m = m % 12;
+  }
+
+  const parts = [];
+  if (y > 0) parts.push(`${y} Year${y === 1 ? "" : "s"}`);
+  if (m > 0) parts.push(`${m} Month${m === 1 ? "" : "s"}`);
+
+  return parts.join(" ");
+}
+
+function normalizeExperiencePhrase(value = "") {
+  const text = collapseSpaces(value);
+  if (!text) return "";
+
+  const explicit = text.match(
+    /(\d+(?:\.\d+)?)\s*(?:\+?\s*)?(years?|yrs?|year)\s*(?:and\s*)?(?:(\d+)\s*(months?|mos?|month))?/i,
+  );
+
+  if (explicit) {
+    const yearsRaw = explicit[1];
+    const monthsRaw = explicit[3];
+
+    if (monthsRaw !== undefined) {
+      const years = Number(yearsRaw);
+      const months = Number(monthsRaw);
+      if (!Number.isNaN(years) && !Number.isNaN(months)) {
+        return formatExperience(years, months);
+      }
+    }
+
+    const yearsNumber = Number(yearsRaw);
+    if (!Number.isNaN(yearsNumber)) {
+      if (String(yearsRaw).includes(".")) {
+        const wholeYears = Math.floor(yearsNumber);
+        const months = Math.round((yearsNumber - wholeYears) * 12);
+        return formatExperience(wholeYears, months);
+      }
+      return formatExperience(yearsNumber, 0);
+    }
+  }
+
+  const yearsOnly = text.match(/(\d+(?:\.\d+)?)\s*(?:years?|yrs?|year)\b/i);
+  if (yearsOnly) {
+    const yearsNumber = Number(yearsOnly[1]);
+    if (!Number.isNaN(yearsNumber)) {
+      if (String(yearsOnly[1]).includes(".")) {
+        const wholeYears = Math.floor(yearsNumber);
+        const months = Math.round((yearsNumber - wholeYears) * 12);
+        return formatExperience(wholeYears, months);
+      }
+      return formatExperience(yearsNumber, 0);
+    }
+  }
+
+  const monthsOnly = text.match(/(\d+)\s*(?:months?|mos?|month)\b/i);
+  if (monthsOnly) {
+    const months = Number(monthsOnly[1]);
+    if (!Number.isNaN(months)) return formatExperience(0, months);
+  }
+
+  return "";
+}
+
+function extractExperience(text = "", lines = []) {
+  const linePatterns = [
+    /(?:total\s*)?(?:work\s*)?experience[:\-\s]*([^\n]+)/i,
+    /(?:professional\s*)?experience[:\-\s]*([^\n]+)/i,
+    /\bexp[:\-\s]*([^\n]+)/i,
+  ];
+
+  for (const line of lines || []) {
+    for (const pattern of linePatterns) {
+      const match = line.match(pattern);
+      if (match && match[1]) {
+        const parsed = normalizeExperiencePhrase(match[1]);
+        if (parsed) return parsed;
+      }
+    }
+  }
+
+  const textPatterns = [
+    /(?:total\s*)?(?:work\s*)?experience[:\-\s]*([^\n]+)/i,
+    /(?:professional\s*)?experience[:\-\s]*([^\n]+)/i,
+    /\bexp[:\-\s]*([^\n]+)/i,
+  ];
+
+  for (const pattern of textPatterns) {
+    const match = text.match(pattern);
+    if (match && match[1]) {
+      const parsed = normalizeExperiencePhrase(match[1]);
+      if (parsed) return parsed;
+    }
+  }
+
+  const generic = normalizeExperiencePhrase(text);
+  return generic || "";
+}
+
+function extractDepartment(lines = [], text = "") {
+  for (const line of lines || []) {
+    const match = line.match(/(?:department|domain)[:\-\s]*([^\n]+)/i);
+    if (match && match[1]) {
+      return collapseSpaces(match[1])
+        .split(/\s+\|\s+|;|,/)[0]
+        .trim();
+    }
+  }
+
+  const match = String(text || "").match(
+    /\b(?:department|domain)[:\-\s]*([A-Za-z0-9 &/().,+-]{2,120})/i,
+  );
+  if (match && match[1]) {
+    return collapseSpaces(match[1])
+      .split(/\s+\|\s+|;|,/)[0]
+      .trim();
+  }
+
+  return "";
+}
+
+function isSkillsHeadingLine(line = "") {
+  const value = collapseSpaces(line).toLowerCase();
+  return /^(?:key\s+skills|technical\s+skills?|skills?|core\s+skills?|core\s+competencies|areas?\s+of\s+expertise)\b[:\-\s]*$/i.test(
+    value,
+  );
+}
+
+function isResumeSectionHeading(line = "") {
+  const value = collapseSpaces(line).toLowerCase();
+
+  const headings = [
+    "experience",
+    "work experience",
+    "professional experience",
+    "education",
+    "qualification",
+    "qualifications",
+    "project",
+    "projects",
+    "certification",
+    "certifications",
+    "summary",
+    "profile",
+    "objective",
+    "contact",
+    "personal details",
+    "personal information",
+    "languages",
+    "hobbies",
+    "interests",
+    "declaration",
+    "references",
+    "achievements",
+    "training",
+    "internship",
+    "work history",
+    "employment history",
+    "technical skills",
+    "key skills",
+    "core skills",
+    "skills",
+    "core competencies",
+    "areas of expertise",
+  ];
+
+  return headings.some(
+    (heading) =>
+      value === heading ||
+      value.startsWith(`${heading}:`) ||
+      value.startsWith(`${heading} -`) ||
+      value.startsWith(`${heading} `),
+  );
+}
+
+function extractSkills(lines = [], text = "") {
+  const normalizedLines = Array.isArray(lines) ? lines : [];
+
+  const inlinePatterns = [
+    /(?:^|\b)(?:key\s+skills|technical\s+skills?|skills?|core\s+skills?|core\s+competencies|areas?\s+of\s+expertise)[:\-\s]+(.+)$/i,
+  ];
+
+  for (let i = 0; i < normalizedLines.length; i++) {
+    const line = normalizedLines[i];
+
+    for (const pattern of inlinePatterns) {
+      const match = line.match(pattern);
+      if (match && match[1]) {
+        const value = collapseSpaces(match[1]).replace(/^[\-\s:]+/, "");
+        if (value && !isSkillsHeadingLine(value)) return value;
+      }
+    }
+
+    if (isSkillsHeadingLine(line)) {
+      const collected = [];
+
+      for (let j = i + 1; j < normalizedLines.length; j++) {
+        const next = collapseSpaces(normalizedLines[j]);
+
+        if (!next) continue;
+
+        if (isResumeSectionHeading(next) && !isSkillsHeadingLine(next)) {
+          break;
+        }
+
+        const cleanedItem = next.replace(/^[•\-*]\s*/, "").trim();
+
+        if (!cleanedItem) continue;
+
+        if (cleanedItem.length === 1 && /^[A-Za-z]$/.test(cleanedItem)) {
+          continue;
+        }
+
+        collected.push(cleanedItem);
+
+        if (collected.length >= 8) break;
+      }
+
+      const combined = collapseSpaces(collected.join(", "));
+      if (combined) return combined;
+    }
+  }
+
+  const textMatch = String(text || "").match(
+    /(?:key\s+skills|technical\s+skills?|skills?|core\s+skills?|core\s+competencies|areas?\s+of\s+expertise)[:\-\s]+([^\n]+)/i,
+  );
+
+  if (textMatch && textMatch[1]) {
+    const value = collapseSpaces(textMatch[1]).replace(/^[\-\s:]+/, "");
+    if (value && !isSkillsHeadingLine(value) && value.length > 1) return value;
+  }
+
   return "";
 }
 
@@ -158,7 +447,7 @@ function guessAppliedPosition(text = "", lines = []) {
     /(frontend developer|backend developer|full stack developer|software engineer|web developer|react developer|node\.?js developer|python developer|java developer|intern|ui\/ux designer|qa engineer|devops engineer|data analyst|data scientist)/i;
 
   const match = text.match(roleRegex);
-  if (match && match[1]) return String(match[1]).replace(/\s+/g, " ").trim();
+  if (match && match[1]) return collapseSpaces(match[1]);
 
   for (const line of lines.slice(0, 12)) {
     if (roleRegex.test(line)) return line;
@@ -167,56 +456,33 @@ function guessAppliedPosition(text = "", lines = []) {
   return "";
 }
 
-function guessExperience(text = "") {
-  const expLine =
-    firstMatch(text, [
-      /(?:total\s*)?experience[:\-\s]*([^\n]+)/i,
-      /work\s*experience[:\-\s]*([^\n]+)/i,
-      /professional\s*experience[:\-\s]*([^\n]+)/i,
-    ]) || "";
-
-  if (expLine) return expLine;
-
-  const yearsMonths = text.match(
-    /(\d+(?:\.\d+)?)\s*(?:\+?\s*)?(years?|yrs?|year)\s*(?:and\s*)?(?:(\d+)\s*(months?|mos?|month))?/i,
-  );
-
-  if (yearsMonths) {
-    const years = yearsMonths[1];
-    const months = yearsMonths[3];
-    return months ? `${years} years ${months} months` : `${years} years`;
-  }
-
-  return "";
-}
-
 function parseResumeText(text = "") {
-  const cleaned = String(normalizeResumeText(text)).replace(/\s+/g, " ").trim();
-  const lines = splitLines(text);
+  const originalText = normalizeResumeText(text);
+  const lines = splitLines(originalText);
+  const cleaned = originalText.replace(/[ \t]+/g, " ").trim();
 
   const email = firstMatch(cleaned, [
     /\b([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\b/i,
   ]);
-  const phone = firstMatch(cleaned, [
-    /(\+91[\s-]?)?([6-9]\d{9})/i,
-    /(\+?\d{1,3}[\s-]?)?(\d{10})/i,
-  ]);
 
-  const currentCtc = firstMatch(cleaned, [
+  const phone = extractPhone(originalText, lines);
+
+  const currentCtc = firstMatch(originalText, [
     /current\s*ctc[:\-\s]*([^\n,]+)/i,
     /ctc[:\-\s]*([^\n,]+)/i,
   ]);
-  const expectedCtc = firstMatch(cleaned, [
+
+  const expectedCtc = firstMatch(originalText, [
     /expected\s*ctc[:\-\s]*([^\n,]+)/i,
     /ectc[:\-\s]*([^\n,]+)/i,
   ]);
-  const noticePeriod = firstMatch(cleaned, [
+
+  const noticePeriod = firstMatch(originalText, [
     /notice\s*period[:\-\s]*([^\n,]+)/i,
   ]);
-  const department = firstMatch(cleaned, [
-    /department[:\-\s]*([^\n,]+)/i,
-    /domain[:\-\s]*([^\n,]+)/i,
-  ]);
+
+  const department = extractDepartment(lines, originalText);
+  const skills = extractSkills(lines, originalText);
 
   return {
     name: guessName(lines),
@@ -224,14 +490,15 @@ function parseResumeText(text = "") {
     phone,
     applied_position: guessAppliedPosition(cleaned, lines),
     department,
+    skills,
     source: "Resume Upload",
     current_ctc: currentCtc,
     expected_ctc: expectedCtc,
     notice_period: noticePeriod,
-    total_experience: guessExperience(cleaned),
+    total_experience: extractExperience(originalText, lines),
     status: "Applied",
     resume_url: "",
-    raw_text: cleaned,
+    raw_text: originalText,
   };
 }
 
@@ -285,6 +552,7 @@ function mapRecruitmentValues(payload, orgId, resumeFile, existing = null) {
       existing?.applied_position ??
       null,
     department: emptyToNull(payload.department) ?? existing?.department ?? null,
+    skills: emptyToNull(payload.skills) ?? existing?.skills ?? null,
     source: emptyToNull(payload.source) ?? existing?.source ?? null,
     current_ctc:
       emptyToNull(payload.current_ctc) ?? existing?.current_ctc ?? null,
@@ -318,6 +586,7 @@ function buildRecruitmentInsertValues(mapped) {
     mapped.phone,
     mapped.applied_position,
     mapped.department,
+    mapped.skills,
     mapped.current_ctc,
     mapped.expected_ctc,
     mapped.notice_period,
@@ -338,6 +607,7 @@ function buildRecruitmentUpdateValues(mapped, id) {
     mapped.phone,
     mapped.applied_position,
     mapped.department,
+    mapped.skills,
     mapped.current_ctc,
     mapped.expected_ctc,
     mapped.notice_period,
