@@ -192,7 +192,6 @@ const generateInvoiceNo = async (invoiceDate, invoiceType, orgId) => {
         invoiceType,
         financialYear,
         orgId,
-        2,
       ]);
     } else {
       const currentSeq = Number(rows[0].sequence) || 1;
@@ -284,6 +283,7 @@ const getInvoiceById = async (orgId, id) => {
 };
 
 const createInvoice = async (invoiceData, orgId) => {
+  console.log("Creating invoice with data:", invoiceData, "for orgId:", orgId);
   if (!orgId) throw new Error("orgId required to create invoice");
   const tenantPool = await getTenantPoolForOrgId(orgId);
 
