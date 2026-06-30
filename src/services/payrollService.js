@@ -46,7 +46,44 @@ const getSalarySlip = async (
   }
 
   const query = `
-    SELECT *
+    SELECT 
+      id,
+      employee_id,
+      full_name,
+      annual_ctc,
+      basic_salary,
+      hra,
+      lta,
+      other_allowances,
+      incentives,
+      overtime,
+      statutory_bonus,
+      bonus,
+      advance_recovery,
+      employee_pf,
+      employer_pf,
+      
+      -- FIX: Convert NULL to 0
+      COALESCE(esic_employee, 0) AS esic_employee,
+      COALESCE(esic_employer, 0) AS esic_employer,
+      
+      gratuity,
+      professional_tax,
+      COALESCE(tds, 0) AS tds,
+      
+      -- FIX: Convert NULL to 0
+      COALESCE(insurance_employee, 0) AS insurance_employee,
+      COALESCE(insurance_employer, 0) AS insurance_employer,
+      
+      final_ctc,
+      lop_days,
+      lop_deduction,
+      gross_salary,
+      net_salary,
+      payslip_generated,
+      status,
+      payslip_generation,
+      created_at
     FROM \`${tableName}\`
     WHERE employee_id = ?
     LIMIT 1
