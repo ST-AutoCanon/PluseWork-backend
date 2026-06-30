@@ -1,6 +1,6 @@
 const payrollQueries = require("../constants/payrollQueries");
 
-const findSalaryTable = async (tenantPool, month, year) => {
+const findSalaryTable = async (tenantPool, orgId, month, year) => {
   if (!Number.isInteger(month) || month < 1 || month > 12) {
     throw new Error("Invalid month");
   }
@@ -13,25 +13,37 @@ const findSalaryTable = async (tenantPool, month, year) => {
     .toLocaleString("en-US", { month: "short" })
     .toLowerCase();
 
-  const expectedTable = `1_${monthName}_${year}`;
+  const expectedTable = `${orgId}_${monthName}_${year}`;
 
   const [rows] = await tenantPool.query(
-    `SHOW TABLES LIKE ${tenantPool.escape(expectedTable)}`
+    `SHOW TABLES LIKE ?`,
+    [expectedTable]
   );
 
-  if (!rows.length) return null;
+  if (!rows.length) {
+    return null;
+  }
 
   return Object.values(rows[0])[0];
 };
 
-const getSalarySlip = async (tenantPool, employee_id, month, year) => {
+const getSalarySlip = async (
+  tenantPool,
+  orgId,
+  employee_id,
+  month,
+  year
+) => {
   const tableName = await findSalaryTable(
     tenantPool,
+    orgId,
     Number(month),
     Number(year)
   );
 
-  if (!tableName) return null;
+  if (!tableName) {
+    return null;
+  }
 
   const query = `
     SELECT *
@@ -42,11 +54,8 @@ const getSalarySlip = async (tenantPool, employee_id, month, year) => {
 
   const [rows] = await tenantPool.execute(query, [employee_id]);
 
-  if (!rows.length) return null;
-
-  return rows[0];
+  return rows.length ? rows[0] : null;
 };
-
 const getEmployeeBankDetails = async (tenantPool, employee_id) => {
   const [rows] = await tenantPool.execute(
     payrollQueries.GETEMPLOYEEBANKDETAILSQUERY,

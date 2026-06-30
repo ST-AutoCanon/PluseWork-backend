@@ -18,18 +18,30 @@ const SALARY_COLUMNS = [
   'overtime',
   'statutory_bonus',
   'bonus',
-  'advance_recovery',
-  'employee_pf',
+
   'employer_pf',
-  'esic',
   'gratuity',
+
+  'insurance_employer',
+  'esic_employer',
+
+  'advance_recovery',
+
+  'employee_pf',
+  'esic_employee',
+
   'professional_tax',
-  'tds',                   
-  'insurance',
+  'tds',
+
+  'insurance_employee',
+
   'lop_days',
   'lop_deduction',
+
   'gross_salary',
+  'final_ctc',
   'net_salary',
+
   'payslip_generated',
   'status',
   'payslip_generation'
@@ -40,7 +52,11 @@ const MONETARY_COLUMNS = [
   'annual_ctc', 'basic_salary', 'hra', 'lta', 'other_allowances', 'incentives',
   'overtime', 'statutory_bonus', 'bonus', 'advance_recovery', 'employee_pf',
   'employer_pf', 'esic', 'gratuity', 'professional_tax', 'tds', 'insurance',
-  'lop_deduction', 'gross_salary', 'net_salary'
+  'lop_deduction', 'gross_salary', 'net_salary','insurance_employer',
+'esic_employer',
+'insurance_employee',
+'esic_employee',
+'final_ctc'
 ];
 
 const createTableQuery = (tableName) => {
@@ -60,11 +76,14 @@ const createTableQuery = (tableName) => {
     '`advance_recovery` DECIMAL(15,2) DEFAULT 0.00',
     '`employee_pf` DECIMAL(15,2) DEFAULT 0.00',
     '`employer_pf` DECIMAL(15,2) DEFAULT 0.00',
-    '`esic` DECIMAL(15,2) DEFAULT 0.00',
+    '`esic_employee` DECIMAL(15,2) DEFAULT 0.00',
+     '`esic_employer` DECIMAL(15,2) DEFAULT 0.00',
     '`gratuity` DECIMAL(15,2) DEFAULT 0.00',
     '`professional_tax` DECIMAL(15,2) DEFAULT 0.00',
     '`tds` DECIMAL(12,2) DEFAULT 0.00',
-    '`insurance` DECIMAL(12,2) DEFAULT 0.00',
+    '`insurance_employee` DECIMAL(12,2) DEFAULT 0.00',
+    '`insurance_employer` DECIMAL(12,2) DEFAULT 0.00',
+    '`final_ctc` DECIMAL(15,2) DEFAULT 0.00',
     '`lop_days` INT DEFAULT 0',
     '`lop_deduction` DECIMAL(12,2) DEFAULT 0.00',
     '`gross_salary` DECIMAL(15,2) DEFAULT 0.00',

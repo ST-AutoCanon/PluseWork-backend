@@ -42,7 +42,10 @@ const fetchEmployeeDetails = async (req, res) => {
 };
 
 const getSalarySlipHandler = async (req, res) => {
+  console.log("Salary slip API hit");
+  console.log("Query:", req.query)
   try {
+    
     const { employee_id, month, year } = req.query;
 
     const orgId =
@@ -65,12 +68,13 @@ const getSalarySlipHandler = async (req, res) => {
 
     const tenantPool = await getTenantPoolByOrgId(orgId);
 
-    const salarySlip = await payrollService.getSalarySlip(
-      tenantPool,
-      employee_id,
-      Number(month),
-      Number(year)
-    );
+  const salarySlip = await payrollService.getSalarySlip(
+  tenantPool,
+  orgId,
+  employee_id,
+  Number(month),
+  Number(year)
+);
 
     if (!salarySlip) {
       return res.status(404).json({
