@@ -192,7 +192,9 @@ function buildSimpleTemplateHtml(
 async function uploadScanHandler(req, res) {
   const orgId = parseInt(req.params.orgId, 10);
   const userId = req.user && req.user.id;
-
+  const templateId = req.body.templateId
+    ? parseInt(req.body.templateId, 10)
+    : null;
   const headerFile = req.files && req.files.header && req.files.header[0];
   const footerFile = req.files && req.files.footer && req.files.footer[0];
   const bodyFile = req.files && req.files.body && req.files.body[0];
@@ -343,6 +345,13 @@ async function uploadScanHandler(req, res) {
     let htmlBuilt = null;
     let thumbnailName = headerName || footerName || null;
 
+    console.log("header uploaded:", headerName);
+    console.log("footer uploaded:", footerName);
+    console.log(
+      "incoming grapes footer:",
+      JSON.stringify(incomingGrapesJson, null, 2),
+    );
+
     if (incomingGrapesJson) {
       grapesJsonBuilt = incomingGrapesJson;
     } else {
@@ -364,22 +373,73 @@ async function uploadScanHandler(req, res) {
     const finalHtml = incomingHtml || htmlBuilt;
     const finalLayout = Array.isArray(incomingLayout) ? incomingLayout : null;
 
+    let existingUploads = {};
+
+    if (templateId) {
+      try {
+        const existingTemplate = await templateService.getTemplateById(
+          orgId,
+          templateId,
+        );
+
+        if (existingTemplate?.meta) {
+          const existingMeta =
+            typeof existingTemplate.meta === "string"
+              ? JSON.parse(existingTemplate.meta)
+              : existingTemplate.meta;
+
+          existingUploads = existingMeta?.uploads || {};
+        }
+
+        console.log("Existing uploads:", existingUploads);
+      } catch (err) {
+        console.warn("Failed to load existing template uploads:", err);
+      }
+    }
+
+    if (req.body.existingUploads) {
+      try {
+        const clientUploads =
+          typeof req.body.existingUploads === "string"
+            ? JSON.parse(req.body.existingUploads)
+            : req.body.existingUploads;
+
+        existingUploads = {
+          ...existingUploads,
+          ...clientUploads,
+        };
+      } catch (err) {
+        console.warn("Failed to parse existingUploads from request:", err);
+      }
+    }
+
     const uploadedUrls = {
-      header: headerName ? `/api/orgs/${orgId}/uploads/${headerName}` : null,
-      body: bodyName ? `/api/orgs/${orgId}/uploads/${bodyName}` : null,
-      footer: footerName ? `/api/orgs/${orgId}/uploads/${footerName}` : null,
+      header: headerName
+        ? `/api/orgs/${orgId}/uploads/${headerName}`
+        : existingUploads.header || null,
+
+      body: bodyName
+        ? `/api/orgs/${orgId}/uploads/${bodyName}`
+        : existingUploads.body || null,
+
+      footer: footerName
+        ? `/api/orgs/${orgId}/uploads/${footerName}`
+        : existingUploads.footer || null,
+
       watermark: watermarkName
         ? `/api/orgs/${orgId}/uploads/${watermarkName}`
-        : null,
-      qr: qrName ? `/api/orgs/${orgId}/uploads/${qrName}` : null,
-      seal: sealName ? `/api/orgs/${orgId}/uploads/${sealName}` : null,
+        : existingUploads.watermark || null,
+
+      qr: qrName
+        ? `/api/orgs/${orgId}/uploads/${qrName}`
+        : existingUploads.qr || null,
+
+      seal: sealName
+        ? `/api/orgs/${orgId}/uploads/${sealName}`
+        : existingUploads.seal || null,
     };
 
-    console.log(`✅ uploadScanHandler - File URLs:`);
-    console.log(`   QR: ${uploadedUrls.qr || "null"}`);
-    console.log(`   Seal: ${uploadedUrls.seal || "null"}`);
-    console.log(`   Header: ${uploadedUrls.header || "null"}`);
-    console.log(`   Footer: ${uploadedUrls.footer || "null"}`);
+    console.log("Final uploadedUrls:", uploadedUrls);
 
     const applyUrlsToLayout = (boxes) => {
       if (!Array.isArray(boxes)) return;
@@ -588,19 +648,28 @@ async function uploadScanHandler(req, res) {
       `   grapesJson.layout count: ${grapesJsonBuilt && grapesJsonBuilt.layout ? grapesJsonBuilt.layout.length : 0}`,
     );
 
-    const saved = await templateService.saveTemplate(
-      orgId,
-      userId,
-      savePayload,
-    );
+    let template;
 
-    const fullRow = await templateService.getTemplateById(
-      orgId,
-      saved.id || saved.insertId,
-    );
+    if (templateId) {
+      await templateService.updateTemplate(
+        orgId,
+        templateId,
+        userId,
+        savePayload,
+      );
 
-    console.log(`✅ Template saved successfully with ID: ${fullRow.id}`);
-    return res.json(fullRow);
+      template = await templateService.getTemplateById(orgId, templateId);
+    } else {
+      const saved = await templateService.saveTemplate(
+        orgId,
+        userId,
+        savePayload,
+      );
+
+      template = await templateService.getTemplateById(orgId, saved.id);
+    }
+
+    return res.json(template);
   } catch (err) {
     console.error("uploadScanHandler", err);
     return res.status(500).json({ error: err.message || "Save failed" });
