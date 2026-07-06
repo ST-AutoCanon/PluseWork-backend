@@ -35,9 +35,26 @@ function toBool(v) {
 
 function normalizeDateTime(value) {
   if (!value) return null;
+  // If value is an ISO-like local datetime string (from <input type="datetime-local">),
+  // preserve the local fields as-is instead of converting to UTC via toISOString().
+  const isoLocalMatch = String(value)
+    .trim()
+    .match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/);
+  if (isoLocalMatch) {
+    const withSeconds =
+      String(value).includes(":") && String(value).split(":").length >= 3;
+    const base = String(value); // keep the 'T' separator
+    return withSeconds ? base : `${base}:00`;
+  }
+
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return String(value).replace("T", " ");
-  return d.toISOString().slice(0, 19).replace("T", " ");
+
+  const pad = (n) => String(n).padStart(2, "0");
+  // Format using local date/time components to preserve the original intent (local time)
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
+    d.getHours(),
+  )}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
 function getOrgDbName(orgId) {
@@ -806,7 +823,8 @@ async function assignInterviewService(candidateId, payload, orgId) {
       toBool(payload.send_interview_email) ? 1 : 0,
     );
 
-    const { emailSubject, emailBody } = buildEmailDefaults({
+    // Build defaults, but prefer payload-provided subject/body when available
+    let { emailSubject, emailBody } = buildEmailDefaults({
       candidate,
       roundName,
       interviewerId,
@@ -814,6 +832,9 @@ async function assignInterviewService(candidateId, payload, orgId) {
       interviewLink,
       organization,
     });
+
+    if (payload.email_subject) emailSubject = payload.email_subject;
+    if (payload.email_body) emailBody = payload.email_body;
 
     const [result] = await connection.query(INSERT_RECRUITMENT_ASSESSMENT, [
       candidateId,
@@ -952,7 +973,8 @@ async function saveRecruitmentAssessmentService(
         : 0,
     );
 
-    const { emailSubject, emailBody } = buildEmailDefaults({
+    // Build defaults, but allow overrides from payload (email_subject/email_body)
+    let { emailSubject, emailBody } = buildEmailDefaults({
       candidate,
       roundName: baseRound,
       interviewerId,
@@ -960,6 +982,8 @@ async function saveRecruitmentAssessmentService(
       interviewLink,
       organization,
     });
+    if (payload.email_subject) emailSubject = payload.email_subject;
+    if (payload.email_body) emailBody = payload.email_body;
 
     const score = emptyToNull(payload.score) ?? latestAssessment?.score ?? null;
     const decision =
