@@ -14,9 +14,11 @@ async function getTenantPoolForOrgId(orgId) {
   return getTenantPool(dbName);
 }
 
-async function getSelectedTemplateId(pool, orgId) {
-  const [rows] = await pool.query(
-    "SELECT selected_template_id FROM salary_preferences WHERE org_id = ? LIMIT 1",
+async function getSelectedTemplateId(orgId) {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+
+  const [rows] = await tenantPool.query(
+    queries.GET_SALARY_PREFERENCES,
     [orgId]
   );
 
@@ -38,12 +40,29 @@ const savePreferences = async (orgId, data) => {
 
   const { selected_month, selected_year, selected_template_id } = data;
 
+  console.log("========== SAVE PREFERENCES ==========");
+  console.log({
+    orgId,
+    selected_month,
+    selected_year,
+    selected_template_id,
+  });
+
   await tenantPool.query(queries.UPSERT_SALARY_PREFERENCES, [
     orgId,
     selected_month,
     selected_year,
-    selected_template_id || null,
+    selected_template_id,
   ]);
+
+  const [rows] = await tenantPool.query(
+    `SELECT *
+     FROM salary_preferences
+     WHERE org_id = ?`,
+    [orgId]
+  );
+
+  console.log("Database row after save:", rows);
 
   return true;
 };
