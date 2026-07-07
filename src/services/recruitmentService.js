@@ -697,6 +697,134 @@ function buildEmailDefaults({
   return { emailSubject, emailBody };
 }
 
+function normalizeOfferDecision(value = "") {
+  const decision = String(value || "")
+    .trim()
+    .toLowerCase();
+
+  if (["accepted", "accept", "yes", "confirmed"].includes(decision)) {
+    return "Accepted";
+  }
+
+  if (["rejected", "reject", "no", "declined"].includes(decision)) {
+    return "Rejected";
+  }
+
+  if (["pending", "hold", "later", "awaiting"].includes(decision)) {
+    return "Pending";
+  }
+
+  return null;
+}
+
+function getRecruitmentStatusEmailContent({
+  candidate,
+  organization,
+  newStatus,
+  previousStatus,
+  offerDecision,
+}) {
+  const organizationName = organization?.name || "HR Team";
+  const candidateName = candidate?.name || "Candidate";
+
+  if (newStatus === "Offer Acceptance" && previousStatus === "Manager Round") {
+    return {
+      subject: `Offer Acceptance Request - ${candidateName}`,
+      body: `Hi ${candidateName},
+
+Congratulations! You have progressed to the offer acceptance stage.
+Please confirm whether you would like to accept the offer.
+If you accept, we will proceed with releasing your offer letter.
+
+Regards,
+${organizationName}`,
+    };
+  }
+
+  if (newStatus === "Offer Released") {
+    return {
+      subject: `Offer Letter Released - ${candidateName}`,
+      body: `Hi ${candidateName},
+
+Your offer letter has been released. Please review it carefully and share your decision.
+
+Regards,
+${organizationName}`,
+    };
+  }
+
+  if (newStatus === "Offer Status") {
+    const decisionLabel = normalizeOfferDecision(offerDecision) || "Pending";
+    return {
+      subject: `Offer Status Update - ${candidateName}`,
+      body: `Hi ${candidateName},
+
+Your offer status has been updated to ${decisionLabel}.
+Please reach out to our team if you need any assistance.
+
+Regards,
+${organizationName}`,
+    };
+  }
+
+  if (newStatus === "Onboarding") {
+    return {
+      subject: `Onboarding Documents Request - ${candidateName}`,
+      body: `Hi ${candidateName},
+
+Welcome to the onboarding stage. Please attach your original documents as requested so we can complete your onboarding.
+
+Regards,
+${organizationName}`,
+    };
+  }
+
+  return null;
+}
+
+async function sendRecruitmentStatusEmail({
+  candidate,
+  orgId,
+  newStatus,
+  previousStatus,
+  offerDecision,
+}) {
+  if (!candidate?.email) return;
+
+  const statusEmail = getRecruitmentStatusEmailContent({
+    candidate,
+    organization: await getOrganizationById(orgId),
+    newStatus,
+    previousStatus,
+    offerDecision,
+  });
+
+  if (!statusEmail) return;
+
+  try {
+    await sendWithRetries({
+      sender: {
+        email: process.env.BREVO_SENDER_EMAIL,
+        name: process.env.PLATFORM_NAME || "PULSEWORK",
+      },
+      to: [
+        {
+          email: candidate.email,
+          name: candidate.name,
+        },
+      ],
+      subject: statusEmail.subject,
+      htmlContent: buildEmailHtml(statusEmail.body),
+      textContent: statusEmail.body,
+    });
+  } catch (mailErr) {
+    console.error(
+      "Recruitment status email send failed:",
+      mailErr?.response?.body || mailErr,
+    );
+  }
+}
+
 async function addRecruitmentService(payload, resumeFile, orgId) {
   const pool = await getTenantPoolForOrgId(orgId);
   const mapped = mapRecruitmentValues(payload, orgId, resumeFile, null);
@@ -749,6 +877,27 @@ async function updateRecruitmentService(id, payload, resumeFile, orgId) {
   const values = buildRecruitmentUpdateValues(mapped, id);
 
   const [result] = await pool.query(UPDATE_RECRUITMENT_CANDIDATE, values);
+
+  try {
+    const nextStatus = emptyToNull(payload.status) ?? mapped.status;
+    if (nextStatus) {
+      await sendRecruitmentStatusEmail({
+        candidate: {
+          ...existing,
+          ...mapped,
+          email: mapped.email ?? existing?.email ?? null,
+          name: mapped.name ?? existing?.name ?? null,
+        },
+        orgId,
+        newStatus: nextStatus,
+        previousStatus: existing?.status || "Applied",
+        offerDecision: payload.offer_decision,
+      });
+    }
+  } catch (mailErr) {
+    console.error("Recruitment status email dispatch failed:", mailErr);
+  }
+
   return result;
 }
 
@@ -770,6 +919,23 @@ async function advanceRecruitmentService(id, payload, orgId) {
     id,
     orgId,
   ]);
+
+  try {
+    await sendRecruitmentStatusEmail({
+      candidate: {
+        ...existing,
+        status: nextStatus || existing.status || "Applied",
+        email: existing.email,
+        name: existing.name,
+      },
+      orgId,
+      newStatus: nextStatus || existing.status || "Applied",
+      previousStatus: existing?.status || "Applied",
+      offerDecision: payload.offer_decision,
+    });
+  } catch (mailErr) {
+    console.error("Recruitment status email dispatch failed:", mailErr);
+  }
 
   return result;
 }
