@@ -157,37 +157,68 @@ function normalizePhone(value = "") {
   const raw = String(value || "").trim();
   if (!raw) return "";
 
-  const hasPlus = raw.startsWith("+");
   const digits = raw.replace(/\D/g, "");
-
   if (!digits) return "";
 
-  return hasPlus ? `+${digits}` : digits;
+  if (digits.length === 10) return digits;
+  if (digits.length === 11 && digits.startsWith("0")) return digits.slice(1);
+  if (digits.length === 12 && digits.startsWith("91")) return digits;
+  if (digits.length > 10) {
+    const withoutCountry = digits.startsWith("91") ? digits.slice(2) : digits;
+    if (withoutCountry.length === 10) return withoutCountry;
+  }
+
+  return digits.length >= 10 && digits.length <= 15 ? digits : "";
 }
 
 function isLikelyPhone(value = "") {
   const digits = String(value || "").replace(/\D/g, "");
-  return digits.length >= 10 && digits.length <= 15;
+  return (
+    digits.length === 10 ||
+    (digits.length === 12 && digits.startsWith("91")) ||
+    (digits.length === 11 && digits.startsWith("0"))
+  );
 }
 
 function extractPhone(text = "", lines = []) {
-  const sourceText = `${text || ""}\n${(lines || []).join("\n")}`;
+  const sourceLines = Array.isArray(lines) ? lines : [];
+  const candidates = [];
+  const seen = new Set();
 
-  const patterns = [
-    /\b(?:mobile|phone|contact|whatsapp|cell|mobile no|phone no|contact no\.?)[:\-\s]*((?:\+?91[\s-]?)?[6-9]\d{9})\b/i,
-    /\b((?:\+?91[\s-]?)?[6-9]\d{9})\b/i,
-    /\b(\+?\d{1,3}[\s-]?\d{7,12})\b/i,
-  ];
+  const addCandidate = (value) => {
+    if (!value) return;
+    const normalized = normalizePhone(value);
+    if (!normalized || !isLikelyPhone(normalized)) return;
+    if (seen.has(normalized)) return;
+    seen.add(normalized);
+    candidates.push(normalized);
+  };
 
-  for (const pattern of patterns) {
-    const match = sourceText.match(pattern);
-    if (!match) continue;
+  for (const line of sourceLines) {
+    const trimmed = String(line || "").trim();
+    if (!trimmed) continue;
 
-    const candidate = normalizePhone(match[1] || match[0]);
-    if (isLikelyPhone(candidate)) return candidate;
+    const explicitMatch = trimmed.match(
+      /(?:mobile|phone|contact|whatsapp|cell|telephone|mob)\b[^0-9+]{0,8}([+0-9\-\s]{4,15})/i,
+    );
+    if (explicitMatch && explicitMatch[1]) addCandidate(explicitMatch[1]);
+
+    const lineMatches = trimmed.match(/(?:\+?91[\s-]?)?[6-9]\d{9}/g);
+    if (lineMatches) {
+      for (const match of lineMatches) addCandidate(match);
+    }
   }
 
-  return "";
+  const textMatches =
+    String(text || "").match(/(?:\+?91[\s-]?)?[6-9]\d{9}/g) || [];
+  for (const match of textMatches) addCandidate(match);
+
+  if (candidates.length) return candidates[0];
+
+  const fallback = String(text || "").match(/\b(?:\+?\d{1,3}[\s-]?)?\d{10}\b/g);
+  if (fallback && fallback[0]) addCandidate(fallback[0]);
+
+  return candidates[0] || "";
 }
 
 function formatExperience(years = 0, months = 0) {
@@ -295,22 +326,106 @@ function extractExperience(text = "", lines = []) {
 }
 
 function extractDepartment(lines = [], text = "") {
+  const departmentHints = [
+    "engineering",
+    "software",
+    "development",
+    "information technology",
+    "it",
+    "technology",
+    "data",
+    "analytics",
+    "finance",
+    "accounts",
+    "accounting",
+    "hr",
+    "human resources",
+    "marketing",
+    "sales",
+    "operations",
+    "administration",
+    "admin",
+    "design",
+    "product",
+    "quality assurance",
+    "qa",
+    "customer support",
+    "support",
+    "business",
+    "research",
+    "legal",
+    "logistics",
+    "manufacturing",
+    "healthcare",
+    "education",
+    "consulting",
+    "network",
+    "security",
+    "media",
+    "content",
+  ];
+
+  const normalizeDepartmentValue = (value = "") => {
+    const cleaned = collapseSpaces(value)
+      .replace(/^[:\-\s]+/, "")
+      .replace(/[.]+$/g, "")
+      .split(/\s+\|\s+|;|,/)[0]
+      .trim();
+
+    if (!cleaned) return "";
+
+    const lower = cleaned.toLowerCase();
+    if (
+      /\b(?:resume|cv|profile|summary|objective|skills|experience|education|contact|personal|address|phone|email|linkedin|github)\b/i.test(
+        lower,
+      )
+    ) {
+      return "";
+    }
+
+    const withoutRoleWords = cleaned
+      .replace(
+        /\b(?:developer|engineer|analyst|manager|lead|specialist|consultant|assistant|associate|intern|trainee|executive)\b/gi,
+        "",
+      )
+      .trim();
+    const candidate = collapseSpaces(withoutRoleWords);
+
+    if (!candidate) return "";
+
+    if (candidate.length > 50) return "";
+
+    const lowerCandidate = candidate.toLowerCase();
+    const isKnownDepartment = departmentHints.some((hint) =>
+      lowerCandidate.includes(hint),
+    );
+
+    if (!isKnownDepartment) {
+      const isShortLabel = candidate.split(/\s+/).length <= 3;
+      return isShortLabel && /^[a-zA-Z/&() .-]+$/.test(candidate)
+        ? candidate
+        : "";
+    }
+
+    return candidate;
+  };
+
   for (const line of lines || []) {
-    const match = line.match(/(?:department|domain)[:\-\s]*([^\n]+)/i);
+    const match = line.match(
+      /(?:department|domain|specialization|stream)[:\-\s]*([^\n]+)/i,
+    );
     if (match && match[1]) {
-      return collapseSpaces(match[1])
-        .split(/\s+\|\s+|;|,/)[0]
-        .trim();
+      const department = normalizeDepartmentValue(match[1]);
+      if (department) return department;
     }
   }
 
   const match = String(text || "").match(
-    /\b(?:department|domain)[:\-\s]*([A-Za-z0-9 &/().,+-]{2,120})/i,
+    /\b(?:department|domain|specialization|stream)[:\-\s]*([A-Za-z0-9 &/().,+-]{2,80})/i,
   );
   if (match && match[1]) {
-    return collapseSpaces(match[1])
-      .split(/\s+\|\s+|;|,/)[0]
-      .trim();
+    const department = normalizeDepartmentValue(match[1]);
+    if (department) return department;
   }
 
   return "";
