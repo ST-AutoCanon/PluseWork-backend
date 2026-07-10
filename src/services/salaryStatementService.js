@@ -5,95 +5,83 @@ const { getTenantPoolByOrgId } = require('../db/tenantPoolManager');
 
 /**
  * Standardized table name format: `${orgId}_${month.toLowerCase()}_${year}`
- * Example: 1_jan_2026, 1_feb_2025, etc.
  */
 function getTableName(orgId, month, year) {
   return `\`${orgId}_${month.toLowerCase()}_${year}\``;
 }
 
 // ────────────────────────────────────────────────
-// Mapping: Excel header → database column name
+// Mapping: Excel Header → Database Column
+// Updated to match your actual table structure
 // ────────────────────────────────────────────────
 const COLUMN_MAPPING = {
-  "Employee ID":          "employee_id",
-  "Full Name":            "full_name",
-  "Annual CTC":           "annual_ctc",
-  "Basic Salary":         "basic_salary",
-  "HRA":                  "hra",
-  "LTA":                  "lta",
-  "Other Allowances":     "other_allowances",
-  "Incentives":           "incentives",
-  "Overtime":             "overtime",
-  "Statutory Bonus":      "statutory_bonus",
-  "Bonus":                "bonus",
-  "Advance Recovery":     "advance_recovery",
-  "Employee PF":          "employee_pf",
-  "Employer PF":          "employer_pf",
-  "ESIC":                 "esic",
-  "Gratuity":             "gratuity",
-  "Professional Tax":     "professional_tax",
-  "TDS":                  "tds",
-  "Insurance":            "insurance",
-  "LOP Days":             "lop_days",
-  "LOP Deduction":        "lop_deduction",
-  "Gross Salary":         "gross_salary",
-  "Net Salary":           "net_salary",
+  "ID":                    "employee_id",
+  "Employee ID":           "employee_id",
+
+  "Name":                  "full_name",
+  "Full Name":             "full_name",
+
+  "Annual CTC":            "annual_ctc",
+  "Basic Salary":          "basic_salary",
+  "HRA":                   "hra",
+  "LTA":                   "lta",
+  "Other Allowances":      "other_allowances",
+  "Incentives":            "incentives",
+  "Overtime":              "overtime",
+  "Statutory Bonus":       "statutory_bonus",
+  "Bonus":                 "bonus",
+  "Advance Recovery":      "advance_recovery",
+  "Employee PF":           "employee_pf",
+  "Employer PF":           "employer_pf",
+
+  "ESIC":                  "esic_employee",        // Mapped to esic_employee
+  // "ESIC Employer":      "esic_employer",       // Add if you have separate column in Excel later
+
+  "Gratuity":              "gratuity",
+  "Professional Tax":      "professional_tax",
+  "TDS":                   "tds",
+
+  "Insurance":             "insurance_employee",   // Mapped to insurance_employee
+
+  "LOP Days":              "lop_days",
+  "LOP Deduction":         "lop_deduction",
+  "Gross Salary":          "gross_salary",
+  "Net Salary":            "net_salary",
 };
 
 function normalizeHeader(header) {
   return (header || '').toString().trim();
 }
 
-/**
- * Uploads salary data from Excel file to the correct tenant database.
- * Uses table format: orgId_month_year (e.g. 1_jan_2026)
- * Creates the table automatically if it does not exist.
- *
- * @param {Object} req - Express request
- * @param {Object} res - Express response
- */
 async function uploadSalaryData(req, res) {
   let connection = null;
 
   try {
     const file = req.file;
-    if (!file) {
-      return res.status(400).json({ error: "No file uploaded" });
-    }
+    if (!file) return res.status(400).json({ error: "No file uploaded" });
 
     const orgId = req.headers['x-org-id'];
     if (!orgId) {
-      return res.status(400).json({ 
-        error: "Organization ID is required in headers (x-org-id)" 
-      });
+      return res.status(400).json({ error: "Organization ID is required in headers (x-org-id)" });
     }
 
-    // Get tenant-specific connection
-    console.info(`[Salary Upload] Fetching tenant pool for orgId: ${orgId}`);
     const tenantPool = await getTenantPoolByOrgId(orgId);
     connection = await tenantPool.getConnection();
 
-    // ─── Month & Year from frontend formData ───
     const month = (req.body.month || '').toLowerCase().trim();
-    const year  = (req.body.year || '').trim();
+    const year = (req.body.year || '').trim();
 
     if (!month || !year || !/^[a-z]{3}$/.test(month) || !/^\d{4}$/.test(year)) {
-      return res.status(400).json({ 
-        error: "Missing or invalid month/year. Select month & year before uploading." 
-      });
+      return res.status(400).json({ error: "Missing or invalid month/year" });
     }
 
     const tableName = getTableName(orgId, month, year);
-    console.info(`[Salary Upload] Target table: ${tableName}`);
 
-    // ─── Check if table exists → create if missing ───
-    const [tables] = await connection.query(
-      `SHOW TABLES LIKE ?`,
-      [`${orgId}_${month}_${year}`]
-    );
+    // Check if table exists
+    const [tables] = await connection.query(`SHOW TABLES LIKE ?`, [`${orgId}_${month}_${year}`]);
 
     if (tables.length === 0) {
-      console.info(`[Salary Upload] Creating new table: ${tableName}`);
+      console.info(`Creating new table: ${tableName}`);
 
       const createTableSql = `
         CREATE TABLE ${tableName} (
@@ -112,11 +100,14 @@ async function uploadSalaryData(req, res) {
           advance_recovery DECIMAL(15,2) DEFAULT 0.00,
           employee_pf DECIMAL(15,2) DEFAULT 0.00,
           employer_pf DECIMAL(15,2) DEFAULT 0.00,
-          esic DECIMAL(15,2) DEFAULT 0.00,
+          esic_employee DECIMAL(15,2) DEFAULT 0.00,
+          esic_employer DECIMAL(15,2) DEFAULT 0.00,
           gratuity DECIMAL(15,2) DEFAULT 0.00,
           professional_tax DECIMAL(15,2) DEFAULT 0.00,
           tds DECIMAL(12,2) DEFAULT 0.00,
-          insurance DECIMAL(12,2) DEFAULT 0.00,
+          insurance_employee DECIMAL(12,2) DEFAULT 0.00,
+          insurance_employer DECIMAL(12,2) DEFAULT 0.00,
+          final_ctc DECIMAL(15,2) DEFAULT 0.00,
           lop_days INT DEFAULT 0,
           lop_deduction DECIMAL(12,2) DEFAULT 0.00,
           gross_salary DECIMAL(15,2) DEFAULT 0.00,
@@ -131,19 +122,15 @@ async function uploadSalaryData(req, res) {
       `;
 
       await connection.query(createTableSql);
-      console.info(`[Salary Upload] Table ${tableName} created successfully`);
     }
 
-    // ─── Read and parse Excel ───
+    // Read Excel
     const workbook = xlsx.read(file.buffer, { type: 'buffer' });
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
 
-    const headers = xlsx.utils.sheet_to_json(worksheet, {
-      header: 1,
-      range: 0,
-      defval: ''
-    })[0].map(normalizeHeader);
+    const headers = xlsx.utils.sheet_to_json(worksheet, { header: 1, range: 0, defval: '' })[0]
+      .map(normalizeHeader);
 
     const jsonData = xlsx.utils.sheet_to_json(worksheet, {
       header: headers,
@@ -166,19 +153,22 @@ async function uploadSalaryData(req, res) {
       Object.keys(row).forEach(excelHeader => {
         const normHeader = normalizeHeader(excelHeader);
         const dbCol = COLUMN_MAPPING[normHeader];
+
         if (dbCol) {
           let val = row[excelHeader];
           if (typeof val === 'string') val = val.trim() || null;
+
           if (dbCol === 'lop_days') {
             val = val ? parseInt(val, 10) || 0 : 0;
           } else if (dbCol !== 'employee_id' && dbCol !== 'full_name') {
             val = val ? parseFloat(val) || 0 : 0;
           }
+
           mappedRow[dbCol] = val;
         }
       });
 
-      if (!mappedRow.employee_id || !mappedRow.employee_id.trim()) {
+      if (!mappedRow.employee_id || String(mappedRow.employee_id).trim() === '') {
         errors.push(`Row ${i + 2}: Missing or empty Employee ID`);
         continue;
       }
@@ -197,7 +187,7 @@ async function uploadSalaryData(req, res) {
       return res.status(400).json({ error: "No valid rows to insert" });
     }
 
-    // ─── Prepare INSERT query ───
+    // Insert Query
     const columns = Object.keys(values[0]);
     const placeholders = columns.map(() => '?').join(', ');
     const columnList = columns.map(c => `\`${c}\``).join(', ');
