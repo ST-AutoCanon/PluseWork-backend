@@ -104,6 +104,8 @@ const clearanceRoutes = require("./routes/clearance");
 const exitFilesRoutes = require("./routes/exitFilesRoutes");
 const downloadRoutes = require("./routes/downloadRoutes");
 const formsRoutes = require("./routes/forms.routes");
+const officeLocationRoutes = require("./routes/officeLocationRoutes");
+const officeEmployeeRoutes = require("./routes/officeEmployeeRoutes");
 
 app.use(express.json());
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -428,7 +430,8 @@ app.use((req, res, next) => {
     app.use("/api/lop", lossofPayCalculationRoutes);
     app.use("/api/org", orgWorkHoursRoutes);
     app.use("/api/compensations", compensationRoutes);
-
+app.use("/api/office-locations", officeLocationRoutes);
+app.use("/api/office-location-employees", officeEmployeeRoutes);
     app.get("/", (req, res) => res.send("Employee Face Recognition API"));
 
     function resolveOrgIdFromSocket(socket) {
