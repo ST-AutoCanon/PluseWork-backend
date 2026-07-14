@@ -30,8 +30,8 @@ exports.saveOldEmployeeDetails = async (req, res) => {
       data.hra || 0,
       data.other_allowance || 0,
       data.pf || 0,
-      data.esi || 0,           // ← Changed
-      data.insurance || 0,     // ← New
+      data.esi || 0,
+      data.insurance || 0,
       data.professional_tax || 0,
       data.tds || 0,
       data.gross_earnings || 0,
@@ -74,8 +74,8 @@ exports.editOldEmployeeDetails = async (req, res) => {
       data.hra || 0,
       data.other_allowance || 0,
       data.pf || 0,
-      data.esi || 0,           // ← Changed
-      data.insurance || 0,     // ← New
+      data.esi || 0,
+      data.insurance || 0,
       data.professional_tax || 0,
       data.tds || 0,
       data.gross_earnings || 0,
@@ -83,8 +83,8 @@ exports.editOldEmployeeDetails = async (req, res) => {
       data.net_salary || 0,
       data.month,
       data.year,
-      data.employee_id,
-      orgId,
+      data.employee_id,   // WHERE employee_id
+      orgId               // WHERE org_id
     ];
 
     await pool.execute(queries.UPDATE_OLD_EMPLOYEE_DETAILS, values);
