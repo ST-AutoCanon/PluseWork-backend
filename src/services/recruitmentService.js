@@ -903,18 +903,43 @@ async function sendRecruitmentStatusEmail({
   newStatus,
   previousStatus,
   offerDecision,
+  sendEmail = true,
+  emailSubject = null,
+  emailBody = null,
 }) {
-  if (!candidate?.email) return;
+  if (!candidate?.email || !sendEmail) return;
 
-  const statusEmail = getRecruitmentStatusEmailContent({
-    candidate,
-    organization: await getOrganizationById(orgId),
-    newStatus,
-    previousStatus,
-    offerDecision,
-  });
+  const statusEmail =
+    emailSubject || emailBody
+      ? {
+          subject:
+            emailSubject ||
+            getRecruitmentStatusEmailContent({
+              candidate,
+              organization: await getOrganizationById(orgId),
+              newStatus,
+              previousStatus,
+              offerDecision,
+            })?.subject,
+          body:
+            emailBody ||
+            getRecruitmentStatusEmailContent({
+              candidate,
+              organization: await getOrganizationById(orgId),
+              newStatus,
+              previousStatus,
+              offerDecision,
+            })?.body,
+        }
+      : getRecruitmentStatusEmailContent({
+          candidate,
+          organization: await getOrganizationById(orgId),
+          newStatus,
+          previousStatus,
+          offerDecision,
+        });
 
-  if (!statusEmail) return;
+  if (!statusEmail || !statusEmail.subject || !statusEmail.body) return;
 
   try {
     await sendWithRetries({
@@ -996,6 +1021,10 @@ async function updateRecruitmentService(id, payload, resumeFile, orgId) {
   try {
     const nextStatus = emptyToNull(payload.status) ?? mapped.status;
     if (nextStatus) {
+      const shouldSendStatusEmail = payload.hasOwnProperty("send_status_email")
+        ? toBool(payload.send_status_email)
+        : true;
+
       await sendRecruitmentStatusEmail({
         candidate: {
           ...existing,
@@ -1007,6 +1036,9 @@ async function updateRecruitmentService(id, payload, resumeFile, orgId) {
         newStatus: nextStatus,
         previousStatus: existing?.status || "Applied",
         offerDecision: payload.offer_decision,
+        sendEmail: shouldSendStatusEmail,
+        emailSubject: emptyToNull(payload.email_subject) || null,
+        emailBody: emptyToNull(payload.email_body) || null,
       });
     }
   } catch (mailErr) {
@@ -1246,13 +1278,9 @@ async function saveRecruitmentAssessmentService(
       latestAssessment?.interview_link ??
       null;
 
-    const sendInterviewEmail = Number(
-      toBool(
-        payload.send_interview_email ?? latestAssessment?.send_interview_email,
-      )
-        ? 1
-        : 0,
-    );
+    const sendInterviewEmail = payload.hasOwnProperty("send_interview_email")
+      ? Number(toBool(payload.send_interview_email) ? 1 : 0)
+      : 0;
 
     // Build defaults, but allow overrides from payload (email_subject/email_body)
     let { emailSubject, emailBody } = buildEmailDefaults({
