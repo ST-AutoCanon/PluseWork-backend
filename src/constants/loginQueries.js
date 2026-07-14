@@ -220,7 +220,7 @@ WHERE sma.role = ? AND sma.org_id = ?`,
     token_hash,
     org_id,
     email,
-    allowed_ip,
+    device_name,
     expires_at,
     max_uses,
     current_uses,
@@ -235,7 +235,7 @@ WHERE sma.role = ? AND sma.org_id = ?`,
 
   INSERT_AUTO_LOGIN_LINK: `
   INSERT INTO auto_login_links
-    (token_hash, org_id, email, allowed_ip, expires_at, max_uses, created_by)
+    (token_hash, org_id, email, device_name, expires_at, max_uses, created_by)
   VALUES
     (?, ?, ?, ?, ?, ?, ?);
 `,
@@ -263,7 +263,7 @@ WHERE sma.role = ? AND sma.org_id = ?`,
     id,
     org_id,
     email,
-    allowed_ip,
+    device_name,
     expires_at,
     max_uses,
     current_uses,

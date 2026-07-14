@@ -488,28 +488,12 @@ class LoginHandler {
     }
   }
 
-  static normalizeIp(ip) {
-    if (!ip) return "";
-    const raw = Array.isArray(ip) ? ip[0] : String(ip);
-    return raw.replace(/^::ffff:/, "").trim();
-  }
-
-  static getClientIp(req) {
-    const xff = req.headers["x-forwarded-for"];
-    const rawIp =
-      (typeof xff === "string" && xff.split(",")[0]) ||
-      req.socket?.remoteAddress ||
-      req.ip ||
-      "";
-    return LoginHandler.normalizeIp(rawIp);
-  }
-
   static async createAutoLoginLink(req, res) {
     try {
       const {
         orgId,
         email,
-        allowedIp = null,
+        deviceName = null,
         expiresInDays = 365,
         maxUses = 999999,
         createdBy = null,
@@ -535,7 +519,7 @@ class LoginHandler {
         token,
         orgId,
         email,
-        allowedIp,
+        deviceName,
         expiresAt,
         maxUses: Number(maxUses) || 999999,
         createdBy,
@@ -549,7 +533,7 @@ class LoginHandler {
           autoLoginUrl: `${process.env.FRONTEND_URL}/auto-login/${token}`,
           orgId,
           email,
-          allowedIp,
+          deviceName,
           expiresAt,
         },
       });
@@ -599,20 +583,6 @@ class LoginHandler {
           .status(403)
           .json(
             ErrorHandler.generateErrorResponse(403, "Link usage limit reached"),
-          );
-      }
-
-      const clientIp = LoginHandler.getClientIp(req);
-      const allowedIp = LoginHandler.normalizeIp(link.allowed_ip);
-
-      if (allowedIp && allowedIp !== clientIp) {
-        return res
-          .status(403)
-          .json(
-            ErrorHandler.generateErrorResponse(
-              403,
-              "Device not allowed from this IP address",
-            ),
           );
       }
 
