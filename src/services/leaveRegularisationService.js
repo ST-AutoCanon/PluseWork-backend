@@ -302,10 +302,7 @@ async function getEligibleDates({
       [employeeId, orgId, fromDate, toDate],
     );
   } catch (err) {
-    console.warn(
-      "[getEligibleDates] attendance query failed:",
-      err?.sqlMessage || err?.message || err,
-    );
+    console.warn("[getEligibleDates] attendance query failed:", err?.message);
     attendanceRows = [];
   }
 
@@ -316,10 +313,7 @@ async function getEligibleDates({
       [employeeId, orgId, toDate, fromDate],
     );
   } catch (err) {
-    console.warn(
-      "[getEligibleDates] leave query failed:",
-      err?.sqlMessage || err?.message || err,
-    );
+    console.warn("[getEligibleDates] leave query failed:", err?.message);
     leaveRows = [];
   }
 
@@ -330,10 +324,7 @@ async function getEligibleDates({
       [fromDate, toDate],
     );
   } catch (err) {
-    console.warn(
-      "[getEligibleDates] holiday query failed:",
-      err?.sqlMessage || err?.message || err,
-    );
+    console.warn("[getEligibleDates] holiday query failed:", err?.message);
     holidayRows = [];
   }
 
@@ -341,7 +332,6 @@ async function getEligibleDates({
   const leaveSet = buildLeaveSet(leaveRows);
   const holidaySet = buildHolidaySet(holidayRows);
 
-  // Fetch login-hours configuration for org (used for late/deficit detection)
   let config = null;
   try {
     config = await attendanceService.getLoginHoursConfig(orgId);
@@ -349,7 +339,6 @@ async function getEligibleDates({
     config = null;
   }
 
-  // Defaults when config missing
   const bufferMinutes = config?.buffer_minutes ?? config?.bufferMinutes ?? 10;
   const punchInStart = config?.punch_in_start ?? config?.punchInStart ?? null;
   const requiredDailyMinutes =
@@ -359,28 +348,25 @@ async function getEligibleDates({
   const streakPeriod =
     config?.streak_period ?? config?.streakPeriod ?? "monthly";
 
-  // Precompute late dates across the range (based on punchInStart + buffer)
   const allDates = getDateRange(fromDate, toDate);
   const lateDates = [];
+
   for (const dateKey of allDates) {
     const rows = attendanceMap.get(dateKey) || [];
-    // determine earliest punch-in time
     const earliest = rows
       .filter((r) => r.punchin_time)
       .map((r) => r.punchin_time)
       .sort()[0];
+
     if (earliest && punchInStart) {
       try {
         const earliestTime = new Date(earliest);
-        // build comparison time as dateKey + punchInStart
         const cmp = new Date(`${dateKey}T${punchInStart}`);
         cmp.setMinutes(cmp.getMinutes() + Number(bufferMinutes || 0));
         if (earliestTime > cmp) {
           lateDates.push(dateKey);
         }
-      } catch (e) {
-        // ignore parse errors
-      }
+      } catch (e) {}
     }
   }
 
@@ -402,6 +388,12 @@ async function getEligibleDates({
     ),
   );
 
+  // FIXED DEBUG LOG (inside function)
+  console.log(
+    `[getEligibleDates] For ${reason} on ${fromDate} to ${toDate}: ${eligibleDates.length} dates →`,
+    eligibleDates,
+  );
+
   return {
     success: true,
     status: 200,
@@ -415,7 +407,6 @@ async function getEligibleDates({
     },
   };
 }
-
 function evaluateDateForReason(
   dateKey,
   reason,
@@ -433,68 +424,35 @@ function evaluateDateForReason(
   const hasRows = rows.length > 0;
   const punchIn = hasPunchIn(rows);
   const punchOut = hasPunchOut(rows);
-  const automatic = hasAutomaticMode(rows);
 
   if (reason === "missed_punch_out") {
-    return hasRows && automatic;
+    return hasRows && !punchOut;
   }
 
   if (reason === "late_login") {
-    // Prefer precise detection if punchInStart provided
-    const {
-      punchInStart,
-      bufferMinutes,
-      allowedLateStreaks,
-      streakPeriod,
-      lateDates = [],
-    } = config || {};
+    // 1. Explicit late_login flag (best)
+    if (rows.some((r) => Number(r.late_login) === 1)) return true;
 
-    let isLate = false;
-    if (punchInStart) {
+    // 2. Time-based comparison
+    const { punchInStart, bufferMinutes = 10 } = config;
+    if (punchInStart && punchIn) {
       const earliest = rows
         .filter((r) => r.punchin_time)
-        .map((r) => r.punchin_time)
-        .sort()[0];
+        .map((r) => new Date(r.punchin_time))
+        .sort((a, b) => a - b)[0];
+
       if (earliest) {
-        try {
-          const earliestTime = new Date(earliest);
-          const cmp = new Date(`${dateKey}T${punchInStart}`);
-          cmp.setMinutes(cmp.getMinutes() + Number(bufferMinutes || 0));
-          isLate = earliestTime > cmp;
-        } catch (e) {
-          isLate = looksLate(rows);
-        }
-      } else {
-        isLate = false;
+        const threshold = new Date(`${dateKey}T${punchInStart}`);
+        threshold.setMinutes(threshold.getMinutes() + Number(bufferMinutes));
+        if (earliest > threshold) return true;
       }
-    } else {
-      isLate = looksLate(rows);
     }
 
-    if (!isLate) return false;
-
-    // Check streak thresholds — count late dates in the relevant window
-    const dt = parseDateKey(dateKey);
-    if (!dt) return true; // fallback: include
-
-    let windowStartKey = null;
-    if ((streakPeriod || "monthly") === "monthly") {
-      const start = new Date(dt.getFullYear(), dt.getMonth(), 1);
-      windowStartKey = toDateKey(start);
-    } else {
-      // 15 days period: inclusive of current date and previous 14 days
-      const prev = new Date(dt);
-      prev.setDate(prev.getDate() - 14);
-      windowStartKey = toDateKey(prev);
-    }
-
-    const countInWindow = (lateDates || []).filter(
-      (d) => d >= windowStartKey && d <= dateKey,
-    ).length;
-    const allowed = Number(allowedLateStreaks || 0);
-    // If allowed is zero, any late counts as eligible; otherwise require count > allowed
-    if (allowed <= 0) return true;
-    return countInWindow > allowed;
+    // 3. Fallback text match
+    return rows.some((r) => {
+      const status = String(r.punch_status || "").toLowerCase();
+      return status.includes("late");
+    });
   }
 
   if (reason === "missed_apply_leave") {
@@ -502,24 +460,16 @@ function evaluateDateForReason(
   }
 
   if (reason === "deficit_in_punch_hours") {
-    // Sum minutes worked in the day's rows
     const required = Number(config?.requiredDailyMinutes || 480);
     let worked = 0;
     for (const r of rows) {
       if (r.punchin_time && r.punchout_time) {
         const inT = new Date(r.punchin_time);
         const outT = new Date(r.punchout_time);
-        if (
-          !Number.isNaN(inT.getTime()) &&
-          !Number.isNaN(outT.getTime()) &&
-          outT > inT
-        ) {
-          worked += Math.round((outT - inT) / 60000);
-        }
+        if (outT > inT) worked += Math.round((outT - inT) / 60000);
       }
     }
-
-    return worked < required && worked > 0;
+    return worked > 0 && worked < required;
   }
 
   return false;
