@@ -239,7 +239,7 @@
 
 //       const [rows] = await tenantPool.execute(
 //         `
-//         SELECT 
+//         SELECT
 //           ol.id,
 //           ol.office_name,
 //           ol.address,
