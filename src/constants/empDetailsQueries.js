@@ -814,4 +814,21 @@ LEFT JOIN (
   ORDER BY department_id IS NULL ASC
   LIMIT 1
 `,
+
+  GET_EMPLOYEE_BY_CODE: `
+SELECT
+    e.employee_id,
+    e.email,
+    p.insurance_doc
+FROM employees e
+LEFT JOIN employee_personal p
+    ON p.employee_id = e.employee_id
+WHERE e.employee_id = ?
+`,
+
+  UPDATE_EMPLOYEE_INSURANCE_DOC: `
+UPDATE employee_personal
+SET insurance_doc = ?
+WHERE employee_id = ?
+`,
 };

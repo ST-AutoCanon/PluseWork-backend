@@ -5,6 +5,7 @@ const upload = require("../utils/multerConfig");
 const employeeService = require("../services/employeeService");
 const ErrorHandler = require("../utils/errorHandler");
 const xlsx = require("xlsx");
+const XLSX = require("xlsx");
 const db = require("../config");
 const queries = require("../constants/empDetailsQueries");
 const {
@@ -637,5 +638,171 @@ exports.getSupervisorHistory = async (req, res, next) => {
     );
   } catch (err) {
     next(err);
+  }
+};
+
+exports.uploadInsuranceFolder = async (req, res) => {
+  try {
+    const db = await getTenantPoolByOrgId(req.headers["x-org-id"]);
+
+    const success = [];
+    const failed = [];
+
+    for (const file of req.files) {
+      try {
+        // Expected:
+        // EmpNo_STS000005_R93754154.pdf
+
+        const match = file.originalname.match(/^EmpNo_(STS\d+)_/i);
+
+        if (!match) {
+          failed.push({
+            file: file.originalname,
+            reason: "Invalid filename format",
+          });
+          continue;
+        }
+
+        const rawEmployeeId = match[1];
+
+        const employeeId =
+          rawEmployeeId.substring(0, 3) + "-" + rawEmployeeId.substring(3);
+
+        console.log({
+          file: file.originalname,
+          rawEmployeeId,
+          employeeId,
+        });
+
+        const [rows] = await db.query(queries.GET_EMPLOYEE_BY_CODE, [
+          employeeId,
+        ]);
+
+        if (!rows.length) {
+          failed.push({
+            file: file.originalname,
+            employeeId,
+            reason: "Employee ID not found in database",
+          });
+          continue;
+        }
+
+        const employee = rows[0];
+
+        const employeeFolder = path.join(
+          BASE_UPLOADS,
+          String(req.headers["x-org-id"]),
+          employee.email,
+        );
+
+        // Create employee folder if it doesn't exist
+        await fs.promises.mkdir(employeeFolder, { recursive: true });
+
+        // Destination filename (keep original name)
+        const destFile = path.join(employeeFolder, file.originalname);
+
+        // Delete old insurance file if present
+        if (employee.insurance_doc) {
+          try {
+            const oldFile = webUrlToFullPath(employee.insurance_doc);
+
+            if (oldFile && fs.existsSync(oldFile)) {
+              fs.unlinkSync(oldFile);
+            }
+          } catch (e) {
+            console.warn("Failed deleting old insurance document:", e.message);
+          }
+        }
+
+        // Move uploaded file into employee folder
+        await fs.promises.rename(file.path, destFile);
+
+        // URL to store in DB
+        const insuranceUrl = `/EmployeeDetails/${req.headers["x-org-id"]}/${employee.email}/${file.originalname}`;
+
+        // Update database
+        const [updateResult] = await db.query(
+          queries.UPDATE_EMPLOYEE_INSURANCE_DOC,
+          [insuranceUrl, employeeId],
+        );
+
+        if (updateResult.affectedRows === 0) {
+          throw new Error("Failed to update insurance document");
+        }
+
+        console.log({
+          originalname: file.originalname,
+          path: file.path,
+          destination: file.destination,
+          filename: file.filename,
+        });
+
+        success.push({
+          employeeId,
+          email: employee.email,
+          insuranceDoc: insuranceUrl,
+          uploadedFile: file.originalname,
+        });
+      } catch (err) {
+        failed.push({
+          file: file.originalname,
+          reason: err.message,
+        });
+      }
+    }
+
+    const reportData = [
+      ...success.map((item) => ({
+        Status: "Success",
+        Employee_ID: item.employeeId,
+        Email: item.email,
+        File_Name: item.uploadedFile,
+        Insurance_Doc: item.insuranceDoc,
+        Reason: "",
+      })),
+
+      ...failed.map((item) => ({
+        Status: "Failed",
+        Employee_ID: item.employeeId || "",
+        Email: "",
+        File_Name: item.file,
+        Insurance_Doc: "",
+        Reason: item.reason,
+      })),
+    ];
+
+    const worksheet = XLSX.utils.json_to_sheet(reportData);
+
+    const workbook = XLSX.utils.book_new();
+
+    XLSX.utils.book_append_sheet(
+      workbook,
+      worksheet,
+      "Insurance Upload Report",
+    );
+
+    const buffer = XLSX.write(workbook, {
+      type: "buffer",
+      bookType: "xlsx",
+    });
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+
+    res.setHeader(
+      "Content-Disposition",
+      'attachment; filename="Insurance_Upload_Report.xlsx"',
+    );
+
+    return res.send(buffer);
+  } catch (err) {
+    console.error(err);
+
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
   }
 };
