@@ -144,6 +144,8 @@ module.exports = {
   getEmployeeRows: reports.getEmployeeRows,
   getVendorRows: reports.getVendorRows,
   getAssetRows: reports.getAssetRows,
+  getRecruitmentRows: reports.getRecruitmentRows,
+  getRegularisationRows: reports.getRegularisationRows,
   getAttendanceRows: reports.getAttendanceRows,
   getTaskRows: reports.getTaskRows,
   getWeeklyTaskRows: reports.getWeeklyTaskRows,

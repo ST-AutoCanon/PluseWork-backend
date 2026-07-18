@@ -239,6 +239,62 @@ ORDER BY e.created_at DESC
   ORDER BY COALESCE(v.created_at, NOW()) DESC
 `,
 
+  GET_RECRUITMENT_REPORT: `
+  SELECT
+    rc.id,
+    rc.name,
+    rc.email,
+    rc.phone,
+    rc.applied_position,
+    rc.department,
+    rc.skills,
+    rc.current_ctc,
+    rc.expected_ctc,
+    rc.notice_period,
+    rc.total_experience,
+    rc.source,
+    rc.status,
+    rc.resume_url,
+    rc.offer_ctc,
+    rc.offer_letter_url,
+    DATE_FORMAT(rc.joining_date, '%Y-%m-%d') AS joining_date,
+    DATE_FORMAT(rc.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+    DATE_FORMAT(rc.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+  FROM recruitment_candidates rc
+  WHERE ( ? IS NULL OR (COALESCE(rc.created_at, NOW()) >= ? ) )
+    AND ( ? IS NULL OR (COALESCE(rc.created_at, NOW()) < DATE_ADD(?, INTERVAL 1 DAY) ) )
+    AND ( ? IS NULL OR LOWER(rc.status) = LOWER(?) )
+  ORDER BY COALESCE(rc.created_at, NOW()) DESC
+`,
+
+  GET_REGULARISATION_REPORT: `
+  SELECT
+    l.id,
+    l.org_id,
+    l.employee_id,
+    CONCAT(COALESCE(e.first_name, ''), ' ', COALESCE(e.last_name, '')) AS employee_name,
+    pr.department_id,
+    COALESCE(d.name, '') AS department_name,
+    l.regularisation_type,
+    l.selected_dates,
+    DATE_FORMAT(l.primary_date, '%Y-%m-%d') AS primary_date,
+    l.comment,
+    l.status,
+    l.approver_name,
+    l.approver_employee_id,
+    l.approver_comments,
+    DATE_FORMAT(l.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+    DATE_FORMAT(l.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+  FROM leave_regularisation_requests l
+  LEFT JOIN employees e ON e.employee_id = l.employee_id
+  LEFT JOIN employee_professional pr ON pr.employee_id = l.employee_id
+  LEFT JOIN departments d ON pr.department_id = d.id
+  WHERE ( ? IS NULL OR (COALESCE(l.created_at, NOW()) >= ? ) )
+    AND ( ? IS NULL OR (COALESCE(l.created_at, NOW()) < DATE_ADD(?, INTERVAL 1 DAY) ) )
+    AND ( ? IS NULL OR LOWER(l.status) = LOWER(?) )
+  ORDER BY COALESCE(l.created_at, NOW()) DESC
+`,
+
   GET_ASSET_REPORT: `
   SELECT
     a.asset_id,
