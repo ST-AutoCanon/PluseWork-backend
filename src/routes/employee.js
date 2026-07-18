@@ -5,6 +5,7 @@ const path = require("path");
 const fs = require("fs");
 const employeeHandler = require("../handlers/employeeHandler");
 const upload = require("../utils/multerConfig");
+const os = require("os");
 
 const TMP = path.join(__dirname, "../tmp");
 if (!fs.existsSync(TMP)) fs.mkdirSync(TMP);
@@ -22,6 +23,27 @@ const excelUpload = multer({
     cb(null, true);
   },
 });
+
+const insuranceUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, os.tmpdir()),
+    filename: (_req, file, cb) => {
+      cb(null, `${Date.now()}_${file.originalname}`);
+    },
+  }),
+  fileFilter: (_req, file, cb) => {
+    if (path.extname(file.originalname).toLowerCase() !== ".pdf") {
+      return cb(new Error("Only PDF files are allowed."));
+    }
+    cb(null, true);
+  },
+});
+
+router.post(
+  "/admin/employees/upload-insurance-folder",
+  insuranceUpload.array("files"),
+  employeeHandler.uploadInsuranceFolder,
+);
 
 router.post(
   "/admin/employees/bulk",
