@@ -9,6 +9,8 @@ const attendanceHandler = require("./reportAttendanceHandler");
 const tasksHandler = require("./reportTasksHandler");
 const assetsHandler = require("./reportAssetsHandler");
 const reimbursementsHandler = require("./reportReimbursementsHandler");
+const recruitmentHandler = require("./reportRecruitmentHandler");
+const regularisationHandler = require("./reportRegularisationHandler");
 
 async function deriveDepartmentForEmployee(employeeId) {
   try {
@@ -633,6 +635,19 @@ module.exports = {
     ensureExport(
       reimbursementsHandler.downloadReimbursementsReport,
       "downloadReimbursementsReport",
+    ),
+  ),
+
+  downloadRecruitmentReport: wrapHandlerWithDerivedDept(
+    ensureExport(
+      recruitmentHandler.downloadRecruitmentReport,
+      "downloadRecruitmentReport",
+    ),
+  ),
+  downloadRegularisationReport: wrapHandlerWithDerivedDept(
+    ensureExport(
+      regularisationHandler.downloadRegularisationReport,
+      "downloadRegularisationReport",
     ),
   ),
 

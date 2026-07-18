@@ -62,6 +62,17 @@ router.get(
   ensureHandler(reports.downloadAssetsReport, "downloadAssetsReport"),
 );
 router.get(
+  "/recruitment",
+  ensureHandler(reports.downloadRecruitmentReport, "downloadRecruitmentReport"),
+);
+router.get(
+  "/attendance-regularisation",
+  ensureHandler(
+    reports.downloadRegularisationReport,
+    "downloadRegularisationReport",
+  ),
+);
+router.get(
   "/tasks/supervisor",
   ensureHandler(
     reports.downloadTasksSupervisorReport,

@@ -1212,6 +1212,175 @@ async function getVendorRows(
   return filters.keepOnlyFields(rows, fields, defaultOrder);
 }
 
+async function getRecruitmentRows(
+  startDate,
+  endDate,
+  status,
+  fields,
+  employeeId = null,
+  departmentId = null,
+) {
+  const sql = queries.GET_RECRUITMENT_REPORT;
+  if (!sql) {
+    console.error("[reports] GET_RECRUITMENT_REPORT missing in reportQueries");
+    throw new Error("Missing GET_RECRUITMENT_REPORT SQL definition");
+  }
+  const params = filters.buildDateStatusParams(startDate, endDate, status);
+  let rows;
+  try {
+    rows = await fetchRows(sql, params);
+    rows = Array.isArray(rows) ? rows : [];
+  } catch (err) {
+    console.error("[reports] getRecruitmentRows SQL error:", err);
+    throw err;
+  }
+
+  try {
+    rows = await filters.applyEmployeeAndDepartmentFilters(
+      rows,
+      employeeId,
+      departmentId,
+      async (deptId) => {
+        if (queries && queries.GET_DEPARTMENT_NAME_BY_ID) {
+          return await fetchRows(queries.GET_DEPARTMENT_NAME_BY_ID, [deptId]);
+        }
+        return [];
+      },
+    );
+  } catch (e) {
+    console.warn(
+      "[reports] Warning applying emp/dept filters (recruitment):",
+      e && e.message,
+    );
+  }
+
+  const defaultOrder = [
+    "id",
+    "name",
+    "email",
+    "phone",
+    "applied_position",
+    "department",
+    "skills",
+    "current_ctc",
+    "expected_ctc",
+    "notice_period",
+    "total_experience",
+    "source",
+    "status",
+    "resume_url",
+    "offer_ctc",
+    "offer_letter_url",
+    "joining_date",
+    "created_at",
+    "updated_at",
+  ];
+
+  return filters.keepOnlyFields(rows, fields, defaultOrder);
+}
+
+async function getRegularisationRows(
+  startDate,
+  endDate,
+  status,
+  fields,
+  employeeId = null,
+  departmentId = null,
+) {
+  const sql = queries.GET_REGULARISATION_REPORT;
+  if (!sql) {
+    console.error(
+      "[reports] GET_REGULARISATION_REPORT missing in reportQueries",
+    );
+    throw new Error("Missing GET_REGULARISATION_REPORT SQL definition");
+  }
+
+  const params = filters.buildDateStatusParams(startDate, endDate, status);
+
+  let rows;
+  try {
+    rows = await fetchRows(sql, params);
+    rows = Array.isArray(rows) ? rows : [];
+  } catch (err) {
+    console.error("[reports] getRegularisationRows SQL error:", err);
+    throw err;
+  }
+
+  await attachEmployeeNames(rows);
+  await attachDeptNames(rows);
+
+  try {
+    rows = await filters.applyEmployeeAndDepartmentFilters(
+      rows,
+      employeeId,
+      departmentId,
+      async (deptId) => {
+        if (queries && queries.GET_DEPARTMENT_NAME_BY_ID) {
+          return await fetchRows(queries.GET_DEPARTMENT_NAME_BY_ID, [deptId]);
+        }
+        return [];
+      },
+    );
+  } catch (e) {
+    console.warn(
+      "[reports] Warning applying emp/dept filters (regularisation):",
+      e && e.message,
+    );
+  }
+
+  if (departmentId) {
+    const before = rows.length;
+    const strict = await forceFilterByEmployeeProfessional(rows, departmentId);
+    if (Array.isArray(strict)) {
+      rows = strict;
+      console.debug(
+        `[reports] getRegularisationRows strict dept filter: ${before} -> ${rows.length}`,
+      );
+    }
+  }
+
+  try {
+    const statusCandidate = filters.normalizeStatusForQuery(status);
+    if (statusCandidate) {
+      const before = rows.length;
+      if (statusCandidate !== "all") {
+        rows = rows.filter((r) =>
+          filters.statusMatches(statusCandidate, [r.status]),
+        );
+      }
+      const after = rows.length;
+      console.debug(
+        `[reports] getRegularisationRows status filter '${statusCandidate}': ${before} -> ${after}`,
+      );
+    }
+  } catch (e) {
+    console.warn(
+      "[reports] getRegularisationRows status safety filter failed:",
+      e && e.message,
+    );
+  }
+
+  const defaultOrder = [
+    "id",
+    "employee_id",
+    "employee_name",
+    "department_id",
+    "department_name",
+    "regularisation_type",
+    "selected_dates",
+    "primary_date",
+    "comment",
+    "status",
+    "approver_name",
+    "approver_employee_id",
+    "approver_comments",
+    "created_at",
+    "updated_at",
+  ];
+
+  return filters.keepOnlyFields(rows, fields, defaultOrder);
+}
+
 async function getAssetRows(
   startDate,
   endDate,
@@ -1777,6 +1946,8 @@ module.exports = {
   getEmployeeRows,
   getVendorRows,
   getAssetRows,
+  getRecruitmentRows,
+  getRegularisationRows,
   getDepartments,
   searchEmployees,
   getFieldDisplayNames,
