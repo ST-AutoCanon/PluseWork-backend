@@ -22,20 +22,17 @@ function buildLateLoginHtml({
 }) {
   const streak = toNumber(summary.currentStreak, 0);
   const limit = toNumber(summary.streakLimit ?? config?.late_streak_days, 3);
-  const lateDates = Array.isArray(summary.lateDates) ? summary.lateDates : [];
+  const lateRecords = Array.isArray(summary.lateDates) ? summary.lateDates : [];
   const punchInStart =
     summary.punchInStart || config?.punch_in_start || "--:--";
   const punchOutStart =
     summary.punchOutStart || config?.punch_out_start || "--:--";
   const bufferMinutes = summary.bufferMinutes ?? config?.buffer_minutes ?? 0;
   const escalationMode = config?.escalation_mode || "mail_notify";
-  const actionRoles = Array.isArray(config?.action_roles)
-    ? config.action_roles
-    : [];
 
-  const late = toNumber(summary.lateCount, 0);
-  const onTime = toNumber(summary.onTimeCount, 0);
-  const absent = toNumber(summary.absentCount, 0);
+  const stats = summary.stats || {};
+  const present = toNumber(stats.present_count, 0);
+  const absent = toNumber(stats.absent_count, 0);
 
   const title =
     recipientType === "employee"
@@ -45,6 +42,18 @@ function buildLateLoginHtml({
     String(orgName || "")
       .replace(/\s*\d+$/, "")
       .trim() || "Organization";
+
+  const lateListHtml = lateRecords
+    .slice(0, 8)
+    .map((record) => {
+      const mins = record.minutesLate || 0;
+      return `
+      <li style="padding:8px 0;border-bottom:1px solid #e5e7eb;">
+        <strong>${escapeHtml(record.date)}</strong> at ${escapeHtml(record.time)}
+        <span style="color:#ef4444; font-weight:600;">(${mins} min late)</span>
+      </li>`;
+    })
+    .join("");
 
   return `<!doctype html>
   <html>
@@ -64,61 +73,47 @@ function buildLateLoginHtml({
               Your late-login streak has reached <strong>${streak}</strong> day(s).
             </p>
 
+            <!-- Streak Info -->
             <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:18px;">
               <tr>
-                <td style="padding-right:10px;width:25%;">
-                  <div style="border:1px solid #e5e7eb;border-radius:16px;padding:14px 12px;background:#f8fafc;">
-                    <div style="font-size:12px;color:#64748b;">Streak limit</div>
-                    <div style="font-size:20px;font-weight:800;color:#0f172a;">${limit}</div>
-                  </div>
-                </td>
-                <td style="padding-right:10px;width:25%;">
-                  <div style="border:1px solid #e5e7eb;border-radius:16px;padding:14px 12px;background:#f8fafc;">
-                    <div style="font-size:12px;color:#64748b;">Current streak</div>
-                    <div style="font-size:20px;font-weight:800;color:#0f172a;">${streak}</div>
-                  </div>
-                </td>
-                <td style="padding-right:10px;width:25%;">
-                  <div style="border:1px solid #e5e7eb;border-radius:16px;padding:14px 12px;background:#f8fafc;">
-                    <div style="font-size:12px;color:#64748b;">Punch-in start</div>
-                    <div style="font-size:20px;font-weight:800;color:#0f172a;">${escapeHtml(punchInStart)}</div>
-                  </div>
-                </td>
-                <td style="width:25%;">
-                  <div style="border:1px solid #e5e7eb;border-radius:16px;padding:14px 12px;background:#f8fafc;">
-                    <div style="font-size:12px;color:#64748b;">Buffer</div>
-                    <div style="font-size:20px;font-weight:800;color:#0f172a;">${bufferMinutes} min</div>
-                  </div>
-                </td>
+                <td style="padding-right:10px;width:25%;"><div style="border:1px solid #e5e7eb;border-radius:16px;padding:14px;background:#f8fafc;">
+                  <div style="font-size:12px;color:#64748b;">Streak limit</div>
+                  <div style="font-size:20px;font-weight:800;color:#0f172a;">${limit}</div>
+                </div></td>
+                <td style="padding-right:10px;width:25%;"><div style="border:1px solid #e5e7eb;border-radius:16px;padding:14px;background:#f8fafc;">
+                  <div style="font-size:12px;color:#64748b;">Current streak</div>
+                  <div style="font-size:20px;font-weight:800;color:#0f172a;">${streak}</div>
+                </div></td>
+                <td style="padding-right:10px;width:25%;"><div style="border:1px solid #e5e7eb;border-radius:16px;padding:14px;background:#f8fafc;">
+                  <div style="font-size:12px;color:#64748b;">Punch-in start</div>
+                  <div style="font-size:20px;font-weight:800;color:#0f172a;">${escapeHtml(punchInStart)}</div>
+                </div></td>
+                <td style="width:25%;"><div style="border:1px solid #e5e7eb;border-radius:16px;padding:14px;background:#f8fafc;">
+                  <div style="font-size:12px;color:#64748b;">Buffer</div>
+                  <div style="font-size:20px;font-weight:800;color:#0f172a;">${bufferMinutes} min</div>
+                </div></td>
               </tr>
             </table>
 
-            <!-- Text-based Attendance Summary -->
-            <div style="margin-top:18px;border:1px solid #e5e7eb;border-radius:18px;padding:20px;background:#ffffff;">
-              <div style="font-size:15px;font-weight:700;color:#0f172a;margin-bottom:12px;">Attendance Summary</div>
-              <div style="display:flex;gap:12px;flex-wrap:wrap;">
-                <div style="flex:1;min-width:140px;background:#fef2f2;padding:14px;border-radius:12px;">
-                  <div style="color:#ef4444;font-size:13px;">Late</div>
-                  <div style="font-size:26px;font-weight:800;color:#b91c1c;">${late}</div>
-                </div>
-                <div style="flex:1;min-width:140px;background:#f0fdf4;padding:14px;border-radius:12px;">
-                  <div style="color:#22c55e;font-size:13px;">On Time</div>
-                  <div style="font-size:26px;font-weight:800;color:#15803d;">${onTime}</div>
-                </div>
-                <div style="flex:1;min-width:140px;background:#fffbeb;padding:14px;border-radius:12px;">
-                  <div style="color:#f59e0b;font-size:13px;">Absent</div>
-                  <div style="font-size:26px;font-weight:800;color:#b45309;">${absent}</div>
-                </div>
-              </div>
+            <!-- Monthly Summary -->
+            <div style="margin-top:24px;border:1px solid #e5e7eb;border-radius:18px;padding:20px;background:#ffffff;">
+              <div style="font-size:15px;font-weight:700;color:#0f172a;margin-bottom:12px;">Attendance Summary (Current Month)</div>
+              <table width="100%" cellpadding="10" cellspacing="0" style="border-collapse:collapse;">
+                <tr style="background:#f1f5f9;">
+                  <th style="text-align:left;padding:12px;">Category</th>
+                  <th style="text-align:right;padding:12px;">Days</th>
+                </tr>
+                <tr><td style="padding:12px;border-bottom:1px solid #e5e7eb;">Present</td><td style="padding:12px;text-align:right;font-weight:700;color:#15803d;">${present}</td></tr>
+                <tr><td style="padding:12px;border-bottom:1px solid #e5e7eb;">Absent</td><td style="padding:12px;text-align:right;font-weight:700;color:#b45309;">${absent}</td></tr>
+                <tr><td style="padding:12px;">Late Login</td><td style="padding:12px;text-align:right;font-weight:700;color:#ef4444;">${lateRecords.length}</td></tr>
+              </table>
             </div>
 
-            <div style="margin-top:18px;border:1px solid #e5e7eb;border-radius:18px;padding:18px;background:#f8fafc;">
-              <div style="font-size:13px;font-weight:700;color:#0f172a;margin-bottom:8px;">Recent late dates</div>
-              <ul style="margin:10px 0 0 18px;padding:0;color:#334155;">
-                ${lateDates
-                  .slice(0, 7)
-                  .map((d) => `<li>${escapeHtml(d)}</li>`)
-                  .join("")}
+            <!-- Late Records with Duration -->
+            <div style="margin-top:20px;border:1px solid #e5e7eb;border-radius:18px;padding:18px;background:#f8fafc;">
+              <div style="font-size:13px;font-weight:700;color:#0f172a;margin-bottom:10px;">Recent Late Login Records</div>
+              <ul style="margin:0;padding:0;list-style:none;color:#334155;">
+                ${lateListHtml || `<li style="color:#64748b;">No late records found.</li>`}
               </ul>
             </div>
 
@@ -132,7 +127,6 @@ function buildLateLoginHtml({
     </body>
   </html>`;
 }
-
 function buildLateLoginText({
   recipientType,
   platformName,
@@ -151,6 +145,7 @@ Organization: ${orgName || "Organization"}
 Employee: ${employeeName || "Employee"}
 Current streak: ${streak}
 Streak limit: ${limit}
+Late logins: ${lateDates.length}
 
 Late dates:
 ${lateDates.length ? lateDates.join(", ") : "N/A"}
