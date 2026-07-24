@@ -1,4 +1,3 @@
-
 const attendanceService = require("../services/attendanceService");
 const db = require("../config");
 
@@ -31,16 +30,39 @@ const attendanceHandler = {
     }
   },
 
-  punchIn: async (req, res) => {
+  validateEmployeeOfficeLocation: async (req, res) => {
     try {
-      const {
+      const { employeeId, latitude, longitude, device } = req.body;
+      const orgId = extractOrgId(req);
+
+      if (!employeeId) {
+        return res
+          .status(400)
+          .json({ success: false, message: "Employee ID is required" });
+      }
+
+      const result = await attendanceService.validateEmployeeOfficeLocation(
         employeeId,
-        device,
-        location,
-        punchMode,
         latitude,
         longitude,
-      } = req.body;
+        orgId,
+        device,
+      );
+
+      return res.status(200).json({
+        success: true,
+        ...result,
+      });
+    } catch (error) {
+      console.error("[VALIDATE_OFFICE_LOCATION] Error:", error.message);
+      return res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  punchIn: async (req, res) => {
+    try {
+      const { employeeId, device, location, punchMode, latitude, longitude } =
+        req.body;
 
       const orgId = extractOrgId(req);
 
@@ -54,7 +76,8 @@ const attendanceHandler = {
       ) {
         return res.status(400).json({
           success: false,
-          message: "employeeId, device, location, punchMode, latitude and longitude are required",
+          message:
+            "employeeId, device, location, punchMode, latitude and longitude are required",
         });
       }
 
@@ -71,13 +94,14 @@ const attendanceHandler = {
       }
 
       // 2) Validate with device info (Mobile only for assigned employees)
-      const officeValidation = await attendanceService.validateEmployeeOfficeLocation(
-        employeeId,
-        Number(latitude),
-        Number(longitude),
-        orgId,
-        device
-      );
+      const officeValidation =
+        await attendanceService.validateEmployeeOfficeLocation(
+          employeeId,
+          Number(latitude),
+          Number(longitude),
+          orgId,
+          device,
+        );
 
       if (!officeValidation.allowed) {
         return res.status(403).json({
@@ -86,58 +110,23 @@ const attendanceHandler = {
         });
       }
 
-      // 3) Late login calculation
-      let lateLogin = false;
-      try {
-        const loginConfig = await attendanceService.getLoginHoursConfig(orgId);
-
-        if (loginConfig?.late_login_enabled) {
-          const punchInStart =
-            loginConfig.punch_in_start ?? loginConfig.punchInStart;
-          const bufferMinutes = Number(
-            loginConfig.buffer_minutes ?? loginConfig.bufferMinutes ?? 10,
-          );
-
-          if (punchInStart) {
-            const timeMatch = punchInStart.match(
-              /^([01]\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?$/,
-            );
-
-            if (timeMatch) {
-              const now = new Date();
-              const hour = Number(timeMatch[1]);
-              const minute = Number(timeMatch[2]);
-
-              const threshold = new Date(now);
-              threshold.setHours(hour, minute, 0, 0);
-              threshold.setMinutes(threshold.getMinutes() + bufferMinutes);
-
-              if (now > threshold) {
-                lateLogin = true;
-              }
-            }
-          }
-        }
-      } catch (err) {
-        console.warn("Unable to compute late login status:", err);
-      }
-
-      const punchId = await attendanceService.addPunchIn(
+      // 3) Late login calculation (delegated to service where possible)
+      const result = await attendanceService.recordAndNotifyLateLogin({
         employeeId,
+        orgId,
         device,
         location,
         punchMode,
-        orgId,
-        lateLogin,
-      );
+      });
 
       return res.status(201).json({
         success: true,
-        message: lateLogin
+        message: result.lateLogin
           ? "Punch In successful - Late login recorded"
           : "Punch In successful",
-        punchId,
-        lateLogin,
+        punchId: result.insertId,
+        lateLogin: result.lateLogin,
+        streakBreached: result.streakBreached,
         office: officeValidation.office || null,
         distance: officeValidation.distance ?? null,
       });
@@ -149,14 +138,8 @@ const attendanceHandler = {
 
   punchOut: async (req, res) => {
     try {
-      const {
-        employeeId,
-        device,
-        location,
-        punchMode,
-        latitude,
-        longitude,
-      } = req.body;
+      const { employeeId, device, location, punchMode, latitude, longitude } =
+        req.body;
 
       const orgId = extractOrgId(req);
 
@@ -186,13 +169,14 @@ const attendanceHandler = {
         });
       }
 
-      const officeValidation = await attendanceService.validateEmployeeOfficeLocation(
-        employeeId,
-        Number(latitude),
-        Number(longitude),
-        orgId,
-        device
-      );
+      const officeValidation =
+        await attendanceService.validateEmployeeOfficeLocation(
+          employeeId,
+          Number(latitude),
+          Number(longitude),
+          orgId,
+          device,
+        );
 
       if (!officeValidation.allowed) {
         return res.status(403).json({
@@ -391,6 +375,120 @@ const attendanceHandler = {
     } catch (error) {
       console.error("[GET_LATE_LOGIN_DATES] Error:", error.message);
       res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  // Late Streak & Config Handlers
+  getLateLoginStreakSummary: async (req, res) => {
+    try {
+      const { employeeId } = req.params;
+      const orgId = extractOrgId(req);
+
+      if (!employeeId) {
+        return res
+          .status(400)
+          .json({ success: false, message: "Employee ID is required" });
+      }
+
+      const summary = await attendanceService.getLateLoginStreakSummary(
+        employeeId,
+        orgId,
+      );
+
+      return res.status(200).json({ success: true, data: summary });
+    } catch (error) {
+      console.error("[GET_LATE_STREAK_SUMMARY] Error:", error.message);
+      return res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  sendLateLoginStreakNotifications: async (req, res) => {
+    try {
+      const { employeeId } = req.body;
+      const orgId = extractOrgId(req);
+
+      if (!employeeId) {
+        return res
+          .status(400)
+          .json({ success: false, message: "Employee ID is required" });
+      }
+
+      const result = await attendanceService.sendLateLoginStreakNotifications({
+        employeeId,
+        orgId,
+      });
+
+      return res.status(200).json({ success: true, data: result });
+    } catch (error) {
+      console.error("[SEND_LATE_STREAK_NOTIFICATIONS] Error:", error.message);
+      return res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  checkAndNotifyAllLateStreaks: async (req, res) => {
+    try {
+      const orgId = extractOrgId(req);
+
+      if (!orgId) {
+        return res
+          .status(400)
+          .json({ success: false, message: "orgId is required" });
+      }
+
+      await attendanceService.checkAndNotifyAllLateStreaks(orgId);
+
+      return res.status(200).json({
+        success: true,
+        message: "Late streak check completed for the organization",
+      });
+    } catch (error) {
+      console.error("[CHECK_ALL_LATE_STREAKS] Error:", error.message);
+      return res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  getLoginHoursConfig: async (req, res) => {
+    try {
+      const orgId = extractOrgId(req);
+
+      if (!orgId) {
+        return res
+          .status(400)
+          .json({ success: false, message: "orgId is required" });
+      }
+
+      const config = await attendanceService.getLoginHoursConfig(orgId);
+      return res.status(200).json({ success: true, data: config });
+    } catch (error) {
+      console.error("[GET_LOGIN_HOURS_CONFIG] Error:", error.message);
+      return res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  upsertLoginHoursConfig: async (req, res) => {
+    try {
+      const orgId = extractOrgId(req);
+      const config = req.body;
+
+      if (!orgId) {
+        return res
+          .status(400)
+          .json({ success: false, message: "orgId is required" });
+      }
+
+      const result = await attendanceService.upsertLoginHoursConfig(
+        orgId,
+        config,
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: "Login hours config updated successfully",
+        data: result,
+      });
+    } catch (error) {
+      console.error("[UPSERT_LOGIN_HOURS_CONFIG] Error:", error.message);
+      return res.status(500).json({ success: false, message: error.message });
     }
   },
 };
