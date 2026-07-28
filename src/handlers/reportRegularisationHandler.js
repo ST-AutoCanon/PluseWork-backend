@@ -18,7 +18,7 @@ function buildMetaFromReqQuery(query = {}) {
   }
 
   const employee = coerceToString(
-    query.employee_id ?? query.employeeId ?? query.employee,
+    query.employee ?? query.employee_id ?? query.employeeId,
     null,
   );
   if (employee) {
