@@ -710,6 +710,25 @@ function mapRecruitmentValues(payload, orgId, resumeFile, existing = null) {
   };
 }
 
+function normalizeAssessmentFeedback(feedback) {
+  if (!feedback) return {};
+
+  if (typeof feedback === "object") {
+    return feedback;
+  }
+
+  try {
+    return JSON.parse(feedback);
+  } catch {
+    return {
+      notes: feedback,
+      ratings: {},
+      strengths: [],
+      improvements: [],
+    };
+  }
+}
+
 function buildRecruitmentInsertValues(mapped) {
   return [
     mapped.orgId,
@@ -789,7 +808,7 @@ function buildSequentialRoundName(baseRound, assessments = []) {
 function buildEmailDefaults({
   candidate,
   roundName,
-  interviewerId,
+  interviewerName,
   interviewDate,
   interviewLink,
   organization,
@@ -800,7 +819,7 @@ function buildEmailDefaults({
     candidateName: candidate.name,
     roundName,
     position: candidate.applied_position,
-    interviewerName: interviewerId || "TBA",
+    interviewerName: interviewerName || "TBA",
     interviewDate,
     interviewLink,
     organizationName: organization?.name || "HR Team",
@@ -999,7 +1018,10 @@ async function getRecruitmentCandidateByIdService(id, orgId) {
 
   return {
     ...candidate,
-    assessments: assessments || [],
+    assessments: (assessments || []).map((item) => ({
+      ...item,
+      feedback_json: normalizeAssessmentFeedback(item.feedback),
+    })),
   };
 }
 
@@ -1125,10 +1147,31 @@ async function assignInterviewService(candidateId, payload, orgId) {
       existingAssessments || [],
     );
 
-    const interviewerId =
-      emptyToNull(payload.interviewer_id) ??
-      emptyToNull(payload.assigned_interviewer) ??
-      null;
+    const interviewerId = Array.isArray(payload.interviewer_ids)
+      ? payload.interviewer_ids.filter(Boolean).join(",")
+      : (emptyToNull(payload.interviewer_id) ??
+        emptyToNull(payload.assigned_interviewer) ??
+        null);
+
+    let interviewerName = "TBA";
+
+    if (interviewerId) {
+      const ids = interviewerId.split(",").map((id) => id.trim());
+
+      const [rows] = await connection.query(
+        `
+      SELECT
+        employee_id,
+        CONCAT_WS(' ', first_name, last_name) AS name
+      FROM employees
+      WHERE org_id = ?
+        AND employee_id IN (?)
+    `,
+        [orgId, ids],
+      );
+
+      interviewerName = rows.map((r) => r.name).join(", ") || interviewerId;
+    }
 
     const interviewDate = normalizeDateTime(payload.interview_date || null);
     const interviewLink = emptyToNull(payload.interview_link) ?? null;
@@ -1136,11 +1179,10 @@ async function assignInterviewService(candidateId, payload, orgId) {
       toBool(payload.send_interview_email) ? 1 : 0,
     );
 
-    // Build defaults, but prefer payload-provided subject/body when available
     let { emailSubject, emailBody } = buildEmailDefaults({
       candidate,
       roundName,
-      interviewerId,
+      interviewerName,
       interviewDate,
       interviewLink,
       organization,
@@ -1263,11 +1305,32 @@ async function saveRecruitmentAssessmentService(
       payload,
     );
 
-    const interviewerId =
-      emptyToNull(payload.interviewer_id) ??
-      emptyToNull(payload.assigned_interviewer) ??
-      latestAssessment?.interviewer_id ??
-      null;
+    const interviewerId = Array.isArray(payload.interviewer_ids)
+      ? payload.interviewer_ids.filter(Boolean).join(",")
+      : (emptyToNull(payload.interviewer_id) ??
+        emptyToNull(payload.assigned_interviewer) ??
+        latestAssessment?.interviewer_id ??
+        null);
+
+    let interviewerName = "TBA";
+
+    if (interviewerId) {
+      const ids = interviewerId.split(",").map((id) => id.trim());
+
+      const [rows] = await connection.query(
+        `
+      SELECT
+        employee_id,
+        CONCAT_WS(' ', first_name, last_name) AS name
+      FROM employees
+      WHERE org_id = ?
+        AND employee_id IN (?)
+    `,
+        [orgId, ids],
+      );
+
+      interviewerName = rows.map((r) => r.name).join(", ") || interviewerId;
+    }
 
     const interviewDate = normalizeDateTime(
       payload.interview_date || latestAssessment?.interview_date || null,
@@ -1286,7 +1349,7 @@ async function saveRecruitmentAssessmentService(
     let { emailSubject, emailBody } = buildEmailDefaults({
       candidate,
       roundName: baseRound,
-      interviewerId,
+      interviewerName,
       interviewDate,
       interviewLink,
       organization,
@@ -1300,8 +1363,14 @@ async function saveRecruitmentAssessmentService(
       emptyToNull(payload.status) ??
       latestAssessment?.decision ??
       null;
-    const feedback =
-      emptyToNull(payload.feedback) ?? latestAssessment?.feedback ?? null;
+    let feedback = latestAssessment?.feedback || null;
+
+    if (payload.feedback) {
+      feedback =
+        typeof payload.feedback === "string"
+          ? payload.feedback
+          : JSON.stringify(payload.feedback);
+    }
 
     let result;
 

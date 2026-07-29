@@ -430,8 +430,8 @@ app.use((req, res, next) => {
     app.use("/api/lop", lossofPayCalculationRoutes);
     app.use("/api/org", orgWorkHoursRoutes);
     app.use("/api/compensations", compensationRoutes);
-app.use("/api/office-locations", officeLocationRoutes);
-app.use("/api/office-location-employees", officeEmployeeRoutes);
+    app.use("/api/office-locations", officeLocationRoutes);
+    app.use("/api/office-location-employees", officeEmployeeRoutes);
     app.get("/", (req, res) => res.send("Employee Face Recognition API"));
 
     function resolveOrgIdFromSocket(socket) {
@@ -454,7 +454,7 @@ app.use("/api/office-location-employees", officeEmployeeRoutes);
 
     const io = new Server(server, {
       cors: {
-        origin: ["https://test.sts-test.online"],
+        origin: allowedOrigins,
         credentials: true,
       },
       path: "/api/socket.io",
