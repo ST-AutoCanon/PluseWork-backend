@@ -1278,7 +1278,7 @@ CREATE TABLE recruitment_assessments (
   recruitment_candidate_id int NOT NULL,
   org_id int NOT NULL,
   round_name varchar(100)  NOT NULL,
-  interviewer_id varchar(20)  DEFAULT NULL,
+  interviewer_id text  DEFAULT NULL,
   interview_date datetime DEFAULT NULL,
   interview_link text ,
   send_interview_email tinyint(1) DEFAULT '0',

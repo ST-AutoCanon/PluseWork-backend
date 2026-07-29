@@ -109,10 +109,18 @@ module.exports = {
   `,
 
   GET_RECRUITMENT_ASSESSMENT_BY_ID: `
-    SELECT *
-    FROM recruitment_assessments
-    WHERE id = ? AND org_id = ?
-    LIMIT 1
+    SELECT
+    *,
+    CASE
+        WHEN interviewer_id IS NULL OR interviewer_id = ''
+        THEN JSON_ARRAY()
+        ELSE JSON_ARRAYAGG(interviewer_id)
+    END AS interviewer_ids
+FROM recruitment_assessments
+WHERE recruitment_candidate_id = ?
+AND org_id = ?
+GROUP BY id
+ORDER BY created_at DESC
   `,
 
   GET_LATEST_RECRUITMENT_ASSESSMENT_BY_ROUND: `
