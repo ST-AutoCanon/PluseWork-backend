@@ -644,50 +644,91 @@ exports.getSupervisorHistory = async (req, res, next) => {
 exports.uploadInsuranceFolder = async (req, res) => {
   try {
     const db = await getTenantPoolByOrgId(req.headers["x-org-id"]);
+    const uploadType = req.body.uploadType || "Insurance";
 
     const success = [];
     const failed = [];
 
     for (const file of req.files) {
       try {
-        // Expected:
-        // EmpNo_STS000005_R93754154.pdf
+        let employee;
+        let employeeId;
 
-        const match = file.originalname.match(/^EmpNo_(STS\d+)_/i);
+        if (uploadType === "Insurance") {
+          // Expected:
+          // EmpNo_STS000005_R93754154.pdf
 
-        if (!match) {
-          failed.push({
+          const match = file.originalname.match(/^EmpNo_(STS\d+)_/i);
+
+          if (!match) {
+            failed.push({
+              file: file.originalname,
+              reason: "Invalid filename format",
+            });
+            continue;
+          }
+
+          const rawEmployeeId = match[1];
+
+          employeeId =
+            rawEmployeeId.substring(0, 3) + "-" + rawEmployeeId.substring(3);
+
+          console.log({
             file: file.originalname,
-            reason: "Invalid filename format",
-          });
-          continue;
-        }
-
-        const rawEmployeeId = match[1];
-
-        const employeeId =
-          rawEmployeeId.substring(0, 3) + "-" + rawEmployeeId.substring(3);
-
-        console.log({
-          file: file.originalname,
-          rawEmployeeId,
-          employeeId,
-        });
-
-        const [rows] = await db.query(queries.GET_EMPLOYEE_BY_CODE, [
-          employeeId,
-        ]);
-
-        if (!rows.length) {
-          failed.push({
-            file: file.originalname,
+            rawEmployeeId,
             employeeId,
-            reason: "Employee ID not found in database",
           });
-          continue;
-        }
 
-        const employee = rows[0];
+          const [rows] = await db.query(queries.GET_EMPLOYEE_BY_CODE, [
+            employeeId,
+          ]);
+
+          if (!rows.length) {
+            failed.push({
+              file: file.originalname,
+              employeeId,
+              reason: "Employee ID not found in database",
+            });
+            continue;
+          }
+
+          employee = rows[0];
+        } else {
+          // Expected:
+          // AKDPV6370K_2026-27.pdf
+
+          const match = file.originalname.match(/^([A-Z]{5}[0-9]{4}[A-Z])_/i);
+
+          if (!match) {
+            failed.push({
+              file: file.originalname,
+              reason: "Invalid Form16 filename format",
+            });
+            continue;
+          }
+
+          const panNumber = match[1].toUpperCase();
+
+          console.log({
+            file: file.originalname,
+            panNumber,
+          });
+
+          const [rows] = await db.query(queries.GET_EMPLOYEE_BY_PAN, [
+            panNumber,
+          ]);
+
+          if (!rows.length) {
+            failed.push({
+              file: file.originalname,
+              reason: `PAN ${panNumber} not found in database`,
+            });
+            continue;
+          }
+
+          employee = rows[0];
+          employeeId = employee.employee_id;
+        }
 
         const employeeFolder = path.join(
           BASE_UPLOADS,
@@ -695,39 +736,62 @@ exports.uploadInsuranceFolder = async (req, res) => {
           employee.email,
         );
 
-        // Create employee folder if it doesn't exist
-        await fs.promises.mkdir(employeeFolder, { recursive: true });
+        await fs.promises.mkdir(employeeFolder, {
+          recursive: true,
+        });
 
-        // Destination filename (keep original name)
         const destFile = path.join(employeeFolder, file.originalname);
 
-        // Delete old insurance file if present
-        if (employee.insurance_doc) {
-          try {
-            const oldFile = webUrlToFullPath(employee.insurance_doc);
+        // Delete old document if exists
+        if (uploadType === "Insurance") {
+          if (employee.insurance_doc) {
+            try {
+              const oldFile = webUrlToFullPath(employee.insurance_doc);
 
-            if (oldFile && fs.existsSync(oldFile)) {
-              fs.unlinkSync(oldFile);
+              if (oldFile && fs.existsSync(oldFile)) {
+                fs.unlinkSync(oldFile);
+              }
+            } catch (e) {
+              console.warn(
+                "Failed deleting old insurance document:",
+                e.message,
+              );
             }
-          } catch (e) {
-            console.warn("Failed deleting old insurance document:", e.message);
+          }
+        } else {
+          if (employee.form16_doc) {
+            try {
+              const oldFile = webUrlToFullPath(employee.form16_doc);
+
+              if (oldFile && fs.existsSync(oldFile)) {
+                fs.unlinkSync(oldFile);
+              }
+            } catch (e) {
+              console.warn("Failed deleting old Form16 document:", e.message);
+            }
           }
         }
 
-        // Move uploaded file into employee folder
         await fs.promises.rename(file.path, destFile);
 
-        // URL to store in DB
-        const insuranceUrl = `/EmployeeDetails/${req.headers["x-org-id"]}/${employee.email}/${file.originalname}`;
+        const documentUrl = `/EmployeeDetails/${req.headers["x-org-id"]}/${employee.email}/${file.originalname}`;
 
-        // Update database
-        const [updateResult] = await db.query(
-          queries.UPDATE_EMPLOYEE_INSURANCE_DOC,
-          [insuranceUrl, employeeId],
-        );
+        let updateResult;
+
+        if (uploadType === "Insurance") {
+          [updateResult] = await db.query(
+            queries.UPDATE_EMPLOYEE_INSURANCE_DOC,
+            [documentUrl, employeeId],
+          );
+        } else {
+          [updateResult] = await db.query(queries.UPDATE_EMPLOYEE_FORM16_DOC, [
+            documentUrl,
+            employeeId,
+          ]);
+        }
 
         if (updateResult.affectedRows === 0) {
-          throw new Error("Failed to update insurance document");
+          throw new Error(`Failed to update ${uploadType} document`);
         }
 
         console.log({
@@ -740,8 +804,9 @@ exports.uploadInsuranceFolder = async (req, res) => {
         success.push({
           employeeId,
           email: employee.email,
-          insuranceDoc: insuranceUrl,
           uploadedFile: file.originalname,
+          documentUrl,
+          uploadType,
         });
       } catch (err) {
         failed.push({
@@ -754,19 +819,21 @@ exports.uploadInsuranceFolder = async (req, res) => {
     const reportData = [
       ...success.map((item) => ({
         Status: "Success",
+        Upload_Type: item.uploadType,
         Employee_ID: item.employeeId,
         Email: item.email,
         File_Name: item.uploadedFile,
-        Insurance_Doc: item.insuranceDoc,
+        Document_Path: item.documentUrl,
         Reason: "",
       })),
 
       ...failed.map((item) => ({
         Status: "Failed",
+        Upload_Type: uploadType,
         Employee_ID: item.employeeId || "",
         Email: "",
         File_Name: item.file,
-        Insurance_Doc: "",
+        Document_Path: "",
         Reason: item.reason,
       })),
     ];
@@ -778,7 +845,7 @@ exports.uploadInsuranceFolder = async (req, res) => {
     XLSX.utils.book_append_sheet(
       workbook,
       worksheet,
-      "Insurance Upload Report",
+      `${uploadType} Upload Report`,
     );
 
     const buffer = XLSX.write(workbook, {
@@ -793,7 +860,7 @@ exports.uploadInsuranceFolder = async (req, res) => {
 
     res.setHeader(
       "Content-Disposition",
-      'attachment; filename="Insurance_Upload_Report.xlsx"',
+      `attachment; filename="${uploadType}_Upload_Report.xlsx"`,
     );
 
     return res.send(buffer);

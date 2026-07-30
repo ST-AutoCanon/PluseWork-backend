@@ -1,9 +1,10 @@
 const { getTenantPoolByOrgId } = require("../db/tenantPoolManager");
 const attendanceQueries = require("../constants/attendanceQueries");
 const { sendWithRetries } = require("../utils/brevoMailer");
+const fs = require("fs");
+const path = require("path");
 
 const ROLE_PRIORITY = ["admin", "hr", "manager", "supervisor"];
-const LATE_STREAK_EMAIL_ROLES = ["admin", "hr"];
 
 const toRadians = (value) => (value * Math.PI) / 180;
 
@@ -23,25 +24,6 @@ const calculateDistanceMeters = (lat1, lon1, lat2, lon2) => {
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
 };
-
-const masterDb = require("../config");
-
-async function getOrganizationName(orgId) {
-  try {
-    const [rows] = await masterDb.query(
-      `SELECT name FROM organizations WHERE id = ? LIMIT 1`,
-      [orgId],
-    );
-
-    return rows?.[0]?.name || "Organization";
-  } catch (error) {
-    console.warn(
-      `[getOrganizationName] Failed to fetch organization name for org ${orgId}:`,
-      error.message,
-    );
-    return "Organization";
-  }
-}
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -87,17 +69,6 @@ function normalizeActionRoles(value) {
   }
 
   return Array.from(new Set(roles.map(normalizeRole).filter(Boolean)));
-}
-
-function getLateStreakEmailRoles(config = {}) {
-  const configuredRoles = normalizeActionRoles(config.action_roles);
-  const selectedRoles = LATE_STREAK_EMAIL_ROLES.filter((role) =>
-    configuredRoles.includes(role),
-  );
-
-  // Legacy configurations did not include an Admin option. Keep the intended
-  // default recipients while never allowing Manager/Supervisor mail here.
-  return selectedRoles.length ? selectedRoles : LATE_STREAK_EMAIL_ROLES;
 }
 
 function uniqByEmail(items = []) {
@@ -241,246 +212,23 @@ async function fetchFirstAvailableRow(tenantPool, sqlList, params = []) {
   return null;
 }
 
-function buildPieChartSvg(summary = {}) {
-  const late = Number(summary.lateCount || 0);
-  const onTime = Number(summary.onTimeCount || 0);
-  const absent = Number(summary.absentCount || 0);
+const masterDb = require("../config");
 
-  const total = Math.max(late + onTime + absent, 1);
+async function getOrganizationName(orgId) {
+  try {
+    const [rows] = await masterDb.query(
+      `SELECT name FROM organizations WHERE id = ? LIMIT 1`,
+      [orgId],
+    );
 
-  const attendance = Math.round(((late + onTime) / total) * 100);
-  const punctuality = Math.round((onTime / total) * 100);
-
-  const radius = 60;
-  const circumference = 2 * Math.PI * radius;
-
-  const lateLength = (late / total) * circumference;
-  const onTimeLength = (onTime / total) * circumference;
-  const absentLength = circumference - lateLength - onTimeLength;
-
-  const onTimeOffset = circumference - lateLength;
-  const absentOffset = circumference - lateLength - onTimeLength;
-
-  const latePct = Math.round((late / total) * 100);
-  const onTimePct = Math.round((onTime / total) * 100);
-  const absentPct = Math.round((absent / total) * 100);
-  const safe = (v) => Math.max(v, 0.001);
-
-  return `
-<svg xmlns="http://www.w3.org/2000/svg" width="700" height="340" viewBox="0 0 700 340">
-
-<defs>
-
-<linearGradient id="green" x1="0" y1="0" x2="1" y2="1">
-<stop offset="0%" stop-color="#34d399"/>
-<stop offset="100%" stop-color="#059669"/>
-</linearGradient>
-
-<linearGradient id="red" x1="0" y1="0" x2="1" y2="1">
-<stop offset="0%" stop-color="#fb7185"/>
-<stop offset="100%" stop-color="#dc2626"/>
-</linearGradient>
-
-<linearGradient id="orange" x1="0" y1="0" x2="1" y2="1">
-<stop offset="0%" stop-color="#fbbf24"/>
-<stop offset="100%" stop-color="#d97706"/>
-</linearGradient>
-
-
-
-</defs>
-
-<rect width="700" height="340" rx="20" fill="#ffffff"/>
-
-<text
-x="40"
-y="42"
-font-size="22"
-font-weight="700"
-fill="#0f172a">
-
-Attendance Analytics
-
-</text>
-
-<text
-x="40"
-y="66"
-font-size="13"
-fill="#64748b">
-
-Current attendance overview
-
-</text>
-
-<!-- DONUT -->
-
-<g>
-
-<circle
-cx="130"
-cy="170"
-r="${radius}"
-stroke="#e5e7eb"
-stroke-width="22"
-fill="none"/>
-
-<circle
-cx="130"
-cy="170"
-r="${radius}"
-stroke="url(#green)"
-stroke-width="22"
-fill="none"
-stroke-linecap="round"
-stroke-dasharray="${safe(onTimeLength)} ${circumference}"
-stroke-dashoffset="0"
-transform="rotate(-90 130 170)"
-/>
-
-<circle
-cx="130"
-cy="170"
-r="${radius}"
-stroke="url(#red)"
-stroke-width="22"
-fill="none"
-stroke-linecap="round"
-stroke-dasharray="${safe(lateLength)} ${circumference}"
-stroke-dashoffset="${-onTimeLength}"
-transform="rotate(-90 130 170)"
-/>
-
-<circle
-cx="130"
-cy="170"
-r="${radius}"
-stroke="url(#orange)"
-stroke-width="22"
-fill="none"
-stroke-linecap="round"
-stroke-dasharray="${safe(absentLength)} ${circumference}"
-stroke-dashoffset="${-(onTimeLength + lateLength)}"
-transform="rotate(-90 130 170)"
-/>
-
-<circle
-cx="130"
-cy="170"
-r="45"
-fill="#fff"/>
-
-</g>
-
-<text
-x="130"
-y="165"
-font-size="28"
-font-weight="700"
-text-anchor="middle"
-fill="#0f172a">
-
-${attendance}%
-
-</text>
-
-<text
-x="130"
-y="186"
-font-size="12"
-text-anchor="middle"
-fill="#64748b">
-
-Attendance
-
-</text>
-
-<!-- KPI Cards -->
-
-<rect x="260" y="90" width="120" height="78" rx="12" fill="#f0fdf4"/>
-<text x="280" y="116" font-size="13" fill="#15803d">On Time</text>
-<text x="280" y="148" font-size="28" font-weight="700">${onTime}</text>
-
-<rect x="400" y="90" width="120" height="78" rx="12" fill="#fef2f2"/>
-<text x="420" y="116" font-size="13" fill="#dc2626">Late</text>
-<text x="420" y="148" font-size="28" font-weight="700">${late}</text>
-
-<rect x="540" y="90" width="120" height="78" rx="12" fill="#fffbeb"/>
-<text x="560" y="116" font-size="13" fill="#b45309">Absent</text>
-<text x="560" y="148" font-size="28" font-weight="700">${absent}</text>
-
-<!-- Progress -->
-
-<text x="260" y="210" font-size="13" fill="#334155">
-
-Attendance
-
-</text>
-
-<rect
-x="260"
-y="220"
-width="380"
-height="14"
-rx="8"
-fill="#e5e7eb"/>
-
-<rect
-x="260"
-y="220"
-width="${attendance * 3.8}"
-height="14"
-rx="8"
-fill="#22c55e"/>
-
-<text
-x="648"
-y="232"
-font-size="12"
-text-anchor="end">
-
-${attendance}%
-
-</text>
-
-<text
-x="260"
-y="260"
-font-size="13"
-fill="#334155">
-
-Punctuality
-
-</text>
-
-<rect
-x="260"
-y="270"
-width="380"
-height="14"
-rx="8"
-fill="#e5e7eb"/>
-
-<rect
-x="260"
-y="270"
-width="${punctuality * 3.8}"
-height="14"
-rx="8"
-fill="#3b82f6"/>
-
-<text
-x="648"
-y="282"
-font-size="12"
-text-anchor="end">
-
-${punctuality}%
-
-</text>
-
-</svg>
-`;
+    return rows?.[0]?.name || "Organization";
+  } catch (error) {
+    console.warn(
+      `[getOrganizationName] Failed to fetch organization name for org ${orgId}:`,
+      error.message,
+    );
+    return "Organization";
+  }
 }
 
 async function sendHtmlMail({
@@ -504,11 +252,10 @@ async function sendHtmlMail({
     textContent,
   };
 
-  if (Array.isArray(cc) && cc.length) {
+  if (Array.isArray(cc) && cc.length > 0) {
     payload.cc = cc;
   }
 
-  console.log(JSON.stringify(payload, null, 2));
   return sendWithRetries(payload);
 }
 
@@ -560,33 +307,331 @@ function buildLateLoginHtml({
   const absentPct = Math.max(0, 100 - latePct - onTimePct);
 
   const attendanceHtml = `
-    <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap;">
-      <div style="width:116px;min-width:96px;text-align:center;padding:12px;border-radius:14px;border:1px solid #e5e7eb;background:#fff;">
-        <div style="width:72px;height:72px;border-radius:50%;margin:0 auto;background:#fff;border:6px solid #f1f5f9;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:20px;color:#0f172a;">${total}</div>
-        <div style="font-size:11px;color:#64748b;margin-top:6px;">records</div>
+<table
+  width="100%"
+  cellpadding="0"
+  cellspacing="0"
+  style="border-collapse:collapse;">
+
+  <tr>
+
+    <!-- LEFT SIDE : KPI CARDS -->
+
+    <td width="220" valign="top">
+
+      <table
+        width="100%"
+        cellpadding="6"
+        cellspacing="0"
+        style="border-collapse:collapse;">
+
+        <tr>
+
+          <td
+            style="
+            border:1px solid #fecaca;
+            border-radius:12px;
+            background:#fef2f2;
+            text-align:center;
+            padding:14px;
+            ">
+
+            <div
+              style="
+              font-size:13px;
+              color:#991b1b;
+              font-weight:bold;
+              ">
+              Late
+            </div>
+
+            <div
+              style="
+              font-size:28px;
+              font-weight:700;
+              color:#dc2626;
+              margin-top:6px;
+              ">
+              ${lateCount}
+            </div>
+
+            <div
+              style="
+              font-size:13px;
+              color:#991b1b;
+              ">
+              ${latePct}%
+            </div>
+
+          </td>
+
+        </tr>
+
+        <tr>
+
+          <td
+            style="
+            border:1px solid #bbf7d0;
+            border-radius:12px;
+            background:#f0fdf4;
+            text-align:center;
+            padding:14px;
+            ">
+
+            <div
+              style="
+              font-size:13px;
+              color:#166534;
+              font-weight:bold;
+              ">
+              On Time
+            </div>
+
+            <div
+              style="
+              font-size:28px;
+              font-weight:700;
+              color:#16a34a;
+              margin-top:6px;
+              ">
+              ${onTime}
+            </div>
+
+            <div
+              style="
+              font-size:13px;
+              color:#166534;
+              ">
+              ${onTimePct}%
+            </div>
+
+          </td>
+
+        </tr>
+
+        <tr>
+
+          <td
+            style="
+            border:1px solid #fed7aa;
+            border-radius:12px;
+            background:#fff7ed;
+            text-align:center;
+            padding:14px;
+            ">
+
+            <div
+              style="
+              font-size:13px;
+              color:#9a3412;
+              font-weight:bold;
+              ">
+              Absent
+            </div>
+
+            <div
+              style="
+              font-size:28px;
+              font-weight:700;
+              color:#ea580c;
+              margin-top:6px;
+              ">
+              ${absent}
+            </div>
+
+            <div
+              style="
+              font-size:13px;
+              color:#9a3412;
+              ">
+              ${absentPct}%
+            </div>
+
+          </td>
+
+        </tr>
+
+      </table>
+
+    </td>
+
+    <!-- RIGHT SIDE -->
+
+    <td
+      valign="top"
+      style="padding-left:20px;">
+
+      <div
+        style="
+        font-size:20px;
+        font-weight:bold;
+        color:#0f172a;
+        margin-bottom:6px;
+        ">
+        Attendance Snapshot
       </div>
 
-      <div style="flex:1;min-width:240px;">
-        <div style="font-size:18px;font-weight:700;color:#0f172a;margin-bottom:6px;">Attendance snapshot</div>
-        <div style="font-size:12px;color:#64748b;margin-bottom:10px;">${escapeHtml(periodLabel)} · Late / On time / Absent</div>
-
-        <div style="background:#f8fafc;border-radius:10px;overflow:hidden;height:28px;display:flex;border:1px solid #eef2f7;">
-          <div style="width:${Math.max(0, latePct)}%;background:#ef4444;"></div>
-          <div style="width:${Math.max(0, onTimePct)}%;background:#22c55e;"></div>
-          <div style="width:${Math.max(0, absentPct)}%;background:#f59e0b;"></div>
-        </div>
-
-        <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:12px;font-size:13px;color:#334155;">
-          <div style="display:flex;align-items:center;gap:8px;min-width:140px;"><span style="width:10px;height:10px;background:#ef4444;border-radius:50%;display:inline-block;"></span> Late: ${lateCount} (${latePct}%)</div>
-          <div style="display:flex;align-items:center;gap:8px;min-width:140px;"><span style="width:10px;height:10px;background:#22c55e;border-radius:50%;display:inline-block;"></span> On time: ${onTime} (${onTimePct}%)</div>
-          <div style="display:flex;align-items:center;gap:8px;min-width:140px;"><span style="width:10px;height:10px;background:#f59e0b;border-radius:50%;display:inline-block;"></span> Absent: ${absent} (${absentPct}%)</div>
-        </div>
+      <div
+        style="
+        font-size:13px;
+        color:#64748b;
+        margin-bottom:18px;
+        ">
+        ${escapeHtml(periodLabel)}
       </div>
-    </div>
-  `;
 
-  // A CSS/HTML chart is used instead of an external or CID image. Email clients
-  // can render it without downloading a server-local image or showing an attachment.
+      <!-- PROGRESS BAR -->
+
+      <table
+        width="100%"
+        cellpadding="0"
+        cellspacing="0"
+        style="
+        border-collapse:collapse;
+        border-radius:8px;
+        overflow:hidden;
+        ">
+
+        <tr>
+
+          <td
+            width="${latePct}%"
+            style="
+            background:#ef4444;
+            height:18px;
+            font-size:0;
+            ">
+            &nbsp;
+          </td>
+
+          <td
+            width="${onTimePct}%"
+            style="
+            background:#22c55e;
+            height:18px;
+            font-size:0;
+            ">
+            &nbsp;
+          </td>
+
+          <td
+            width="${absentPct}%"
+            style="
+            background:#f59e0b;
+            height:18px;
+            font-size:0;
+            ">
+            &nbsp;
+          </td>
+
+        </tr>
+
+      </table>
+
+      <!-- LEGEND -->
+
+      <table
+        width="100%"
+        cellpadding="6"
+        cellspacing="0"
+        style="
+        margin-top:18px;
+        border-collapse:collapse;
+        ">
+
+        <tr>
+
+          <td>
+
+            <span
+              style="
+              display:inline-block;
+              width:10px;
+              height:10px;
+              background:#22c55e;
+              border-radius:50%;
+              margin-right:8px;
+              ">
+            </span>
+
+            On Time
+
+          </td>
+
+          <td
+            align="right">
+
+            ${onTime} (${onTimePct}%)
+
+          </td>
+
+        </tr>
+
+        <tr>
+
+          <td>
+
+            <span
+              style="
+              display:inline-block;
+              width:10px;
+              height:10px;
+              background:#ef4444;
+              border-radius:50%;
+              margin-right:8px;
+              ">
+            </span>
+
+            Late
+
+          </td>
+
+          <td
+            align="right">
+
+            ${lateCount} (${latePct}%)
+
+          </td>
+
+        </tr>
+
+        <tr>
+
+          <td>
+
+            <span
+              style="
+              display:inline-block;
+              width:10px;
+              height:10px;
+              background:#f59e0b;
+              border-radius:50%;
+              margin-right:8px;
+              ">
+            </span>
+
+            Absent
+
+          </td>
+
+          <td
+            align="right">
+
+            ${absent} (${absentPct}%)
+
+          </td>
+
+        </tr>
+
+      </table>
+
+    </td>
+
+  </tr>
+
+</table>
+`;
+
   const chartInline = attendanceHtml;
 
   const employeeBlock = isEmployee
@@ -838,6 +883,19 @@ async function sendLateLoginEmployeeAlert({
 }) {
   if (!employeeEmail) return false;
 
+  const lateCount = Number(
+    summary?.stats?.late_count ??
+      (Array.isArray(summary?.lateDates) ? summary.lateDates.length : 0) ??
+      summary?.lateCount ??
+      0,
+  );
+  const onTimeCount = Number(
+    summary?.onTimeCount ?? summary?.stats?.on_time_count ?? 0,
+  );
+  const absentCount = Number(
+    summary?.absentCount ?? summary?.stats?.absent_count ?? 0,
+  );
+
   await sendHtmlMail({
     orgName,
     to: [{ email: employeeEmail, name: employeeName || employeeEmail }],
@@ -878,6 +936,19 @@ async function sendLateLoginStakeholderAlert({
   );
 
   if (!uniqueRecipients.length) return false;
+
+  const lateCount = Number(
+    summary?.stats?.late_count ??
+      (Array.isArray(summary?.lateDates) ? summary.lateDates.length : 0) ??
+      summary?.lateCount ??
+      0,
+  );
+  const onTimeCount = Number(
+    summary?.onTimeCount ?? summary?.stats?.on_time_count ?? 0,
+  );
+  const absentCount = Number(
+    summary?.absentCount ?? summary?.stats?.absent_count ?? 0,
+  );
 
   await sendHtmlMail({
     orgName,
@@ -1203,15 +1274,10 @@ const attendanceService = {
           const config =
             summary.config ||
             (await attendanceService.getLoginHoursConfig(orgId));
-          const streakLimit = Number(config?.late_streak_days || 0);
+          const streakLimit = Number(config?.late_streak_days || 3);
           const currentStreak = Number(summary.currentStreak || 0);
 
-          if (
-            String(config?.late_login_enabled ?? "1") !== "0" &&
-            String(config?.escalation_mode || "mail_notify") === "mail_notify" &&
-            streakLimit > 0 &&
-            currentStreak === streakLimit
-          ) {
+          if (currentStreak >= streakLimit) {
             console.log(
               `[streak-cron] BREACH → Employee ${emp.employee_id} streak: ${currentStreak}/${streakLimit}`,
             );
@@ -1284,7 +1350,7 @@ const attendanceService = {
         actionRoles && typeof actionRoles === "object"
           ? JSON.stringify(actionRoles)
           : actionRoles ||
-            JSON.stringify({ admin: true, hr: true });
+            JSON.stringify({ hr: true, manager: true, supervisor: false });
 
       const params = [
         orgId,
@@ -1590,16 +1656,17 @@ const attendanceService = {
         orgId,
         daysBack,
       );
-      const periodLateRecords = lateRecords.filter(
-        (r) => r.date >= periodWindow.startDateKey,
-      );
-      const lateDateKeys = periodLateRecords.map((r) => r.date);
+      const lateDateKeys = lateRecords.map((r) => r.date);
       const streak = consecutiveLateStreak(lateDateKeys);
 
       const stats = await attendanceService.getAttendanceStatsForPeriod(
         employeeId,
         orgId,
         streakPeriod,
+      );
+
+      const periodLateRecords = lateRecords.filter(
+        (r) => r.date >= periodWindow.startDateKey,
       );
 
       const orgName = await getOrganizationName(orgId);
@@ -1654,21 +1721,10 @@ const attendanceService = {
       const streakLimit = Number(config?.late_streak_days || 0);
       const currentStreak = Number(latestSummary.currentStreak || 0);
 
-      if (!streakLimit || currentStreak !== streakLimit) {
+      if (!streakLimit || currentStreak < streakLimit) {
         return {
           sent: false,
-          reason: "Current streak does not match the configured alert threshold.",
-          summary: latestSummary,
-        };
-      }
-
-      if (
-        String(config?.late_login_enabled ?? "1") === "0" ||
-        String(config?.escalation_mode || "mail_notify") !== "mail_notify"
-      ) {
-        return {
-          sent: false,
-          reason: "Late-login email notifications are disabled.",
+          reason: "Streak limit not breached.",
           summary: latestSummary,
         };
       }
@@ -1677,7 +1733,10 @@ const attendanceService = {
         latestSummary.contact ||
         (await attendanceService.getEmployeeContactById(orgId, employeeId));
 
-      const allowedRoles = getLateStreakEmailRoles(config);
+      const employeeEmail =
+        latestSummary.employeeEmail || employeeContact?.email;
+
+      const allowedRoles = normalizeActionRoles(config?.action_roles);
 
       let recipients = stakeholderRecipients;
       if (!Array.isArray(recipients)) {
@@ -1699,7 +1758,7 @@ const attendanceService = {
         action_roles: allowedRoles,
       };
 
-      const orgNameStr = await getOrganizationName(orgId);
+      const orgName = await getOrganizationName(orgId);
 
       let orgSummary = null;
       try {
@@ -1711,9 +1770,21 @@ const attendanceService = {
         orgSummary = null;
       }
 
+      let employeeMailSent = false;
+      if (employeeEmail) {
+        employeeMailSent = await sendLateLoginEmployeeAlert({
+          employeeEmail,
+          employeeName:
+            employeeContact?.employeeName || latestSummary.employeeName,
+          orgName: orgName,
+          summary: latestSummary,
+          config: mailConfig,
+        });
+      }
+
       const stakeholderMailSent = await sendLateLoginStakeholderAlert({
         recipients: filteredStakeholders,
-        orgName: orgNameStr,
+        orgName: orgName,
         employeeName:
           employeeContact?.employeeName || latestSummary.employeeName,
         summary: latestSummary,
@@ -1722,12 +1793,13 @@ const attendanceService = {
       });
 
       return {
-        sent: stakeholderMailSent,
-        reason: stakeholderMailSent
-          ? undefined
-          : "No HR/Admin late-login email recipients were available.",
+        sent: employeeMailSent || stakeholderMailSent,
+        reason:
+          employeeMailSent || stakeholderMailSent
+            ? undefined
+            : "No late-login email recipients were available.",
         summary: latestSummary,
-        employeeMailSent: false,
+        employeeMailSent,
         stakeholderMailSent,
         recipients: filteredStakeholders.map((r) => r.email),
       };
@@ -1794,21 +1866,36 @@ const attendanceService = {
 
       const streakLimit = Number(config?.late_streak_days || 0);
       const streakBreached =
-        streakLimit > 0 && Number(summary.currentStreak || 0) === streakLimit;
+        streakLimit > 0 && Number(summary.currentStreak || 0) >= streakLimit;
 
       let employeeMailSent = false;
       let stakeholderMailSent = false;
 
       if (escalationMode === "mail_notify") {
-        const allowedRoles = getLateStreakEmailRoles(config);
+        const allowedRoles = normalizeActionRoles(config?.action_roles);
         const mailConfig = {
           ...config,
           action_roles: allowedRoles,
         };
 
-        const orgNameStr = await getOrganizationName(orgId);
+        const orgName = await getOrganizationName(orgId);
 
-        if (lateLogin && streakBreached) {
+        if (lateLogin) {
+          try {
+            employeeMailSent = await sendLateLoginEmployeeAlert({
+              employeeEmail: employeeContact?.email || summary.employeeEmail,
+              employeeName:
+                employeeContact?.employeeName || summary.employeeName,
+              orgName: orgName,
+              summary,
+              config: mailConfig,
+            });
+          } catch (mailErr) {
+            console.error("Late-login employee mail failed:", mailErr);
+          }
+        }
+
+        if (streakBreached) {
           try {
             const stakeholders =
               await attendanceService.getStakeholderRecipients(
@@ -1829,7 +1916,7 @@ const attendanceService = {
 
             stakeholderMailSent = await sendLateLoginStakeholderAlert({
               recipients: stakeholders,
-              orgName: orgNameStr,
+              orgName: orgName,
               employeeName:
                 employeeContact?.employeeName || summary.employeeName,
               summary,

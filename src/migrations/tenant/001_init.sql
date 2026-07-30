@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS employee_personal (
   voter_id VARCHAR(20),
   photo_url VARCHAR(255),
   insurance_doc VARCHAR(500),
+  form16_doc VARCHAR(500),
   alternate_email VARCHAR(255),
   alternate_number VARCHAR(20),
   blood_group VARCHAR(5),
