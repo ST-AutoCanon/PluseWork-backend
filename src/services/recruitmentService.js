@@ -928,35 +928,23 @@ async function sendRecruitmentStatusEmail({
 }) {
   if (!candidate?.email || !sendEmail) return;
 
+  const organization = await getOrganizationById(orgId);
+
+  const defaultEmail = getRecruitmentStatusEmailContent({
+    candidate,
+    organization,
+    newStatus,
+    previousStatus,
+    offerDecision,
+  });
+
   const statusEmail =
     emailSubject || emailBody
       ? {
-          subject:
-            emailSubject ||
-            getRecruitmentStatusEmailContent({
-              candidate,
-              organization: await getOrganizationById(orgId),
-              newStatus,
-              previousStatus,
-              offerDecision,
-            })?.subject,
-          body:
-            emailBody ||
-            getRecruitmentStatusEmailContent({
-              candidate,
-              organization: await getOrganizationById(orgId),
-              newStatus,
-              previousStatus,
-              offerDecision,
-            })?.body,
+          subject: emailSubject || defaultEmail?.subject,
+          body: emailBody || defaultEmail?.body,
         }
-      : getRecruitmentStatusEmailContent({
-          candidate,
-          organization: await getOrganizationById(orgId),
-          newStatus,
-          previousStatus,
-          offerDecision,
-        });
+      : defaultEmail;
 
   if (!statusEmail || !statusEmail.subject || !statusEmail.body) return;
 
@@ -964,7 +952,7 @@ async function sendRecruitmentStatusEmail({
     await sendWithRetries({
       sender: {
         email: process.env.BREVO_SENDER_EMAIL,
-        name: process.env.PLATFORM_NAME || "PULSEWORK",
+        name: organization?.name || process.env.PLATFORM_NAME || "PULSEWORK",
       },
       to: [
         {
