@@ -106,7 +106,8 @@ const downloadRoutes = require("./routes/downloadRoutes");
 const formsRoutes = require("./routes/forms.routes");
 const officeLocationRoutes = require("./routes/officeLocationRoutes");
 const officeEmployeeRoutes = require("./routes/officeEmployeeRoutes");
-
+const policiesRoutes = require("./routes/policiesRoutes");
+const employeePoliciesRoutes = require("./routes/employeePoliciesRoutes");
 app.use(express.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
@@ -180,6 +181,11 @@ app.use((req, res, next) => {
       "/uploads",
       express.static(path.join(__dirname, "../../AssetUploads")),
     );
+     app.use(
+      "/policiesuploads",
+      express.static(path.join(__dirname, "../../policiesuploads")),
+    );
+
     app.use("/assets", express.static(path.join(__dirname, "assets")));
     app.use(
       "/letterheadfiles",
@@ -340,6 +346,7 @@ app.use((req, res, next) => {
     app.use("/", meRoute);
     app.use("/", leaveRoutes);
     app.use("/api/leave-policies", leavePolicy);
+    
     app.use("/", leavePolicy);
     const LeavePolicyHandler = require("./handlers/leavePolicyHandler");
     app.get("/api/leave-policies", (req, res, next) => {
@@ -432,6 +439,9 @@ app.use((req, res, next) => {
     app.use("/api/compensations", compensationRoutes);
     app.use("/api/office-locations", officeLocationRoutes);
     app.use("/api/office-location-employees", officeEmployeeRoutes);
+    
+    app.use("/api/policies", employeePoliciesRoutes);
+    app.use("/api", policiesRoutes);
     app.get("/", (req, res) => res.send("Employee Face Recognition API"));
 
     function resolveOrgIdFromSocket(socket) {
