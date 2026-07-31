@@ -208,7 +208,8 @@ SELECT
   -- personal
   p.address, p.father_name, p.mother_name, p.gender,
   p.marital_status, p.spouse_name, DATE_FORMAT(p.spouse_dob, '%Y-%m-%d') AS spouse_dob,
-  p.spouse_gov_doc_url, DATE_FORMAT(p.marriage_date,'%Y-%m-%d') AS marriage_date, p.insurance_doc, p.form16_doc,
+  p.spouse_gov_doc_url, DATE_FORMAT(p.marriage_date,'%Y-%m-%d') AS marriage_date, 
+  p.insurance_doc, p.form16_part_a_doc, p.form16_part_b_doc,
   p.aadhaar_number, p.aadhaar_doc_url,
   p.pan_number, p.pan_doc_url,
   p.passport_number, p.passport_doc_url,
@@ -837,16 +838,23 @@ SELECT
     e.employee_id,
     e.email,
     p.pan_number,
-    p.form16_doc
+    p.form16_part_a_doc,
+    p.form16_part_b_doc
 FROM employees e
 LEFT JOIN employee_personal p
-    ON p.employee_id = e.employee_id
-WHERE UPPER(p.pan_number) = UPPER(?)
+ON p.employee_id = e.employee_id
+WHERE UPPER(p.pan_number)=UPPER(?)
 `,
 
-  UPDATE_EMPLOYEE_FORM16_DOC: `
+  UPDATE_EMPLOYEE_FORM16_PART_A_DOC: `
 UPDATE employee_personal
-SET form16_doc = ?
+SET form16_part_a_doc = ?
+WHERE employee_id = ?
+`,
+
+  UPDATE_EMPLOYEE_FORM16_PART_B_DOC: `
+UPDATE employee_personal
+SET form16_part_b_doc = ?
 WHERE employee_id = ?
 `,
 };
