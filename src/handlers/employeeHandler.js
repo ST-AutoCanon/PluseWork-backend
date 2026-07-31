@@ -653,6 +653,7 @@ exports.uploadInsuranceFolder = async (req, res) => {
       try {
         let employee;
         let employeeId;
+        let isPartB = false;
 
         if (uploadType === "Insurance") {
           // Expected:
@@ -694,8 +695,9 @@ exports.uploadInsuranceFolder = async (req, res) => {
 
           employee = rows[0];
         } else {
-          // Expected:
-          // AKDPV6370K_2026-27.pdf
+          // Supports:
+          // AKDPV6370K_2026-27.pdf          -> Part A
+          // AKDPV6370K_PARTB_2026-27.pdf    -> Part B
 
           const match = file.originalname.match(/^([A-Z]{5}[0-9]{4}[A-Z])_/i);
 
@@ -709,9 +711,12 @@ exports.uploadInsuranceFolder = async (req, res) => {
 
           const panNumber = match[1].toUpperCase();
 
+          isPartB = /_PARTB_/i.test(file.originalname);
+
           console.log({
             file: file.originalname,
             panNumber,
+            form16Part: isPartB ? "Part B" : "Part A",
           });
 
           const [rows] = await db.query(queries.GET_EMPLOYEE_BY_PAN, [
@@ -759,15 +764,22 @@ exports.uploadInsuranceFolder = async (req, res) => {
             }
           }
         } else {
-          if (employee.form16_doc) {
+          const existingDoc = isPartB
+            ? employee.form16_part_b_doc
+            : employee.form16_part_a_doc;
+
+          if (existingDoc) {
             try {
-              const oldFile = webUrlToFullPath(employee.form16_doc);
+              const oldFile = webUrlToFullPath(existingDoc);
 
               if (oldFile && fs.existsSync(oldFile)) {
                 fs.unlinkSync(oldFile);
               }
             } catch (e) {
-              console.warn("Failed deleting old Form16 document:", e.message);
+              console.warn(
+                `Failed deleting old Form16 ${isPartB ? "Part B" : "Part A"} document:`,
+                e.message,
+              );
             }
           }
         }
@@ -784,10 +796,17 @@ exports.uploadInsuranceFolder = async (req, res) => {
             [documentUrl, employeeId],
           );
         } else {
-          [updateResult] = await db.query(queries.UPDATE_EMPLOYEE_FORM16_DOC, [
-            documentUrl,
-            employeeId,
-          ]);
+          if (isPartB) {
+            [updateResult] = await db.query(
+              queries.UPDATE_EMPLOYEE_FORM16_PART_B_DOC,
+              [documentUrl, employeeId],
+            );
+          } else {
+            [updateResult] = await db.query(
+              queries.UPDATE_EMPLOYEE_FORM16_PART_A_DOC,
+              [documentUrl, employeeId],
+            );
+          }
         }
 
         if (updateResult.affectedRows === 0) {
