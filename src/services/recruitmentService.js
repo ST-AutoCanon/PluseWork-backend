@@ -6,6 +6,7 @@ const mammoth = require("mammoth");
 const db = require("../config");
 
 const { getTenantPool, sanitizeDbName } = require("../db/tenantPoolManager");
+
 const {
   ADD_RECRUITMENT_CANDIDATE,
   GET_RECRUITMENT_CANDIDATES,
@@ -13,11 +14,17 @@ const {
   UPDATE_RECRUITMENT_CANDIDATE,
   UPDATE_RECRUITMENT_STATUS,
   DELETE_RECRUITMENT_CANDIDATE,
+
   INSERT_RECRUITMENT_ASSESSMENT,
   UPDATE_RECRUITMENT_ASSESSMENT,
   GET_RECRUITMENT_ASSESSMENT_BY_ID,
   GET_LATEST_RECRUITMENT_ASSESSMENT_BY_ROUND,
   GET_RECRUITMENT_ASSESSMENTS,
+
+  GET_ASSESSMENT_FEEDBACK_BY_INTERVIEWER,
+  INSERT_ASSESSMENT_FEEDBACK,
+  UPDATE_ASSESSMENT_FEEDBACK,
+
   MARK_CONVERTED_TO_EMPLOYEE,
   INSERT_EMPLOYEE_FROM_RECRUITMENT,
   GET_RECRUITMENT_INTERVIEWERS,
@@ -710,25 +717,6 @@ function mapRecruitmentValues(payload, orgId, resumeFile, existing = null) {
   };
 }
 
-function normalizeAssessmentFeedback(feedback) {
-  if (!feedback) return {};
-
-  if (typeof feedback === "object") {
-    return feedback;
-  }
-
-  try {
-    return JSON.parse(feedback);
-  } catch {
-    return {
-      notes: feedback,
-      ratings: {},
-      strengths: [],
-      improvements: [],
-    };
-  }
-}
-
 function buildRecruitmentInsertValues(mapped) {
   return [
     mapped.orgId,
@@ -813,7 +801,7 @@ function buildEmailDefaults({
   interviewLink,
   organization,
 }) {
-  const emailSubject = `${roundName} Interview - ${candidate.name || "Candidate"}`;
+  const emailSubject = `${organization?.name || "Company"} | ${roundName} Interview`;
 
   const emailBody = buildDefaultAssessmentEmail({
     candidateName: candidate.name,
@@ -990,11 +978,13 @@ async function getRecruitmentCandidatesService(orgId) {
 async function getRecruitmentAssessmentsService(id, orgId) {
   const pool = await getTenantPoolForOrgId(orgId);
   const [rows] = await pool.query(GET_RECRUITMENT_ASSESSMENTS, [id, orgId]);
+
   return rows;
 }
 
 async function getRecruitmentCandidateByIdService(id, orgId) {
   const pool = await getTenantPoolForOrgId(orgId);
+
   const candidate = await loadRecruitmentCandidate(pool, id, orgId);
 
   if (!candidate) return null;
@@ -1006,10 +996,7 @@ async function getRecruitmentCandidateByIdService(id, orgId) {
 
   return {
     ...candidate,
-    assessments: (assessments || []).map((item) => ({
-      ...item,
-      feedback_json: normalizeAssessmentFeedback(item.feedback),
-    })),
+    assessments: assessments || [],
   };
 }
 
@@ -1114,7 +1101,8 @@ async function assignInterviewService(candidateId, payload, orgId) {
       GET_RECRUITMENT_CANDIDATE_BY_ID,
       [candidateId, orgId],
     );
-    const candidate = candidateRows?.[0];
+
+    const candidate = candidateRows[0];
 
     if (!candidate) {
       const err = new Error("Candidate not found");
@@ -1130,42 +1118,39 @@ async function assignInterviewService(candidateId, payload, orgId) {
     const organization = await getOrganizationById(orgId);
 
     const baseRound = baseRoundFromStatus(candidate.status);
+
     const roundName = buildSequentialRoundName(
       baseRound,
       existingAssessments || [],
     );
 
-    const interviewerId = Array.isArray(payload.interviewer_ids)
-      ? payload.interviewer_ids.filter(Boolean).join(",")
-      : (emptyToNull(payload.interviewer_id) ??
-        emptyToNull(payload.assigned_interviewer) ??
-        null);
+    const interviewDate = normalizeDateTime(payload.interview_date);
+
+    const interviewLink = emptyToNull(payload.interview_link);
+
+    const sendInterviewEmail = Number(toBool(payload.send_interview_email));
+
+    const interviewerIds = Array.isArray(payload.interviewer_ids)
+      ? payload.interviewer_ids.filter(Boolean)
+      : [];
 
     let interviewerName = "TBA";
 
-    if (interviewerId) {
-      const ids = interviewerId.split(",").map((id) => id.trim());
-
+    if (interviewerIds.length) {
       const [rows] = await connection.query(
         `
-      SELECT
-        employee_id,
-        CONCAT_WS(' ', first_name, last_name) AS name
-      FROM employees
-      WHERE org_id = ?
+        SELECT
+            employee_id,
+            CONCAT_WS(' ',first_name,last_name) name
+        FROM employees
+        WHERE org_id=?
         AND employee_id IN (?)
-    `,
-        [orgId, ids],
+        `,
+        [orgId, interviewerIds],
       );
 
-      interviewerName = rows.map((r) => r.name).join(", ") || interviewerId;
+      interviewerName = rows.map((r) => r.name).join(", ") || "TBA";
     }
-
-    const interviewDate = normalizeDateTime(payload.interview_date || null);
-    const interviewLink = emptyToNull(payload.interview_link) ?? null;
-    const sendInterviewEmail = Number(
-      toBool(payload.send_interview_email) ? 1 : 0,
-    );
 
     let { emailSubject, emailBody } = buildEmailDefaults({
       candidate,
@@ -1183,16 +1168,28 @@ async function assignInterviewService(candidateId, payload, orgId) {
       candidateId,
       orgId,
       roundName,
-      interviewerId,
       interviewDate,
       interviewLink,
       sendInterviewEmail,
       emailBody,
       emailSubject,
-      null,
-      null,
-      null,
     ]);
+
+    const assessmentId = result.insertId;
+
+    for (const interviewerId of interviewerIds) {
+      await connection.query(
+        `
+        INSERT INTO recruitment_assessment_interviewers
+        (
+            assessment_id,
+            interviewer_id
+        )
+        VALUES (?,?)
+        `,
+        [assessmentId, interviewerId],
+      );
+    }
 
     await connection.commit();
 
@@ -1214,18 +1211,15 @@ async function assignInterviewService(candidateId, payload, orgId) {
           htmlContent: buildEmailHtml(emailBody),
           textContent: emailBody,
         });
-      } catch (mailErr) {
-        console.error(
-          "Interview email send failed:",
-          mailErr?.response?.body || mailErr,
-        );
+      } catch (err) {
+        console.error(err);
       }
     }
 
     return result;
-  } catch (error) {
+  } catch (err) {
     await connection.rollback();
-    throw error;
+    throw err;
   } finally {
     connection.release();
   }
@@ -1256,7 +1250,7 @@ async function findAssessmentForUpdate(
     [candidateId, orgId, roundName, roundName],
   );
 
-  return rows?.[0] || null;
+  return rows[0] || null;
 }
 
 async function saveRecruitmentAssessmentService(
@@ -1293,17 +1287,14 @@ async function saveRecruitmentAssessmentService(
       payload,
     );
 
-    const interviewerId = Array.isArray(payload.interviewer_ids)
-      ? payload.interviewer_ids.filter(Boolean).join(",")
-      : (emptyToNull(payload.interviewer_id) ??
-        emptyToNull(payload.assigned_interviewer) ??
-        latestAssessment?.interviewer_id ??
-        null);
+    const interviewerIds = Array.isArray(payload.interviewer_ids)
+      ? payload.interviewer_ids.filter(Boolean)
+      : [];
 
     let interviewerName = "TBA";
 
-    if (interviewerId) {
-      const ids = interviewerId.split(",").map((id) => id.trim());
+    if (interviewerIds.length) {
+      const ids = interviewerIds;
 
       const [rows] = await connection.query(
         `
@@ -1317,7 +1308,7 @@ async function saveRecruitmentAssessmentService(
         [orgId, ids],
       );
 
-      interviewerName = rows.map((r) => r.name).join(", ") || interviewerId;
+      interviewerName = rows.map((r) => r.name).join(", ");
     }
 
     const interviewDate = normalizeDateTime(
@@ -1345,52 +1336,90 @@ async function saveRecruitmentAssessmentService(
     if (payload.email_subject) emailSubject = payload.email_subject;
     if (payload.email_body) emailBody = payload.email_body;
 
-    const score = emptyToNull(payload.score) ?? latestAssessment?.score ?? null;
+    const score = emptyToNull(payload.score);
     const decision =
-      emptyToNull(payload.decision) ??
-      emptyToNull(payload.status) ??
-      latestAssessment?.decision ??
-      null;
-    let feedback = latestAssessment?.feedback || null;
+      emptyToNull(payload.decision) ?? emptyToNull(payload.status);
 
-    if (payload.feedback) {
-      feedback =
-        typeof payload.feedback === "string"
-          ? payload.feedback
-          : JSON.stringify(payload.feedback);
-    }
+    const feedback = emptyToNull(payload.feedback);
 
     let result;
+    let assessmentId;
 
     if (latestAssessment) {
+      assessmentId = latestAssessment.id;
+
       [result] = await connection.query(UPDATE_RECRUITMENT_ASSESSMENT, [
-        interviewerId,
         interviewDate,
         interviewLink,
         sendInterviewEmail,
         emailBody,
         emailSubject,
-        score,
-        decision,
-        feedback,
         latestAssessment.id,
         orgId,
       ]);
+      if (interviewerIds.length) {
+        await connection.query(
+          `DELETE FROM recruitment_assessment_interviewers
+       WHERE assessment_id=?`,
+          [assessmentId],
+        );
+
+        for (const interviewerId of interviewerIds) {
+          await connection.query(
+            `
+        INSERT INTO recruitment_assessment_interviewers
+        (
+            assessment_id,
+            interviewer_id
+        )
+        VALUES (?,?)
+        `,
+            [assessmentId, interviewerId],
+          );
+        }
+      }
     } else {
       [result] = await connection.query(INSERT_RECRUITMENT_ASSESSMENT, [
         candidateId,
         orgId,
-        baseRound || "Assessment",
-        interviewerId,
+        baseRound,
         interviewDate,
         interviewLink,
         sendInterviewEmail,
         emailBody,
         emailSubject,
-        score,
-        decision,
-        feedback,
       ]);
+
+      assessmentId = result.insertId;
+    }
+
+    const interviewerKey = emptyToNull(payload.interviewer_id);
+
+    if (interviewerKey) {
+      const [existingFeedback] = await connection.query(
+        GET_ASSESSMENT_FEEDBACK_BY_INTERVIEWER,
+        [assessmentId, interviewerKey],
+      );
+
+      if (existingFeedback.length) {
+        await connection.query(UPDATE_ASSESSMENT_FEEDBACK, [
+          score,
+          decision,
+          feedback,
+          assessmentId,
+          interviewerKey,
+        ]);
+      } else {
+        await connection.query(INSERT_ASSESSMENT_FEEDBACK, [
+          assessmentId,
+          candidateId,
+          orgId,
+          interviewerKey,
+          score,
+          decision,
+          feedback,
+        ]);
+      }
     }
 
     await connection.commit();
