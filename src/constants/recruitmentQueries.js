@@ -74,53 +74,55 @@ module.exports = {
   `,
 
   INSERT_RECRUITMENT_ASSESSMENT: `
-    INSERT INTO recruitment_assessments (
-      recruitment_candidate_id,
-      org_id,
-      round_name,
-      interviewer_id,
-      interview_date,
-      interview_link,
-      send_interview_email,
-      email_body,
-      email_subject,
-      score,
-      decision,
-      feedback,
-      created_at,
-      updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
-  `,
+INSERT INTO recruitment_assessments
+(
+ recruitment_candidate_id,
+ org_id,
+ round_name,
+ interview_date,
+ interview_link,
+ send_interview_email,
+ email_body,
+ email_subject,
+ created_at,
+ updated_at
+)
+VALUES
+(
+ ?,?,?,?,?,?,?,?,NOW(),NOW()
+)
+`,
 
   UPDATE_RECRUITMENT_ASSESSMENT: `
-    UPDATE recruitment_assessments
-    SET
-      interviewer_id = ?,
-      interview_date = ?,
-      interview_link = ?,
-      send_interview_email = ?,
-      email_body = ?,
-      email_subject = ?,
-      score = ?,
-      decision = ?,
-      feedback = ?,
-      updated_at = NOW()
-    WHERE id = ? AND org_id = ?
-  `,
+UPDATE recruitment_assessments
+SET
+    interview_date=?,
+    interview_link=?,
+    send_interview_email=?,
+    email_body=?,
+    email_subject=?,
+    updated_at=NOW()
+WHERE id=?
+AND org_id=?
+`,
 
   GET_RECRUITMENT_ASSESSMENT_BY_ID: `
-    SELECT
-    *,
-    CASE
-        WHEN interviewer_id IS NULL OR interviewer_id = ''
-        THEN JSON_ARRAY()
-        ELSE JSON_ARRAYAGG(interviewer_id)
-    END AS interviewer_ids
-FROM recruitment_assessments
-WHERE recruitment_candidate_id = ?
-AND org_id = ?
-GROUP BY id
-ORDER BY created_at DESC
+SELECT 
+ra.*,
+
+GROUP_CONCAT(rai.interviewer_id) interviewer_ids
+
+FROM recruitment_assessments ra
+
+LEFT JOIN recruitment_assessment_interviewers rai
+ON rai.assessment_id=ra.id
+
+WHERE ra.id=?
+AND ra.org_id=?
+
+GROUP BY ra.id
+
+LIMIT 1
   `,
 
   GET_LATEST_RECRUITMENT_ASSESSMENT_BY_ROUND: `
@@ -137,11 +139,51 @@ ORDER BY created_at DESC
   `,
 
   GET_RECRUITMENT_ASSESSMENTS: `
-    SELECT *
-    FROM recruitment_assessments
-    WHERE recruitment_candidate_id = ?
-      AND org_id = ?
-    ORDER BY created_at DESC
+    SELECT
+
+ra.*,
+
+GROUP_CONCAT(
+DISTINCT rai.interviewer_id
+) AS interviewer_ids,
+
+
+JSON_ARRAYAGG(
+JSON_OBJECT(
+'interviewer_id',
+f.interviewer_id,
+
+'score',
+f.score,
+
+'decision',
+f.decision,
+
+'feedback',
+f.feedback
+)
+) AS feedback
+
+
+FROM recruitment_assessments ra
+
+
+LEFT JOIN recruitment_assessment_interviewers rai
+ON rai.assessment_id = ra.id
+
+
+LEFT JOIN recruitment_assessment_feedback f
+ON f.assessment_id = ra.id
+
+
+WHERE 
+ra.recruitment_candidate_id=?
+AND ra.org_id=?
+
+
+GROUP BY ra.id
+
+ORDER BY ra.created_at DESC
   `,
 
   MARK_CONVERTED_TO_EMPLOYEE: `
@@ -195,4 +237,40 @@ ORDER BY created_at DESC
     WHERE id = ?
     LIMIT 1
   `,
+
+  GET_ASSESSMENT_FEEDBACK_BY_INTERVIEWER: `
+SELECT *
+FROM recruitment_assessment_feedback
+WHERE assessment_id = ?
+AND interviewer_id = ?
+LIMIT 1
+`,
+
+  INSERT_ASSESSMENT_FEEDBACK: `
+INSERT INTO recruitment_assessment_feedback (
+    assessment_id,
+    recruitment_candidate_id,
+    org_id,
+    interviewer_id,
+    score,
+    decision,
+    feedback,
+    submitted_at
+)
+VALUES (
+    ?, ?, ?, ?, ?, ?, ?, NOW()
+)
+`,
+
+  UPDATE_ASSESSMENT_FEEDBACK: `
+UPDATE recruitment_assessment_feedback
+SET
+    score = ?,
+    decision = ?,
+    feedback = ?,
+    submitted_at = NOW(),
+    updated_at = NOW()
+WHERE assessment_id = ?
+AND interviewer_id = ?
+`,
 };
