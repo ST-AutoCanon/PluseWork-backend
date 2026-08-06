@@ -45,6 +45,7 @@ const createPolicyHandler = async (req, res) => {
 
     const {
       policy_name,
+      description,
       allow_view,
       allow_download,
       created_by,
@@ -66,6 +67,7 @@ const createPolicyHandler = async (req, res) => {
 
     const result = await policyService.createPolicy(orgId, {
       policy_name,
+      description,
       allow_view,
       allow_download,
       created_by,

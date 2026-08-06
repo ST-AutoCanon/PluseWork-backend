@@ -39,6 +39,9 @@ function ensureDirectoryExists(folderPath) {
 /**
  * Replace Policy File (Delete old + Upload new)
  */
+/**
+ * Replace Policy File (Delete old + Upload new)
+ */
 async function replacePolicyFile(orgId, fileId, files, body = {}) {
   if (!orgId || !fileId) throw new Error("orgId and fileId required");
 
@@ -85,6 +88,7 @@ async function replacePolicyFile(orgId, fileId, files, body = {}) {
     // ===== CONVERT OFFICE FILES TO PDF =====
     let finalFileName = newFile.filename;
     let finalOriginalName = newFile.originalname;
+    let finalFileType = detectedType;
 
     const { convertToPdf } = require("../utils/convertToPdf");
     const ext = path.extname(newFile.originalname).toLowerCase();
@@ -95,6 +99,7 @@ async function replacePolicyFile(orgId, fileId, files, body = {}) {
         if (pdfPath) {
           finalFileName = path.basename(pdfPath);
           finalOriginalName = newFile.originalname.replace(ext, ".pdf");
+          finalFileType = "document";
 
           // Delete original Office file
           if (fs.existsSync(newFile.path)) {
@@ -112,12 +117,17 @@ async function replacePolicyFile(orgId, fileId, files, body = {}) {
     const acknowledgementMessage =
       body.acknowledgementMessage || body.acknowledgement_message_0 || "";
 
-    // Update database
+    const allowView = normalizeBoolean(body.allow_view || body.allow_view_0);
+    const allowDownload = normalizeBoolean(body.allow_download || body.allow_download_0);
+
+    // Update the file record
     await conn.query(queries.UPDATE_POLICY_FILE_REPLACE, [
       finalFileName,
       finalOriginalName,
       acknowledgementRequired,
       acknowledgementMessage,
+      allowView,
+      allowDownload,
       fileId,
     ]);
 
@@ -170,6 +180,7 @@ async function createPolicy(orgId, data) {
     const [result] = await conn.query(queries.INSERT_POLICY, [
       orgId,
       data.policy_name,
+      data.description || null,
       normalizeBoolean(data.allow_view),
       normalizeBoolean(data.allow_download),
       assignToAll,                    // ← new
@@ -208,6 +219,7 @@ async function createPolicy(orgId, data) {
     return {
       id: policyId,
       policy_name: data.policy_name,
+      description: data.description || null,   // ← ADD
       allow_view: normalizeBoolean(data.allow_view),
       allow_download: normalizeBoolean(data.allow_download),
       assign_to_all: assignToAll,
@@ -285,6 +297,12 @@ if ([".doc", ".docx", ".ppt", ".pptx"].includes(ext)) {
         const acknowledgementMessage =
           body[msgKey] || body[`acknowledgement_message_${fileType}_${i}`] || "";
 
+        const allowViewKey = `allow_view_${i}`;
+        const allowDownloadKey = `allow_download_${i}`;
+
+        const allowView = normalizeBoolean(body[allowViewKey]);
+        const allowDownload = normalizeBoolean(body[allowDownloadKey]);
+
         await conn.query(queries.INSERT_POLICY_FILE, [
           policyId,
           finalFileType,
@@ -292,6 +310,8 @@ if ([".doc", ".docx", ".ppt", ".pptx"].includes(ext)) {
           finalOriginalName,
           acknowledgementRequired,
           acknowledgementMessage,
+          allowView,
+          allowDownload,
         ]);
 
         totalUploaded++;
@@ -321,9 +341,15 @@ if ([".doc", ".docx", ".ppt", ".pptx"].includes(ext)) {
 /**
  * Update Policy File Acknowledgement
  */
-async function updatePolicyFileAcknowledgement(orgId, fileId, data) {
+/**
+ * Update Policy
+ */
+/**
+ * Update Policy
+ */
+async function updatePolicy(orgId, policyId, data) {
   if (!orgId) throw new Error("orgId required");
-  if (!fileId) throw new Error("fileId required");
+  if (!policyId) throw new Error("policyId required");
 
   const tenantPool = await getTenantPoolForOrgId(orgId);
   const conn = await tenantPool.getConnection();
@@ -331,27 +357,31 @@ async function updatePolicyFileAcknowledgement(orgId, fileId, data) {
   try {
     await conn.beginTransaction();
 
-    // Verify file belongs to org (security)
-    const [fileRows] = await conn.query(
-      queries.GET_POLICY_FILE_BY_ID,
-      [fileId]
-    );
+    const [policy] = await conn.query(queries.GET_POLICY_BY_ID, [
+      policyId,
+      orgId,
+    ]);
 
-    if (!fileRows.length) throw new Error("File not found");
+    if (!policy.length) {
+      throw new Error("Policy not found");
+    }
 
-    const file = fileRows[0];
-
-    // Optional: You can also verify policy belongs to org if needed
-
-    await conn.query(queries.UPDATE_POLICY_FILE_ACKNOWLEDGEMENT, [
-      normalizeBoolean(data.acknowledgement_required),
-      data.acknowledgement_message || "",
-      fileId
+    // MUST be exactly 6 values – same order as the 6 ? in UPDATE_POLICY
+    await conn.query(queries.UPDATE_POLICY, [
+      data.policy_name,                        // 1. policy_name
+      data.description ?? null,                // 2. description
+      normalizeBoolean(data.allow_view),       // 3. allow_view
+      normalizeBoolean(data.allow_download),   // 4. allow_download
+      policyId,                                // 5. id
+      orgId,                                   // 6. org_id
     ]);
 
     await conn.commit();
 
-    return { success: true, message: "File acknowledgement updated" };
+    return {
+      success: true,
+      message: "Policy updated successfully",
+    };
   } catch (err) {
     await conn.rollback();
     throw err;
@@ -449,59 +479,6 @@ async function downloadPolicyFile(orgId, fileId) {
     filePath: absolutePath
   };
 }
-/**
- * Update Policy
- */
-async function updatePolicy(orgId, policyId, data) {
-  if (!orgId) {
-    throw new Error("orgId required");
-  }
-
-  if (!policyId) {
-    throw new Error("policyId required");
-  }
-
-  const tenantPool = await getTenantPoolForOrgId(orgId);
-
-  const conn = await tenantPool.getConnection();
-
-  try {
-    await conn.beginTransaction();
-
-    const [policy] = await conn.query(
-      queries.GET_POLICY_BY_ID,
-      [policyId, orgId]
-    );
-
-    if (!policy.length) {
-      throw new Error("Policy not found");
-    }
-
-    await conn.query(
-      queries.UPDATE_POLICY,
-      [
-        data.policy_name,
-        normalizeBoolean(data.allow_view),
-        normalizeBoolean(data.allow_download),
-        policyId,
-        orgId,
-      ]
-    );
-
-    await conn.commit();
-
-    return {
-      success: true,
-      message: "Policy updated successfully",
-    };
-  } catch (err) {
-    await conn.rollback();
-    throw err;
-  } finally {
-    conn.release();
-  }
-}
-
 /**
  * Delete Policy File
  */
@@ -631,7 +608,44 @@ async function deletePolicy(orgId, policyId) {
     conn.release();
   }
 }
+/**
+ * Update Policy File Acknowledgement
+ */
+async function updatePolicyFileAcknowledgement(orgId, fileId, data) {
+  if (!orgId) throw new Error("orgId required");
+  if (!fileId) throw new Error("fileId required");
 
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  const conn = await tenantPool.getConnection();
+
+  try {
+    await conn.beginTransaction();
+
+    const [fileRows] = await conn.query(
+      queries.GET_POLICY_FILE_BY_ID,
+      [fileId]
+    );
+
+    if (!fileRows.length) throw new Error("File not found");
+
+    await conn.query(queries.UPDATE_POLICY_FILE_ACKNOWLEDGEMENT, [
+      normalizeBoolean(data.acknowledgement_required),
+      data.acknowledgement_message || "",
+      normalizeBoolean(data.allow_view),
+      normalizeBoolean(data.allow_download),
+      fileId,
+    ]);
+
+    await conn.commit();
+
+    return { success: true, message: "File acknowledgement updated" };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
 module.exports = {
   createPolicy,
   uploadPolicyFiles,

@@ -5,6 +5,7 @@ module.exports = {
   // POLICY
   // ===========================
 INSERT_POLICY_ASSIGNMENT: `
+
 INSERT INTO policy_assignments (
     policy_id,
     employee_id,
@@ -19,6 +20,7 @@ INSERT_POLICY: `
   INSERT INTO policies (
     org_id,
     policy_name,
+    description,          -- ← ADD
     allow_view,
     allow_download,
     assign_to_all,
@@ -26,29 +28,14 @@ INSERT_POLICY: `
     created_at,
     updated_at
   )
-  VALUES (
-    ?,
-    ?,
-    ?,
-    ?,
-    ?,
-    ?,
-    CURRENT_TIMESTAMP,
-    CURRENT_TIMESTAMP
-  )
+  VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 `,
 
 GET_POLICIES: `
   SELECT
-    id,
-    org_id,
-    policy_name,
-    allow_view,
-    allow_download,
-    assign_to_all,
-    created_by,
-    created_at,
-    updated_at
+    id, org_id, policy_name, description,   -- ← ADD
+    allow_view, allow_download, assign_to_all,
+    created_by, created_at, updated_at
   FROM policies
   WHERE org_id = ?
   ORDER BY created_at DESC
@@ -56,31 +43,24 @@ GET_POLICIES: `
 
 GET_POLICY_BY_ID: `
   SELECT
-    id,
-    org_id,
-    policy_name,
-    allow_view,
-    allow_download,
-    assign_to_all,
-    created_by,
-    created_at,
-    updated_at
+    id, org_id, policy_name, description,   -- ← ADD
+    allow_view, allow_download, assign_to_all,
+    created_by, created_at, updated_at
   FROM policies
-  WHERE id = ?
-    AND org_id = ?
+  WHERE id = ? AND org_id = ?
   LIMIT 1
 `,
 
-  UPDATE_POLICY: `
-    UPDATE policies
-    SET
-      policy_name = ?,
-      allow_view = ?,
-      allow_download = ?,
-      updated_at = CURRENT_TIMESTAMP
-    WHERE id = ?
-      AND org_id = ?
-  `,
+UPDATE_POLICY: `
+  UPDATE policies
+  SET
+    policy_name = ?,
+    description = ?,
+    allow_view = ?,
+    allow_download = ?,
+    updated_at = CURRENT_TIMESTAMP
+  WHERE id = ? AND org_id = ?
+`,
 
   DELETE_POLICY: `
     DELETE
@@ -95,6 +75,8 @@ UPDATE_POLICY_FILE_REPLACE: `
     original_file_name = ?,
     acknowledgement_required = ?,
     acknowledgement_message = ?,
+    allow_view = ?,
+    allow_download = ?,
     uploaded_at = CURRENT_TIMESTAMP
   WHERE id = ?
 `,
@@ -110,9 +92,13 @@ UPDATE_POLICY_FILE_REPLACE: `
       original_file_name,
       acknowledgement_required,
       acknowledgement_message,
+      allow_view,
+      allow_download,
       uploaded_at
     )
     VALUES (
+      ?,
+      ?,
       ?,
       ?,
       ?,
@@ -132,6 +118,8 @@ UPDATE_POLICY_FILE_REPLACE: `
       original_file_name,
       acknowledgement_required,
       acknowledgement_message,
+      allow_view,
+      allow_download,
       uploaded_at
     FROM policy_files
     WHERE policy_id = ?
@@ -147,6 +135,8 @@ UPDATE_POLICY_FILE_REPLACE: `
       original_file_name,
       acknowledgement_required,
       acknowledgement_message,
+      allow_view,
+      allow_download,
       uploaded_at
     FROM policy_files
     WHERE id = ?
@@ -185,7 +175,9 @@ UPDATE_POLICY_FILE_ACKNOWLEDGEMENT: `
   SET
     acknowledgement_required = ?,
     acknowledgement_message = ?,
-    uploaded_at = CURRENT_TIMESTAMP   -- optional: update timestamp
+    allow_view = ?,
+    allow_download = ?,
+    uploaded_at = CURRENT_TIMESTAMP
   WHERE id = ?
 `,
 };
