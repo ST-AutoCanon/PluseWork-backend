@@ -780,9 +780,33 @@ LEFT JOIN (
   SELECT_ORG: `SELECT no_employees FROM organizations WHERE id = ?`,
   COUNT_ACTIVE_EMPLOYEES_BY_ORG: `SELECT COUNT(*) AS cnt FROM employees WHERE org_id = ?`,
   UPDATE_EMPLOYEE_IDS_BY_ORG: `
-    UPDATE employees
-    SET employee_id = CONCAT(?, '-', LPAD(suffix, 6, '0'))
-    WHERE org_id = ?
+   UPDATE employees e
+LEFT JOIN employee_personal ep
+    ON ep.employee_id = e.employee_id
+LEFT JOIN employee_education ee
+    ON ee.employee_id = e.employee_id
+LEFT JOIN employee_professional epr
+    ON epr.employee_id = e.employee_id
+LEFT JOIN employee_bank_details ebd
+    ON ebd.employee_id = e.employee_id
+LEFT JOIN employee_experience ex
+    ON ex.employee_id = e.employee_id
+LEFT JOIN employee_documents ed
+    ON ed.employee_id = e.employee_id
+LEFT JOIN employee_additional_certs eac
+    ON eac.employee_id = e.employee_id
+
+SET
+    e.employee_id   = CONCAT(?, '-', LPAD(e.suffix, 6, '0')),
+    ep.employee_id  = CONCAT(?, '-', LPAD(e.suffix, 6, '0')),
+    ee.employee_id  = CONCAT(?, '-', LPAD(e.suffix, 6, '0')),
+    epr.employee_id = CONCAT(?, '-', LPAD(e.suffix, 6, '0')),
+    ebd.employee_id = CONCAT(?, '-', LPAD(e.suffix, 6, '0')),
+    ex.employee_id  = CONCAT(?, '-', LPAD(e.suffix, 6, '0')),
+    ed.employee_id  = CONCAT(?, '-', LPAD(e.suffix, 6, '0')),
+    eac.employee_id = CONCAT(?, '-', LPAD(e.suffix, 6, '0'))
+
+WHERE e.org_id = ?;
   `,
 
   UPDATE_ACTIVE_SUPERVISOR_ASSIGNMENT_END: `
