@@ -148,7 +148,7 @@ CREATE TABLE IF NOT EXISTS positions (
   id int NOT NULL AUTO_INCREMENT,
   name varchar(255) DEFAULT NULL,
   department_id int DEFAULT NULL,
-  rank tinyint DEFAULT NULL,
+  `rank` tinyint DEFAULT NULL,
   PRIMARY KEY (id)
 );
 

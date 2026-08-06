@@ -51,14 +51,14 @@ async function createTenantDatabaseSchemaWithRetries(orgId, attempts = 4) {
       await adminPool.query(createSql);
       await runTenantMigrations(dbName);
       await adminPool.query(
-        USE_DATABASE_PREFIX.replace("{db}", dbName) + " SELECT 1;"
+        USE_DATABASE_PREFIX.replace("{db}", dbName) + " SELECT 1;",
       );
       return dbName;
     } catch (err) {
       lastErr = err;
       console.warn(
         `[tenant-create] attempt ${i + 1}/${attempts} failed:`,
-        err && err.message
+        err && err.message,
       );
       const backoff = Math.min(500 * Math.pow(2, i), 15000);
       await new Promise((r) => setTimeout(r, backoff));
@@ -110,7 +110,7 @@ const createOrganization = async (orgData, sidebarAccess) => {
         conflictMsgs.push("Subdomain already exists.");
       const message = conflictMsgs.join(" ");
       const err = new Error(
-        message || "Organization with same Name/subdomain exists."
+        message || "Organization with same Name/subdomain exists.",
       );
       err.status = 409;
       throw err;
@@ -149,7 +149,7 @@ const createOrganization = async (orgData, sidebarAccess) => {
         console.error("[createOrganization] cleanup failed:", cleanupErr);
       }
       throw new Error(
-        `Failed to create tenant schema: ${tenantErr?.message || tenantErr}`
+        `Failed to create tenant schema: ${tenantErr?.message || tenantErr}`,
       );
     }
 
@@ -158,7 +158,7 @@ const createOrganization = async (orgData, sidebarAccess) => {
     } catch (e) {
       console.error(
         `[createOrganization] failed to save db_name for org ${orgId}:`,
-        e
+        e,
       );
     }
 
@@ -186,7 +186,7 @@ const createOrganization = async (orgData, sidebarAccess) => {
         }
         console.error(
           "[createOrganization] failed to populate tenant sidebar access:",
-          e
+          e,
         );
 
         try {
@@ -200,14 +200,14 @@ const createOrganization = async (orgData, sidebarAccess) => {
         } catch (cleanupErr) {
           console.error(
             "[createOrganization] cleanup after sidebar insert failed:",
-            cleanupErr
+            cleanupErr,
           );
         }
 
         throw new Error(
           `Organization created but failed to populate tenant sidebar access: ${
             e?.message || e
-          }`
+          }`,
         );
       } finally {
         if (tenantConn)
@@ -223,13 +223,13 @@ const createOrganization = async (orgData, sidebarAccess) => {
         await conn.beginTransaction();
         const [orgRowsForUpdate] = await conn.execute(
           empQueries.SELECT_ORG_FOR_UPDATE,
-          [orgId]
+          [orgId],
         );
         const orgRow =
           orgRowsForUpdate && orgRowsForUpdate[0] ? orgRowsForUpdate[0] : null;
         if (!orgRow) {
           throw new Error(
-            "Organization not found in master while reserving employee id"
+            "Organization not found in master while reserving employee id",
           );
         }
         const newCounter = Number(orgRow.employee_counter || 0) + 1;
@@ -241,7 +241,7 @@ const createOrganization = async (orgData, sidebarAccess) => {
         const prefix = (orgRow.employee_prefix || "").toUpperCase();
         if (!prefix) {
           throw new Error(
-            "Organization employee_prefix missing; cannot generate employee_id"
+            "Organization employee_prefix missing; cannot generate employee_id",
           );
         }
         const employeeId = `${prefix}-${suffixStr}`;
@@ -272,7 +272,7 @@ const createOrganization = async (orgData, sidebarAccess) => {
             providedEmployeeId: employeeId,
             providedSuffix: suffix,
             providedOrgName: Name,
-          }
+          },
         );
 
         await tenantConn.commit();
@@ -287,12 +287,12 @@ const createOrganization = async (orgData, sidebarAccess) => {
               platformName: "PULSEWORK",
               org_id: orgId,
             },
-            tenantConn
+            tenantConn,
           );
         } catch (mailErr) {
           console.warn(
             "[createOrganization] warning: failed to send reset email:",
-            mailErr && (mailErr.stack || mailErr)
+            mailErr && (mailErr.stack || mailErr),
           );
         }
       } catch (e) {
@@ -303,7 +303,7 @@ const createOrganization = async (orgData, sidebarAccess) => {
         }
         console.error(
           "[createOrganization] failed to create admin in tenant DB:",
-          e
+          e,
         );
 
         try {
@@ -317,14 +317,14 @@ const createOrganization = async (orgData, sidebarAccess) => {
         } catch (cleanupErr) {
           console.error(
             "[createOrganization] cleanup failed after admin creation error:",
-            cleanupErr
+            cleanupErr,
           );
         }
 
         throw new Error(
           `Organization created but failed to create admin in tenant DB: ${
             e?.message || e
-          }`
+          }`,
         );
       } finally {
         if (tenantConn)
@@ -387,7 +387,7 @@ const getAllOrganizations = async () => {
         WHERE LOWER(e.email) = LOWER(?)
         LIMIT 1
         `,
-        [org.admin_email]
+        [org.admin_email],
       );
 
       if (adminRows.length) {
@@ -396,7 +396,7 @@ const getAllOrganizations = async () => {
     } catch (err) {
       console.warn(
         `[getAllOrganizations] tenant fetch skipped for org ${org.id}:`,
-        err.message
+        err.message,
       );
     }
 
@@ -421,7 +421,7 @@ const getSidebarAccessByOrg = async (orgId) => {
     FROM sidebar_menu_access
     WHERE org_id = ?
   `,
-    [orgId]
+    [orgId],
   );
 
   if (!accessRows.length) return [];
@@ -434,7 +434,7 @@ const getSidebarAccessByOrg = async (orgId) => {
     FROM sidebar_menu
     WHERE id IN (?)
   `,
-    [sidebarItemIds]
+    [sidebarItemIds],
   );
 
   return accessRows.map((access) => {
@@ -471,7 +471,7 @@ const updateOrganization = async (id, orgData, sidebarAccess) => {
 
     const [existingRows] = await conn.execute(
       SELECT_ORG_BY_NAME_OR_SUBDOMAIN_EXCLUDE_ID,
-      [Name, subdomain, id]
+      [Name, subdomain, id],
     );
     if (existingRows && existingRows.length > 0) {
       const conflicts = new Set();
@@ -519,7 +519,7 @@ const updateOrganization = async (id, orgData, sidebarAccess) => {
 
     await tenantConn.execute(
       `DELETE FROM sidebar_menu_access WHERE org_id = ?`,
-      [id]
+      [id],
     );
 
     if (sidebarAccess && sidebarAccess.length) {
@@ -530,13 +530,20 @@ const updateOrganization = async (id, orgData, sidebarAccess) => {
       ]);
       await tenantConn.query(
         `INSERT INTO sidebar_menu_access (sidebar_item_id, role, org_id) VALUES ?`,
-        [accessValues]
+        [accessValues],
       );
     }
 
     if (oldPrefix !== newPrefix) {
       await tenantConn.execute(empQueries.UPDATE_EMPLOYEE_IDS_BY_ORG, [
-        newPrefix,
+        newPrefix, // employees
+        newPrefix, // employee_personal
+        newPrefix, // employee_education
+        newPrefix, // employee_professional
+        newPrefix, // employee_bank_details
+        newPrefix, // employee_experience
+        newPrefix, // employee_documents
+        newPrefix, // employee_additional_certs
         id,
       ]);
     }
@@ -561,7 +568,7 @@ const updateOrganization = async (id, orgData, sidebarAccess) => {
 
     if (err && err.code === "ER_NO_SUCH_TABLE") {
       const e = new Error(
-        `Tenant schema problem: ${err.sqlMessage || err.message}`
+        `Tenant schema problem: ${err.sqlMessage || err.message}`,
       );
       e.code = err.code;
       throw e;
