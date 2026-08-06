@@ -58,10 +58,10 @@ UPDATE_POLICY: `
     description = ?,
     allow_view = ?,
     allow_download = ?,
+    assign_to_all = ?,          -- ← ADD
     updated_at = CURRENT_TIMESTAMP
   WHERE id = ? AND org_id = ?
 `,
-
   DELETE_POLICY: `
     DELETE
     FROM policies
