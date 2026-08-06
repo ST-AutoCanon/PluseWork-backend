@@ -69,10 +69,19 @@ const getEmployeePoliciesHandler = async (req, res) => {
 
 const getPolicyFilesHandler = async (req, res) => {
   const orgId = getOrgIdFromHeaders(req);
+  const employeeId = getEmployeeIdFromHeaders(req);
 
   if (!orgId) {
     return res.status(400).json({
+      success: false,
       message: "org_id header is required",
+    });
+  }
+
+  if (!employeeId) {
+    return res.status(400).json({
+      success: false,
+      message: "employee_id header is required",
     });
   }
 
@@ -81,7 +90,8 @@ const getPolicyFilesHandler = async (req, res) => {
   try {
     const files = await employeePoliciesService.getPolicyFiles(
       orgId,
-      policyId
+      policyId,
+      employeeId
     );
 
     return res.status(200).json({

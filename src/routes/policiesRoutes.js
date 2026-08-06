@@ -122,9 +122,9 @@ router.post(
 
 // ====================== REPLACE ROUTE ======================
 router.put(
-  "/policies/file/replace/:fileId",
+  "/policies/file/replace/:policyId/:fileId",
   (req, res, next) => {
-    console.log("Replace file route hit for fileId:", req.params.fileId);
+    console.log("Replace file route hit for policyId:", req.params.policyId, "fileId:", req.params.fileId);
     next();
   },
   upload.fields([

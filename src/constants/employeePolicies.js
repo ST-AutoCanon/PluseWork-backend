@@ -28,16 +28,22 @@ SELECT
     pf.acknowledgement_required,
     pf.acknowledgement_message,
     p.allow_view,
-    p.allow_download
+    p.allow_download,
+    CASE 
+      WHEN pa.id IS NOT NULL AND pa.acknowledged = 1 THEN 1 
+      ELSE 0 
+    END AS is_acknowledged
 FROM policy_files pf
 INNER JOIN policies p
     ON pf.policy_id = p.id
+LEFT JOIN policy_acknowledgements pa
+    ON pa.policy_file_id = pf.id
+   AND pa.employee_id = ?
+   AND pa.org_id = ?
 WHERE
     pf.policy_id = ?
 AND
     p.org_id = ?
-AND
-    p.allow_view = 1
 ORDER BY pf.uploaded_at;
 `;
 
@@ -109,6 +115,7 @@ AND
     pa.employee_id = ?
 ORDER BY pa.acknowledged_at DESC;
 `;
+
 
 module.exports = {
     GET_EMPLOYEE_POLICIES,

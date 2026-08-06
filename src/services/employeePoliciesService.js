@@ -51,18 +51,17 @@ const getEmployeePolicies = async (orgId, employeeId) => {
    Get Files By Policy
 ========================================================== */
 
-const getPolicyFiles = async (
-  orgId,
-  policyId
-) => {
+const getPolicyFiles = async (orgId, policyId, employeeId) => {
   try {
     const tenantPool = await getTenantPoolForOrgId(orgId);
 
     const [rows] = await tenantPool.query(
       GET_POLICY_FILES,
       [
+        employeeId,   // for LEFT JOIN
+        orgId,        // for LEFT JOIN
         policyId,
-        orgId,
+        orgId
       ]
     );
 
