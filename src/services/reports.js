@@ -154,6 +154,7 @@ function getFieldDisplayNames(component = "default") {
       "punchout_time",
       "punchout_device",
       "punchout_location",
+      "Total Login Hours",
       "punchmode",
       "created_at",
     ],
