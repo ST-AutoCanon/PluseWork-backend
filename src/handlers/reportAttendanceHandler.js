@@ -602,6 +602,7 @@ async function downloadAttendanceReport(req, res) {
         { header: "Punch Out Time", key: "punchout_time" },
         { header: "Punch Out Device", key: "punchout_device" },
         { header: "Punch Out Location", key: "punchout_location" },
+        { header: "Total Login Hours", key: "total_login_hours" },
         { header: "Punch Mode", key: "punchmode" },
       ];
 
