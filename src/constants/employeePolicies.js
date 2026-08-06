@@ -2,6 +2,7 @@ const GET_EMPLOYEE_POLICIES = `
 SELECT DISTINCT
     p.id AS policy_id,
     p.policy_name,
+    p.description,          -- ← add this
     p.allow_view,
     p.allow_download,
     p.assign_to_all,

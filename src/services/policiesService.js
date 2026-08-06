@@ -366,15 +366,20 @@ async function updatePolicy(orgId, policyId, data) {
       throw new Error("Policy not found");
     }
 
-    // MUST be exactly 6 values – same order as the 6 ? in UPDATE_POLICY
+    // Now 7 values
     await conn.query(queries.UPDATE_POLICY, [
-      data.policy_name,                        // 1. policy_name
-      data.description ?? null,                // 2. description
-      normalizeBoolean(data.allow_view),       // 3. allow_view
-      normalizeBoolean(data.allow_download),   // 4. allow_download
-      policyId,                                // 5. id
-      orgId,                                   // 6. org_id
+      data.policy_name,                              // 1
+      data.description ?? null,                      // 2
+      normalizeBoolean(data.allow_view),             // 3
+      normalizeBoolean(data.allow_download),         // 4
+      normalizeBoolean(data.assign_to_all),          // 5  ← ADD
+      policyId,                                      // 6
+      orgId,                                         // 7
     ]);
+
+    // Optional: if you want to fully support changing assignments on edit,
+    // clear old assignments and re-insert here when assign_to_all === 0.
+    // For now this is enough to fix permissions + assign_to_all.
 
     await conn.commit();
 
