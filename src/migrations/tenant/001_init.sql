@@ -148,7 +148,7 @@ CREATE TABLE IF NOT EXISTS positions (
   id int NOT NULL AUTO_INCREMENT,
   name varchar(255) DEFAULT NULL,
   department_id int DEFAULT NULL,
-  `rank` tinyint DEFAULT NULL,
+  rank tinyint DEFAULT NULL,
   PRIMARY KEY (id)
 );
 
@@ -836,12 +836,39 @@ CREATE TABLE IF NOT EXISTS letterhead (
   created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   org_id bigint unsigned NOT NULL DEFAULT '1',
+
+  -- ========== MISSING COLUMNS (add these) ==========
+  designation varchar(255) DEFAULT NULL,
+  authorized_signatory_name varchar(255) DEFAULT NULL,
+  basic_monthly varchar(50) DEFAULT NULL,
+  basic_yearly varchar(50) DEFAULT NULL,
+  hra_monthly varchar(50) DEFAULT NULL,
+  hra_yearly varchar(50) DEFAULT NULL,
+  bonus_monthly varchar(50) DEFAULT NULL,
+  bonus_yearly varchar(50) DEFAULT NULL,
+  gross_monthly varchar(50) DEFAULT NULL,
+  gross_yearly varchar(50) DEFAULT NULL,
+  net_monthly varchar(50) DEFAULT NULL,
+  net_yearly varchar(50) DEFAULT NULL,
+  other_monthly varchar(50) DEFAULT NULL,
+  other_yearly varchar(50) DEFAULT NULL,
+  bank_name varchar(255) DEFAULT NULL,
+  branch_name varchar(255) DEFAULT NULL,
+  date_of_birth date DEFAULT NULL,
+  residential_address text,
+  relieving_date date DEFAULT NULL,
+  resignation_date date DEFAULT NULL,
+  employee_id varchar(20) DEFAULT NULL,
+  details_message_body text,
+  subject_purpose varchar(255) DEFAULT NULL,
+  -- ================================================
+
   PRIMARY KEY (id),
   UNIQUE KEY ux_letterhead_code (letterhead_code),
   KEY idx_letter_type (letter_type),
   KEY idx_employee_name (employee_name),
   KEY idx_org_id (org_id)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS letterhead_templates (
   id bigint unsigned NOT NULL AUTO_INCREMENT,
@@ -881,6 +908,8 @@ CREATE TABLE IF NOT EXISTS old_employee_details (
   hra decimal(10,2) DEFAULT NULL,
   other_allowance decimal(10,2) DEFAULT NULL,
   pf decimal(10,2) DEFAULT NULL,
+  esi decimal(15,2) DEFAULT '0.00',          -- ← missing
+  insurance decimal(15,2) DEFAULT '0.00',    -- ← missing
   esi_insurance decimal(10,2) DEFAULT NULL,
   professional_tax decimal(10,2) DEFAULT NULL,
   tds decimal(10,2) DEFAULT NULL,
@@ -893,7 +922,7 @@ CREATE TABLE IF NOT EXISTS old_employee_details (
   PRIMARY KEY (id),
   CONSTRAINT old_employee_details_chk_1 CHECK ((month between 1 and 12)),
   CONSTRAINT old_employee_details_chk_2 CHECK ((year >= 1900))
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS overtime_details (
   punch_id varchar(50) COLLATE utf8mb4_general_ci NOT NULL,
