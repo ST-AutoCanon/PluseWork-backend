@@ -12,7 +12,8 @@ const queries = require("../constants/policiesQueries");
 const { convertToPdf } = require("../../src/utils/convertToPdf"); // ← NEW
 
 
-const UPLOAD_BASE_PATH = "F:\\STS-PULSE-26\\policies";   // MUST match multer destination
+const UPLOAD_BASE_PATH = process.env.POLICY_UPLOAD_PATH
+  || path.join(process.cwd(), "uploads", "policies"); // MUST match multer destination
 
 async function getTenantPoolForOrgId(orgId) {
   if (!orgId) {
