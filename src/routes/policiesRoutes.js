@@ -16,7 +16,11 @@ const {
 const router = express.Router();
 
 // ====================== MULTER CONFIG ======================
-const UPLOAD_BASE_FOLDER = "F:\\STS-PULSE-26\\policies";
+// make sure path is required at the top
+
+// Use environment variable, fallback to a relative folder
+const UPLOAD_BASE_FOLDER = process.env.POLICY_UPLOAD_PATH
+  || path.join(process.cwd(), "uploads", "policies");
 
 function sanitizeOrgId(orgId) {
   return String(orgId || "unknown")

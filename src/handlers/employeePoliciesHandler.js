@@ -140,16 +140,28 @@ const viewEmployeePolicyFileHandler = async (req, res) => {
       });
     }
 
-    // MUST match multer destination
-    const UPLOAD_BASE_FOLDER = "F:\\STS-PULSE-26\\policies";
+  // MUST match the same path used by multer + policiesService
+const UPLOAD_BASE_FOLDER = process.env.POLICY_UPLOAD_PATH
+  || path.join(process.cwd(), "uploads", "policies");
 
-    const filePath = path.join(
-      UPLOAD_BASE_FOLDER,
-      String(orgId),
-      `policy_${file.policy_id}`,   // ← required subfolder
-      file.file_name
-    );
+// Make sure the path is absolute
+const filePath = path.resolve(
+  UPLOAD_BASE_FOLDER,
+  String(orgId),
+  `policy_${file.policy_id}`,
+  file.file_name
+);
 
+console.log("Looking for file at:", filePath);
+console.log("Exists?", fs.existsSync(filePath));
+
+if (!fs.existsSync(filePath)) {
+  return res.status(404).json({
+    success: false,
+    message: "Physical file not found",
+    debug: { expectedPath: filePath },
+  });
+}
     console.log("Looking for file at:", filePath);
     console.log("Exists?", fs.existsSync(filePath));
 
