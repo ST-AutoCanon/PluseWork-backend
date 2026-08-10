@@ -28,8 +28,8 @@ SELECT
     pf.original_file_name,
     pf.acknowledgement_required,
     pf.acknowledgement_message,
-    p.allow_view,
-    p.allow_download,
+    pf.allow_view,          -- ← changed from p.allow_view
+    pf.allow_download,      -- ← changed from p.allow_download
     CASE 
       WHEN pa.id IS NOT NULL AND pa.acknowledged = 1 THEN 1 
       ELSE 0 
@@ -57,8 +57,8 @@ SELECT
     pf.original_file_name,
     pf.acknowledgement_required,
     pf.acknowledgement_message,
-    p.allow_view,
-    p.allow_download
+    pf.allow_view,          -- ← changed from p.allow_view
+    pf.allow_download       -- ← changed from p.allow_download
 FROM policy_files pf
 INNER JOIN policies p
     ON pf.policy_id = p.id
