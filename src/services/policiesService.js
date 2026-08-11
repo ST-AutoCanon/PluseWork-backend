@@ -252,72 +252,81 @@ async function uploadPolicyFiles(orgId, policyId, files, body = {}) {
     if (policyExists.length === 0) throw new Error("Policy not found");
 
     const supportedTypes = ["document", "ppt", "video", "image"];
-    let totalUploaded = 0;
-
     const { convertToPdf } = require("../utils/convertToPdf");
+
+    // Flatten all files into one array in a stable order
+    // and keep the original FormData index that the frontend sent
+    const allFiles = [];
+    let globalIndex = 0;
 
     for (const fileType of supportedTypes) {
       const uploadedFiles = files?.[fileType];
       if (!Array.isArray(uploadedFiles) || uploadedFiles.length === 0) continue;
 
-      for (let i = 0; i < uploadedFiles.length; i++) {
-        const file = uploadedFiles[i];
-
-        // ===== CONVERT OFFICE FILES TO PDF =====
-        let finalFileName = file.filename;
-let finalOriginalName = file.originalname;
-let finalFileType = fileType;
-
-const ext = path.extname(file.originalname).toLowerCase();
-
-if ([".doc", ".docx", ".ppt", ".pptx"].includes(ext)) {
-  try {
-    const pdfPath = await convertToPdf(file.path);   // ← now it should be a function
-
-    if (pdfPath) {
-      finalFileName = path.basename(pdfPath);
-      finalOriginalName = file.originalname.replace(ext, ".pdf");
-      finalFileType = "document";
-
-      if (fs.existsSync(file.path)) {
-        fs.unlinkSync(file.path);
+      for (const file of uploadedFiles) {
+        allFiles.push({
+          file,
+          fileType,
+          index: globalIndex,   // this matches frontend index
+        });
+        globalIndex++;
       }
     }
-  } catch (convErr) {
-    console.error("Conversion error for", file.originalname, convErr.message);
-  }
-}
 
-        // Acknowledgement handling
-        const ackKey = `acknowledgement_${i}`;
-        const msgKey = `acknowledgement_message_${i}`;
+    let totalUploaded = 0;
 
-        const acknowledgementRequired = normalizeBoolean(
-          body[ackKey] || body[`acknowledgement_${fileType}_${i}`]
-        );
-        const acknowledgementMessage =
-          body[msgKey] || body[`acknowledgement_message_${fileType}_${i}`] || "";
+    for (const item of allFiles) {
+      const { file, fileType, index } = item;
 
-        const allowViewKey = `allow_view_${i}`;
-        const allowDownloadKey = `allow_download_${i}`;
+      // ===== CONVERT OFFICE FILES TO PDF =====
+      let finalFileName = file.filename;
+      let finalOriginalName = file.originalname;
+      let finalFileType = fileType;
 
-        const allowView = normalizeBoolean(body[allowViewKey]);
-        const allowDownload = normalizeBoolean(body[allowDownloadKey]);
+      const ext = path.extname(file.originalname).toLowerCase();
 
-        await conn.query(queries.INSERT_POLICY_FILE, [
-          policyId,
-          finalFileType,
-          finalFileName,
-          finalOriginalName,
-          acknowledgementRequired,
-          acknowledgementMessage,
-          allowView,
-          allowDownload,
-        ]);
+      if ([".doc", ".docx", ".ppt", ".pptx"].includes(ext)) {
+        try {
+          const pdfPath = await convertToPdf(file.path);
+          if (pdfPath) {
+            finalFileName = path.basename(pdfPath);
+            finalOriginalName = file.originalname.replace(ext, ".pdf");
+            finalFileType = "document";
 
-        totalUploaded++;
-        console.log(`✅ Uploaded: ${finalOriginalName} (${finalFileType})`);
+            if (fs.existsSync(file.path)) {
+              fs.unlinkSync(file.path);
+            }
+          }
+        } catch (convErr) {
+          console.error("Conversion error for", file.originalname, convErr.message);
+        }
       }
+
+      // Use the global index that the frontend sent
+      const acknowledgementRequired = normalizeBoolean(
+        body[`acknowledgement_${index}`]
+      );
+      const acknowledgementMessage =
+        body[`acknowledgement_message_${index}`] || "";
+
+      const allowView = normalizeBoolean(body[`allow_view_${index}`]);
+      const allowDownload = normalizeBoolean(body[`allow_download_${index}`]);
+
+      console.log(`File index ${index}: allow_view=${allowView}, allow_download=${allowDownload}`);
+
+      await conn.query(queries.INSERT_POLICY_FILE, [
+        policyId,
+        finalFileType,
+        finalFileName,
+        finalOriginalName,
+        acknowledgementRequired,
+        acknowledgementMessage,
+        allowView,
+        allowDownload,
+      ]);
+
+      totalUploaded++;
+      console.log(`✅ Uploaded: ${finalOriginalName} (${finalFileType})`);
     }
 
     await conn.commit();
