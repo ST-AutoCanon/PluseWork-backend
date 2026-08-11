@@ -148,7 +148,7 @@ CREATE TABLE IF NOT EXISTS positions (
   id int NOT NULL AUTO_INCREMENT,
   name varchar(255) DEFAULT NULL,
   department_id int DEFAULT NULL,
-  rank tinyint DEFAULT NULL,
+  `rank` tinyint DEFAULT NULL,
   PRIMARY KEY (id)
 );
 
@@ -1287,13 +1287,14 @@ CREATE TABLE recruitment_candidates (
   phone varchar(50)  DEFAULT NULL,
   applied_position varchar(255)  DEFAULT NULL,
   department varchar(255)  DEFAULT NULL,
+  skills mediumtext ,
   current_ctc decimal(10,2) DEFAULT NULL,
   expected_ctc decimal(10,2) DEFAULT NULL,
   notice_period varchar(100)  DEFAULT NULL,
   total_experience varchar(100)  DEFAULT NULL,
   status varchar(100)  DEFAULT 'Applied',
-  source varchar(255) DEFAULT NULL,
-  resume_url text,
+  source varchar(255)  DEFAULT NULL,
+  resume_url text ,
   documents json DEFAULT NULL,
   offer_ctc decimal(12,2) DEFAULT NULL,
   offer_letter_url text ,
@@ -1303,22 +1304,53 @@ CREATE TABLE recruitment_candidates (
   PRIMARY KEY (id)
 );
 
+
 CREATE TABLE recruitment_assessments (
   id int NOT NULL AUTO_INCREMENT,
   recruitment_candidate_id int NOT NULL,
   org_id int NOT NULL,
   round_name varchar(100)  NOT NULL,
-  interviewer_id text  DEFAULT NULL,
   interview_date datetime DEFAULT NULL,
   interview_link text ,
-  send_interview_email tinyint(1) DEFAULT '0',
+  send_interview_email tinyint(1) DEFAULT 0,
   email_body longtext ,
   email_subject text ,
-  score int DEFAULT NULL,
-  decision varchar(50)  DEFAULT NULL,
-  feedback text ,
   created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id)
 );
+
+CREATE TABLE recruitment_assessment_feedback (
+  id int NOT NULL AUTO_INCREMENT,
+  assessment_id int NOT NULL,
+  recruitment_candidate_id int NOT NULL,
+  org_id int NOT NULL,
+  interviewer_id varchar(100)  NOT NULL,
+  score int DEFAULT NULL,
+  decision varchar(50)  DEFAULT NULL,
+  feedback longtext ,
+  submitted_at timestamp NULL DEFAULT NULL,
+  created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_assessment_interviewer (assessment_id,interviewer_id),
+  UNIQUE KEY unique_feedback (assessment_id,interviewer_id),
+  KEY idx_assessment (assessment_id),
+  KEY idx_candidate (recruitment_candidate_id),
+  KEY idx_org (org_id),
+  KEY idx_interviewer (interviewer_id),
+  CONSTRAINT fk_feedback_assessment FOREIGN KEY (assessment_id) REFERENCES recruitment_assessments (id) ON DELETE CASCADE
+);
+
+
+CREATE TABLE recruitment_assessment_interviewers (
+  id int NOT NULL AUTO_INCREMENT,
+  assessment_id int NOT NULL,
+  interviewer_id varchar(100)  NOT NULL,
+  created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY assessment_id (assessment_id),
+  CONSTRAINT recruitment_assessment_interviewers_ibfk_1 FOREIGN KEY (assessment_id) REFERENCES recruitment_assessments (id) ON DELETE CASCADE
+);
+
 
