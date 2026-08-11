@@ -42,15 +42,14 @@ function toBool(v) {
 
 function normalizeDateTime(value) {
   if (!value) return null;
-  // If value is an ISO-like local datetime string (from <input type="datetime-local">),
-  // preserve the local fields as-is instead of converting to UTC via toISOString().
+
   const isoLocalMatch = String(value)
     .trim()
     .match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/);
   if (isoLocalMatch) {
     const withSeconds =
       String(value).includes(":") && String(value).split(":").length >= 3;
-    const base = String(value); // keep the 'T' separator
+    const base = String(value);
     return withSeconds ? base : `${base}:00`;
   }
 
@@ -58,7 +57,7 @@ function normalizeDateTime(value) {
   if (Number.isNaN(d.getTime())) return String(value).replace("T", " ");
 
   const pad = (n) => String(n).padStart(2, "0");
-  // Format using local date/time components to preserve the original intent (local time)
+
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
     d.getHours(),
   )}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
@@ -1269,6 +1268,7 @@ async function saveRecruitmentAssessmentService(
       GET_RECRUITMENT_CANDIDATE_BY_ID,
       [candidateId, orgId],
     );
+
     const candidate = candidateRows?.[0];
 
     if (!candidate) {
@@ -1277,9 +1277,6 @@ async function saveRecruitmentAssessmentService(
       throw err;
     }
 
-    const organization = await getOrganizationById(orgId);
-    const baseRound = roundFamilyName(roundName || payload.round_name || "");
-
     const latestAssessment = await findAssessmentForUpdate(
       connection,
       candidateId,
@@ -1287,107 +1284,26 @@ async function saveRecruitmentAssessmentService(
       payload,
     );
 
-    const interviewerIds = Array.isArray(payload.interviewer_ids)
-      ? payload.interviewer_ids.filter(Boolean)
-      : [];
+    let assessmentId = latestAssessment?.id;
 
-    let interviewerName = "TBA";
+    if (!assessmentId) {
+      const baseRound = roundFamilyName(roundName || payload.round_name || "");
 
-    if (interviewerIds.length) {
-      const ids = interviewerIds;
-
-      const [rows] = await connection.query(
-        `
-      SELECT
-        employee_id,
-        CONCAT_WS(' ', first_name, last_name) AS name
-      FROM employees
-      WHERE org_id = ?
-        AND employee_id IN (?)
-    `,
-        [orgId, ids],
-      );
-
-      interviewerName = rows.map((r) => r.name).join(", ");
-    }
-
-    const interviewDate = normalizeDateTime(
-      payload.interview_date || latestAssessment?.interview_date || null,
-    );
-
-    const interviewLink =
-      emptyToNull(payload.interview_link) ??
-      latestAssessment?.interview_link ??
-      null;
-
-    const sendInterviewEmail = payload.hasOwnProperty("send_interview_email")
-      ? Number(toBool(payload.send_interview_email) ? 1 : 0)
-      : 0;
-
-    // Build defaults, but allow overrides from payload (email_subject/email_body)
-    let { emailSubject, emailBody } = buildEmailDefaults({
-      candidate,
-      roundName: baseRound,
-      interviewerName,
-      interviewDate,
-      interviewLink,
-      organization,
-    });
-    if (payload.email_subject) emailSubject = payload.email_subject;
-    if (payload.email_body) emailBody = payload.email_body;
-
-    const score = emptyToNull(payload.score);
-    const decision =
-      emptyToNull(payload.decision) ?? emptyToNull(payload.status);
-
-    const feedback = emptyToNull(payload.feedback);
-
-    let result;
-    let assessmentId;
-
-    if (latestAssessment) {
-      assessmentId = latestAssessment.id;
-
-      [result] = await connection.query(UPDATE_RECRUITMENT_ASSESSMENT, [
-        interviewDate,
-        interviewLink,
-        sendInterviewEmail,
-        emailBody,
-        emailSubject,
-        latestAssessment.id,
-        orgId,
-      ]);
-      if (interviewerIds.length) {
-        await connection.query(
-          `DELETE FROM recruitment_assessment_interviewers
-       WHERE assessment_id=?`,
-          [assessmentId],
-        );
-
-        for (const interviewerId of interviewerIds) {
-          await connection.query(
-            `
-        INSERT INTO recruitment_assessment_interviewers
-        (
-            assessment_id,
-            interviewer_id
-        )
-        VALUES (?,?)
-        `,
-            [assessmentId, interviewerId],
-          );
-        }
+      if (!baseRound) {
+        const err = new Error("Round name is required");
+        err.code = "ROUND_REQUIRED";
+        throw err;
       }
-    } else {
-      [result] = await connection.query(INSERT_RECRUITMENT_ASSESSMENT, [
+
+      const [result] = await connection.query(INSERT_RECRUITMENT_ASSESSMENT, [
         candidateId,
         orgId,
         baseRound,
-        interviewDate,
-        interviewLink,
-        sendInterviewEmail,
-        emailBody,
-        emailSubject,
+        null,
+        null,
+        0,
+        null,
+        null,
       ]);
 
       assessmentId = result.insertId;
@@ -1395,62 +1311,51 @@ async function saveRecruitmentAssessmentService(
 
     const interviewerKey = emptyToNull(payload.interviewer_id);
 
-    if (interviewerKey) {
-      const [existingFeedback] = await connection.query(
-        GET_ASSESSMENT_FEEDBACK_BY_INTERVIEWER,
-        [assessmentId, interviewerKey],
-      );
+    if (!interviewerKey) {
+      const err = new Error("interviewer_id is required");
+      err.code = "INTERVIEWER_REQUIRED";
+      throw err;
+    }
 
-      if (existingFeedback.length) {
-        await connection.query(UPDATE_ASSESSMENT_FEEDBACK, [
-          score,
-          decision,
-          feedback,
-          assessmentId,
-          interviewerKey,
-        ]);
-      } else {
-        await connection.query(INSERT_ASSESSMENT_FEEDBACK, [
-          assessmentId,
-          candidateId,
-          orgId,
-          interviewerKey,
-          score,
-          decision,
-          feedback,
-        ]);
-      }
+    const score = emptyToNull(payload.score);
+
+    const decision =
+      emptyToNull(payload.decision) ?? emptyToNull(payload.status);
+
+    const feedback = emptyToNull(payload.feedback);
+
+    const [existingFeedback] = await connection.query(
+      GET_ASSESSMENT_FEEDBACK_BY_INTERVIEWER,
+      [assessmentId, interviewerKey],
+    );
+
+    if (existingFeedback.length) {
+      await connection.query(UPDATE_ASSESSMENT_FEEDBACK, [
+        score,
+        decision,
+        feedback,
+        assessmentId,
+        interviewerKey,
+      ]);
+    } else {
+      await connection.query(INSERT_ASSESSMENT_FEEDBACK, [
+        assessmentId,
+        candidateId,
+        orgId,
+        interviewerKey,
+        score,
+        decision,
+        feedback,
+      ]);
     }
 
     await connection.commit();
 
-    if (sendInterviewEmail && candidate.email) {
-      try {
-        await sendWithRetries({
-          sender: {
-            email: process.env.BREVO_SENDER_EMAIL,
-            name:
-              organization?.name || process.env.PLATFORM_NAME || "PULSEWORK",
-          },
-          to: [
-            {
-              email: candidate.email,
-              name: candidate.name,
-            },
-          ],
-          subject: emailSubject,
-          htmlContent: buildEmailHtml(emailBody),
-          textContent: emailBody,
-        });
-      } catch (mailErr) {
-        console.error(
-          "Assessment email send failed:",
-          mailErr?.response?.body || mailErr,
-        );
-      }
-    }
-
-    return result;
+    return {
+      affectedRows: 1,
+      assessmentId,
+      interviewerId: interviewerKey,
+    };
   } catch (error) {
     await connection.rollback();
     throw error;
