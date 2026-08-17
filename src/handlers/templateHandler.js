@@ -203,14 +203,70 @@ async function uploadScanHandler(req, res) {
   const qrFile = req.files && req.files.qr && req.files.qr[0];
   const sealFile = req.files && req.files.seal && req.files.seal[0];
 
-  if (
-    !headerFile &&
-    !bodyFile &&
-    !footerFile &&
-    !watermarkFile &&
-    !qrFile &&
-    !sealFile
-  ) {
+  let existingTemplate = null;
+  let existingMeta = {};
+  let existingUploads = {};
+
+  if (templateId) {
+    try {
+      console.log(`\n🔄 EDIT MODE`);
+      console.log(`   Template ID: ${templateId}`);
+      console.log(`   Org ID: ${orgId}`);
+
+      existingTemplate = await templateService.getTemplateById(
+        orgId,
+        templateId,
+      );
+
+      if (!existingTemplate) {
+        return res.status(404).json({
+          error: "Template not found",
+        });
+      }
+
+      if (existingTemplate.meta) {
+        try {
+          existingMeta =
+            typeof existingTemplate.meta === "string"
+              ? JSON.parse(existingTemplate.meta)
+              : existingTemplate.meta;
+
+          existingUploads = existingMeta?.uploads || {};
+
+          console.log("\n📦 EXISTING TEMPLATE META:");
+          console.log(JSON.stringify(existingMeta, null, 2));
+
+          console.log("\n📦 EXISTING TEMPLATE UPLOADS:");
+          console.log(JSON.stringify(existingUploads, null, 2));
+        } catch (metaErr) {
+          console.error("❌ Failed to parse existing template meta:", metaErr);
+
+          existingMeta = {};
+          existingUploads = {};
+        }
+      }
+
+      console.log("📦 Existing uploads:");
+      console.log(JSON.stringify(existingUploads, null, 2));
+    } catch (err) {
+      console.error("❌ Failed to load existing template:", err);
+
+      return res.status(500).json({
+        error: "Failed to load existing template",
+        details: err.message,
+      });
+    }
+  }
+
+  const hasNewUpload =
+    !!headerFile ||
+    !!bodyFile ||
+    !!footerFile ||
+    !!watermarkFile ||
+    !!qrFile ||
+    !!sealFile;
+
+  if (!templateId && !hasNewUpload) {
     return res.status(400).json({
       error:
         "At least one image (header, body, footer, watermark, qr or seal) is required",
@@ -358,86 +414,170 @@ async function uploadScanHandler(req, res) {
       const built = buildSimpleTemplateHtml(
         orgId,
         templateFolderName,
-        headerName,
-        footerName,
+        headerName || existingUploads?.header
+          ? (headerName || existingUploads.header).split("/").pop()
+          : null,
+        footerName || existingUploads?.footer
+          ? (footerName || existingUploads.footer).split("/").pop()
+          : null,
         watermarkUrlForGrapes,
         watermarkPlacement,
         headerProps,
         footerProps,
       );
+
       grapesJsonBuilt = built.grapesJson;
       htmlBuilt = built.html;
       thumbnailName = built.thumbnailName || thumbnailName;
     }
 
-    const finalHtml = incomingHtml || htmlBuilt;
-    const finalLayout = Array.isArray(incomingLayout) ? incomingLayout : null;
+    // ---------------------------------------------------------
+    // FORCE EXISTING UPLOAD URLS INTO GRAPES JSON
+    // ---------------------------------------------------------
+    // This prevents an edit operation from accidentally removing
+    // footer/header/watermark URLs when the frontend sends a
+    // partial grapes_json object.
 
-    let existingUploads = {};
-
-    if (templateId) {
-      try {
-        const existingTemplate = await templateService.getTemplateById(
-          orgId,
-          templateId,
-        );
-
-        if (existingTemplate?.meta) {
-          const existingMeta =
-            typeof existingTemplate.meta === "string"
-              ? JSON.parse(existingTemplate.meta)
-              : existingTemplate.meta;
-
-          existingUploads = existingMeta?.uploads || {};
-        }
-
-        console.log("Existing uploads:", existingUploads);
-      } catch (err) {
-        console.warn("Failed to load existing template uploads:", err);
+    try {
+      if (!grapesJsonBuilt || typeof grapesJsonBuilt !== "object") {
+        grapesJsonBuilt = {
+          id: `scan-${Date.now()}`,
+          components: [],
+        };
       }
+
+      // HEADER
+      if (uploadedUrls.header) {
+        grapesJsonBuilt.headerUrl = uploadedUrls.header;
+      }
+
+      // FOOTER
+      if (uploadedUrls.footer) {
+        grapesJsonBuilt.footerUrl = uploadedUrls.footer;
+      }
+
+      // QR
+      if (uploadedUrls.qr) {
+        grapesJsonBuilt.qrUrl = uploadedUrls.qr;
+      }
+
+      // SEAL
+      if (uploadedUrls.seal) {
+        grapesJsonBuilt.sealUrl = uploadedUrls.seal;
+      }
+
+      // WATERMARK
+      if (uploadedUrls.watermark) {
+        grapesJsonBuilt.watermark = grapesJsonBuilt.watermark || {};
+
+        grapesJsonBuilt.watermark.url = uploadedUrls.watermark;
+
+        if (watermarkPlacement) {
+          grapesJsonBuilt.watermark.xPct =
+            watermarkPlacement.xPct || grapesJsonBuilt.watermark.xPct || "50%";
+
+          grapesJsonBuilt.watermark.yPct =
+            watermarkPlacement.yPct || grapesJsonBuilt.watermark.yPct || "50%";
+
+          grapesJsonBuilt.watermark.wPct =
+            watermarkPlacement.wPct || grapesJsonBuilt.watermark.wPct || "60%";
+
+          grapesJsonBuilt.watermark.hPct =
+            watermarkPlacement.hPct || grapesJsonBuilt.watermark.hPct || "60%";
+
+          if (typeof watermarkPlacement.opacity === "number") {
+            grapesJsonBuilt.watermark.opacity = watermarkPlacement.opacity;
+          }
+        }
+      }
+
+      console.log("\n🔒 GRAPES JSON PROTECTED UPLOADS:");
+      console.log("   headerUrl:", grapesJsonBuilt.headerUrl);
+      console.log("   footerUrl:", grapesJsonBuilt.footerUrl);
+      console.log("   qrUrl:", grapesJsonBuilt.qrUrl);
+      console.log("   sealUrl:", grapesJsonBuilt.sealUrl);
+      console.log("   watermark:", grapesJsonBuilt.watermark?.url || null);
+      console.log("============================================\n");
+    } catch (err) {
+      console.warn("Failed to protect upload URLs in grapes_json:", err);
     }
 
-    if (req.body.existingUploads) {
+    const finalHtml = incomingHtml || htmlBuilt;
+    let finalLayout = Array.isArray(incomingLayout) ? incomingLayout : null;
+
+    if (req.body && req.body.existingUploads) {
       try {
         const clientUploads =
           typeof req.body.existingUploads === "string"
             ? JSON.parse(req.body.existingUploads)
             : req.body.existingUploads;
 
-        existingUploads = {
-          ...existingUploads,
-          ...clientUploads,
-        };
+        if (clientUploads && typeof clientUploads === "object") {
+          existingUploads = {
+            ...existingUploads,
+
+            // Only overwrite if the client actually has a value.
+            ...(clientUploads.header ? { header: clientUploads.header } : {}),
+
+            ...(clientUploads.body ? { body: clientUploads.body } : {}),
+
+            ...(clientUploads.footer ? { footer: clientUploads.footer } : {}),
+
+            ...(clientUploads.watermark
+              ? { watermark: clientUploads.watermark }
+              : {}),
+
+            ...(clientUploads.qr ? { qr: clientUploads.qr } : {}),
+
+            ...(clientUploads.seal ? { seal: clientUploads.seal } : {}),
+          };
+        }
       } catch (err) {
         console.warn("Failed to parse existingUploads from request:", err);
       }
     }
 
+    console.log("📦 EXISTING UPLOADS AFTER CLIENT MERGE:");
+    console.log(JSON.stringify(existingUploads, null, 2));
+
     const uploadedUrls = {
       header: headerName
         ? `/api/orgs/${orgId}/uploads/${headerName}`
-        : existingUploads.header || null,
+        : existingUploads?.header || null,
 
       body: bodyName
         ? `/api/orgs/${orgId}/uploads/${bodyName}`
-        : existingUploads.body || null,
+        : existingUploads?.body || null,
 
       footer: footerName
         ? `/api/orgs/${orgId}/uploads/${footerName}`
-        : existingUploads.footer || null,
+        : existingUploads?.footer || null,
 
       watermark: watermarkName
         ? `/api/orgs/${orgId}/uploads/${watermarkName}`
-        : existingUploads.watermark || null,
+        : existingUploads?.watermark || null,
 
       qr: qrName
         ? `/api/orgs/${orgId}/uploads/${qrName}`
-        : existingUploads.qr || null,
+        : existingUploads?.qr || null,
 
       seal: sealName
         ? `/api/orgs/${orgId}/uploads/${sealName}`
-        : existingUploads.seal || null,
+        : existingUploads?.seal || null,
     };
+
+    console.log(
+      "\n================ FINAL UPLOAD URL RESOLUTION ================",
+    );
+    console.log("Header:", uploadedUrls.header);
+    console.log("Body:", uploadedUrls.body);
+    console.log("Footer:", uploadedUrls.footer);
+    console.log("Watermark:", uploadedUrls.watermark);
+    console.log("QR:", uploadedUrls.qr);
+    console.log("Seal:", uploadedUrls.seal);
+    console.log(
+      "=============================================================\n",
+    );
 
     console.log("Final uploadedUrls:", uploadedUrls);
 
@@ -599,18 +739,31 @@ async function uploadScanHandler(req, res) {
 
     const metaObj = {
       bodyType,
-      watermark: !!watermarkName || incomingWatermarkFlag,
-      watermarkPlacement: watermarkPlacement || null,
-      headerProps: headerProps || null,
-      footerProps: footerProps || null,
+
+      // Preserve watermark state during edit
+      watermark:
+        !!uploadedUrls.watermark || !!watermarkName || incomingWatermarkFlag,
+
+      watermarkPlacement:
+        watermarkPlacement || existingMeta?.watermarkPlacement || null,
+
+      headerProps: headerProps || existingMeta?.headerProps || null,
+
+      footerProps: footerProps || existingMeta?.footerProps || null,
+
       uploads: {
+        // NEVER lose existing uploads during edit
         header: uploadedUrls.header || null,
+        body: uploadedUrls.body || null,
         footer: uploadedUrls.footer || null,
         watermark: uploadedUrls.watermark || null,
         qr: uploadedUrls.qr || null,
         seal: uploadedUrls.seal || null,
       },
     };
+
+    console.log("\n💾 FINAL META BEFORE SAVE:");
+    console.log(JSON.stringify(metaObj, null, 2));
 
     const savePayload = {
       name: nameFromClient,
