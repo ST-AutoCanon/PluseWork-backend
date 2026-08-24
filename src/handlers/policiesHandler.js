@@ -8,6 +8,26 @@ function getOrgId(req) {
     null
   );
 }
+const getPolicyAssignmentsHandler = async (req, res) => {
+  try {
+    const orgId = getOrgId(req);
+    const { policyId } = req.params;
+
+    if (!orgId || !policyId) {
+      return res.status(400).json({ success: false, message: "Missing orgId or policyId" });
+    }
+
+    const data = await policyService.getPolicyAssignments(orgId, policyId);
+
+    return res.status(200).json({
+      success: true,
+      data,
+    });
+  } catch (err) {
+    console.error("Get Policy Assignments Error:", err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
 const replacePolicyFileHandler = async (req, res) => {
   try {
     const orgId = getOrgId(req);
@@ -223,5 +243,5 @@ module.exports = {
   updatePolicyHandler,
   deletePolicyFileHandler,
   deletePolicyHandler,
-  updatePolicyFileAcknowledgementHandler,replacePolicyFileHandler,
+  updatePolicyFileAcknowledgementHandler,replacePolicyFileHandler,getPolicyAssignmentsHandler,
 };

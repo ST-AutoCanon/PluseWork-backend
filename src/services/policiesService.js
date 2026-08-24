@@ -361,42 +361,60 @@ async function updatePolicy(orgId, policyId, data) {
   if (!orgId) throw new Error("orgId required");
   if (!policyId) throw new Error("policyId required");
 
+  const employeeIds = Array.isArray(data.employeeIds) ? data.employeeIds : [];
+  const departmentIds = Array.isArray(data.departmentIds) ? data.departmentIds : [];
+  const assignToAll = normalizeBoolean(data.assign_to_all);
+
   const tenantPool = await getTenantPoolForOrgId(orgId);
   const conn = await tenantPool.getConnection();
 
   try {
     await conn.beginTransaction();
 
-    const [policy] = await conn.query(queries.GET_POLICY_BY_ID, [
+    const [policy] = await conn.query(queries.GET_POLICY_BY_ID, [policyId, orgId]);
+    if (!policy.length) throw new Error("Policy not found");
+
+    // 1. Update policy row
+    await conn.query(queries.UPDATE_POLICY, [
+      data.policy_name,
+      data.description ?? null,
+      normalizeBoolean(data.allow_view),
+      normalizeBoolean(data.allow_download),
+      assignToAll,
       policyId,
       orgId,
     ]);
 
-    if (!policy.length) {
-      throw new Error("Policy not found");
+    // 2. Always clear old assignments
+    await conn.query(queries.DELETE_POLICY_ASSIGNMENTS, [policyId]);
+
+    // 3. Re-insert new assignments (only when NOT assign_to_all)
+    if (!assignToAll) {
+      for (const employeeId of employeeIds) {
+        await conn.query(queries.INSERT_POLICY_ASSIGNMENT, [
+          policyId,
+          employeeId,
+          null,
+          null,
+          null,
+          "employee",
+        ]);
+      }
+
+      for (const departmentId of departmentIds) {
+        await conn.query(queries.INSERT_POLICY_ASSIGNMENT, [
+          policyId,
+          null,
+          null,
+          departmentId,
+          null,
+          "department",
+        ]);
+      }
     }
 
-    // Now 7 values
-    await conn.query(queries.UPDATE_POLICY, [
-      data.policy_name,                              // 1
-      data.description ?? null,                      // 2
-      normalizeBoolean(data.allow_view),             // 3
-      normalizeBoolean(data.allow_download),         // 4
-      normalizeBoolean(data.assign_to_all),          // 5  ← ADD
-      policyId,                                      // 6
-      orgId,                                         // 7
-    ]);
-
-    // Optional: if you want to fully support changing assignments on edit,
-    // clear old assignments and re-insert here when assign_to_all === 0.
-    // For now this is enough to fix permissions + assign_to_all.
-
     await conn.commit();
-
-    return {
-      success: true,
-      message: "Policy updated successfully",
-    };
+    return { success: true, message: "Policy updated successfully" };
   } catch (err) {
     await conn.rollback();
     throw err;
@@ -404,7 +422,46 @@ async function updatePolicy(orgId, policyId, data) {
     conn.release();
   }
 }
+async function getPolicyAssignments(orgId, policyId) {
+  if (!orgId || !policyId) throw new Error("orgId and policyId required");
+
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+
+  // Optional safety: make sure the policy belongs to this org
+  const [policy] = await tenantPool.query(queries.GET_POLICY_BY_ID, [policyId, orgId]);
+  if (!policy.length) throw new Error("Policy not found");
+
+  const [rows] = await tenantPool.query(queries.GET_POLICY_ASSIGNMENTS, [policyId]);
+
+  const employees = [];
+  const departments = [];
+  let assign_to_all = 0;
+
+  for (const row of rows) {
+    if (row.assignment_type === "all") {
+      assign_to_all = 1;
+    } else if (row.employee_id) {
+      employees.push({
+        employee_id: row.employee_id,
+        full_name: row.employee_name || `Employee ${row.employee_id}`,
+      });
+    } else if (row.department_id) {
+      departments.push({
+        id: row.department_id,
+        name: row.department_name || `Department ${row.department_id}`,
+      });
+    }
+  }
+
+  // Also respect the flag on the policy itself
+  if (policy[0].assign_to_all === 1) {
+    assign_to_all = 1;
+  }
+
+  return { employees, departments, assign_to_all };
+}
 /**
+ * 
  * Get All Policies
  */
 async function getPolicies(orgId) {
@@ -670,5 +727,5 @@ module.exports = {
   updatePolicy,
   deletePolicyFile,
   deletePolicy,
-  updatePolicyFileAcknowledgement,replacePolicyFile,   // ← NEW
+  updatePolicyFileAcknowledgement,replacePolicyFile,getPolicyAssignments,   // ← NEW
 };
