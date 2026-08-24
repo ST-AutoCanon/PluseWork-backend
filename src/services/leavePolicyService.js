@@ -42,6 +42,59 @@ function parseLocalDate(dateInput) {
   return null;
 }
 
+function resolveEffectivePolicyStart(policyStart, employeeJoinDate) {
+  const policyStartDate = parseLocalDate(policyStart);
+  const joinDate = parseLocalDate(employeeJoinDate);
+
+  if (!policyStartDate) return null;
+  if (!joinDate) return policyStartDate;
+
+  return joinDate > policyStartDate ? joinDate : policyStartDate;
+}
+
+function getPolicyWindowDays(policyStart, policyEnd) {
+  const start = parseLocalDate(policyStart);
+  const end = parseLocalDate(policyEnd);
+  if (!start || !end) return 0;
+  const diffMs = end.getTime() - start.getTime();
+  if (diffMs < 0) return 0;
+  return Math.floor(diffMs / (1000 * 60 * 60 * 24)) + 1;
+}
+
+function calculateProratedAllowance(
+  annualAllowance,
+  policyStart,
+  policyEnd,
+  employeeJoinDate,
+) {
+  const annual = Number(annualAllowance || 0);
+  if (!Number.isFinite(annual) || annual <= 0) return 0;
+
+  const start = parseLocalDate(policyStart);
+  const end = parseLocalDate(policyEnd);
+  if (!start || !end || end < start) return annual;
+
+  const joinDate = parseLocalDate(employeeJoinDate);
+  const effectiveStart = joinDate && joinDate > start ? joinDate : start;
+  if (effectiveStart > end) return 0;
+
+  const fullWindow = getPolicyWindowDays(policyStart, policyEnd);
+  const eligibleWindow = getPolicyWindowDays(effectiveStart, end);
+
+  if (fullWindow <= 0 || eligibleWindow <= 0) return 0;
+  return Number(((annual * eligibleWindow) / fullWindow).toFixed(2));
+}
+
+async function getEmployeeJoiningDate(employeeId, orgId) {
+  if (!employeeId) return null;
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  const [rows] = await tenantPool.execute(
+    `SELECT joining_date FROM employee_professional WHERE employee_id = ? LIMIT 1`,
+    [employeeId],
+  );
+  return rows && rows[0] ? rows[0].joining_date : null;
+}
+
 /**
  * Wrapper to obtain tenant pool for the given orgId.
  * Uses tenantPoolManager.getTenantPoolByOrgId which should handle db name sanitization internally.
@@ -591,6 +644,14 @@ const getLeaveBalance = async (employeeId, orgId) => {
     .slice()
     .sort((a, b) => new Date(b.year_start) - new Date(a.year_start))[0];
   if (!active) return [];
+
+  const employeeJoiningDate = await getEmployeeJoiningDate(employeeId, orgId);
+  const effectivePolicyStart = resolveEffectivePolicyStart(
+    active.year_start,
+    employeeJoiningDate,
+  );
+  const policyStartForCalculation = effectivePolicyStart || active.year_start;
+
   const now = new Date();
   const upToDate =
     now > new Date(active.year_end)
@@ -598,7 +659,7 @@ const getLeaveBalance = async (employeeId, orgId) => {
       : now.toISOString().split("T")[0];
   const workedDays = await getWorkedDays(
     employeeId,
-    active.year_start,
+    policyStartForCalculation,
     upToDate,
     orgId,
   );
@@ -630,6 +691,15 @@ const getLeaveBalance = async (employeeId, orgId) => {
         ? Math.min(Number(employeeCarry || 0), policyCarryAllowed)
         : 0;
     const annual = Number(setting.value || 0);
+    const proratedAnnual =
+      typeKey === "earned"
+        ? annual
+        : calculateProratedAllowance(
+            annual,
+            active.year_start,
+            active.year_end,
+            employeeJoiningDate,
+          );
     const earnedFromAttendance =
       typeKey === "earned"
         ? (() => {
@@ -638,7 +708,7 @@ const getLeaveBalance = async (employeeId, orgId) => {
             ).toLowerCase();
             const daysForEarned =
               method === "policy"
-                ? countDaysExcludingSundays(active.year_start, upToDate)
+                ? countDaysExcludingSundays(policyStartForCalculation, upToDate)
                 : workedDays;
             return computeEarnedLeavesFromWorked(
               daysForEarned,
@@ -648,13 +718,14 @@ const getLeaveBalance = async (employeeId, orgId) => {
           })()
         : 0;
     const allowance =
-      (typeKey === "earned" ? earnedFromAttendance : annual) + carryForward;
+      (typeKey === "earned" ? earnedFromAttendance : proratedAnnual) +
+      carryForward;
     const remaining = Math.max(allowance - used, 0);
     const loss_of_pay = Math.max(used - allowance, 0);
     return {
       type: setting.type,
       enabled: !!setting.enabled,
-      annual_allowance: annual,
+      annual_allowance: proratedAnnual,
       earned: earnedFromAttendance,
       carry_forward: carryForward,
       allowance,
@@ -792,6 +863,9 @@ module.exports = {
   computeEarnedLeavesFromWorked,
   getEmployeeCarryForwards,
   autoExtendRecentPolicies,
-  // export helper in case handlers want to use defaults directly
+  parseLocalDate,
+  resolveEffectivePolicyStart,
+  getPolicyWindowDays,
+  calculateProratedAllowance,
   buildDefaultSettingsFromLeaveTypes,
 };
