@@ -1353,4 +1353,123 @@ CREATE TABLE recruitment_assessment_interviewers (
   CONSTRAINT recruitment_assessment_interviewers_ibfk_1 FOREIGN KEY (assessment_id) REFERENCES recruitment_assessments (id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS employee_requests (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 
+    request_code VARCHAR(40) NOT NULL,
+
+    org_id INT UNSIGNED NOT NULL,
+
+    employee_id VARCHAR(20) NOT NULL,
+
+    request_type VARCHAR(50) NOT NULL,
+
+    title VARCHAR(255) NOT NULL,
+
+    thread_id INT DEFAULT NULL,
+
+    current_status VARCHAR(50) NOT NULL DEFAULT 'SUBMITTED',
+
+    current_stage VARCHAR(50) NOT NULL DEFAULT 'SUPERVISOR_APPROVAL',
+
+    current_assignee_id VARCHAR(20) DEFAULT NULL,
+
+    current_assignee_role VARCHAR(50) DEFAULT NULL,
+
+    details_json JSON DEFAULT NULL,
+
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        ON UPDATE CURRENT_TIMESTAMP,
+
+    completed_at DATETIME DEFAULT NULL,
+
+    PRIMARY KEY (id),
+
+    UNIQUE KEY uq_employee_request_code
+        (org_id, request_code),
+
+    KEY idx_employee_requests_employee
+        (org_id, employee_id),
+
+    KEY idx_employee_requests_status
+        (org_id, current_status),
+
+    KEY idx_employee_requests_assignee
+        (org_id, current_assignee_id),
+
+    KEY idx_employee_requests_type
+        (org_id, request_type),
+
+    KEY idx_employee_requests_thread
+        (thread_id),
+
+    CONSTRAINT fk_employee_request_thread
+        FOREIGN KEY (thread_id)
+        REFERENCES threads(id)
+        ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS employee_request_events (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+
+    request_id BIGINT UNSIGNED NOT NULL,
+
+    event_type VARCHAR(80) NOT NULL,
+
+    stage VARCHAR(50) DEFAULT NULL,
+
+    actor_id VARCHAR(20) DEFAULT NULL,
+
+    actor_role VARCHAR(50) DEFAULT NULL,
+
+    message VARCHAR(1000) DEFAULT NULL,
+
+    metadata JSON DEFAULT NULL,
+
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+
+    KEY idx_request_events_request
+        (request_id),
+
+    KEY idx_request_events_created
+        (request_id, created_at),
+
+    CONSTRAINT fk_request_events_request
+        FOREIGN KEY (request_id)
+        REFERENCES employee_requests(id)
+        ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS employee_request_attachments (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+
+    request_id BIGINT UNSIGNED NOT NULL,
+
+    uploaded_by VARCHAR(20) NOT NULL,
+
+    file_name VARCHAR(512) NOT NULL,
+
+    file_path VARCHAR(1024) NOT NULL,
+
+    mime_type VARCHAR(128) DEFAULT NULL,
+
+    file_size BIGINT DEFAULT 0,
+
+    purpose VARCHAR(100) DEFAULT NULL,
+
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+
+    KEY idx_request_attachments_request
+        (request_id),
+
+    CONSTRAINT fk_request_attachments_request
+        FOREIGN KEY (request_id)
+        REFERENCES employee_requests(id)
+        ON DELETE CASCADE
+);
