@@ -36,6 +36,7 @@ const orgWorkHoursRoutes = require("./routes/orgWorkHours.routes");
 const customerRoutes = require("./routes/customerRoutes");
 const { createSessionStore, _initPromise } = require("./lib/sessionStore");
 const EmployeeQueries = require("./services/employeeQueries");
+const employeeRequestRoutes = require("./routes/employeeRequestRoutes");
 const chatService = require("./services/chatService");
 const apiKeyMiddleware = require("./middleware/apiKeyMiddleware");
 const idleTimeout = require("./middleware/idleTimeout");
@@ -181,7 +182,7 @@ app.use((req, res, next) => {
       "/uploads",
       express.static(path.join(__dirname, "../../AssetUploads")),
     );
-     app.use(
+    app.use(
       "/policiesuploads",
       express.static(path.join(__dirname, "../../policiesuploads")),
     );
@@ -346,7 +347,7 @@ app.use((req, res, next) => {
     app.use("/", meRoute);
     app.use("/", leaveRoutes);
     app.use("/api/leave-policies", leavePolicy);
-    
+
     app.use("/", leavePolicy);
     const LeavePolicyHandler = require("./handlers/leavePolicyHandler");
     app.get("/api/leave-policies", (req, res, next) => {
@@ -366,6 +367,7 @@ app.use((req, res, next) => {
     app.use("/api", notificationsRouter);
     app.use("/api/orgs", require("./routes/templateRoutes"));
     app.use("/", employeeQueries);
+    app.use("/", employeeRequestRoutes);
     app.use("/", resetPasswordRoutes);
     app.use("/", forgotPasswordRoutes);
     app.use("/", addDepartmentRoutes);
@@ -439,7 +441,7 @@ app.use((req, res, next) => {
     app.use("/api/compensations", compensationRoutes);
     app.use("/api/office-locations", officeLocationRoutes);
     app.use("/api/office-location-employees", officeEmployeeRoutes);
-    
+
     app.use("/api/policies", employeePoliciesRoutes);
     app.use("/api", policiesRoutes);
     app.get("/", (req, res) => res.send("Employee Face Recognition API"));
@@ -469,6 +471,10 @@ app.use((req, res, next) => {
       },
       path: "/api/socket.io",
     });
+
+    app.set("io", io);
+
+    io.engine.use(sessionMiddleware);
 
     io.use((socket, next) => {
       try {
