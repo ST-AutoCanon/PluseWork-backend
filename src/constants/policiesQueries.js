@@ -83,7 +83,21 @@ UPDATE_POLICY_FILE_REPLACE: `
   // ===========================
   // POLICY FILES
   // ===========================
+DELETE_POLICY_ASSIGNMENTS: `
+  DELETE FROM policy_assignments
+  WHERE policy_id = ?
+`,
 
+GET_POLICY_ASSIGNMENTS: `
+  SELECT 
+    employee_id,
+    employee_name,
+    department_id,
+    department_name,
+    assignment_type
+  FROM policy_assignments
+  WHERE policy_id = ?
+`,
   INSERT_POLICY_FILE: `
     INSERT INTO policy_files (
       policy_id,

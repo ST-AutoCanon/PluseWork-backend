@@ -10,7 +10,7 @@ const {
   downloadPolicyFileHandler,
   updatePolicyHandler,
   deletePolicyFileHandler,
-  deletePolicyHandler,updatePolicyFileAcknowledgementHandler,replacePolicyFileHandler
+  deletePolicyHandler,updatePolicyFileAcknowledgementHandler,replacePolicyFileHandler,getPolicyAssignmentsHandler,
 } = require("../handlers/policiesHandler");
 
 const router = express.Router();
@@ -147,5 +147,5 @@ router.put("/policies/update/:policyId", updatePolicyHandler);
 router.put("/policies/file/:fileId", updatePolicyFileAcknowledgementHandler);
 router.delete("/policies/file/:fileId", deletePolicyFileHandler);
 router.delete("/policies/:policyId", deletePolicyHandler);
-
+router.get("/policies/assignments/:policyId", getPolicyAssignmentsHandler);
 module.exports = router;
