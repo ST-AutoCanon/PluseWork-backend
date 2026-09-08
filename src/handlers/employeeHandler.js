@@ -77,6 +77,28 @@ const mapUploadedFilesToData = (req, data) => {
     return Array.from(new Set(mapped));
   };
 
+  const mergeUrlFieldWithUploads = (field, uploadField) => {
+    const uploaded = multiple(uploadField);
+    if (!uploaded) return;
+
+    const existing = data[field];
+    let existingUrls = [];
+    if (Array.isArray(existing)) {
+      existingUrls = existing.filter(Boolean).map(String);
+    } else if (typeof existing === "string" && existing.trim()) {
+      try {
+        const parsed = JSON.parse(existing);
+        existingUrls = Array.isArray(parsed)
+          ? parsed.filter(Boolean).map(String)
+          : [existing.trim()];
+      } catch {
+        existingUrls = [existing.trim()];
+      }
+    }
+
+    data[field] = Array.from(new Set([...existingUrls, ...uploaded]));
+  };
+
   data.photo_url = multiple("photo") || data.photo_url;
   data.aadhaar_doc_url = multiple("aadhaar_doc") || data.aadhaar_doc_url;
   data.pan_doc_url = multiple("pan_doc") || data.pan_doc_url;
@@ -85,18 +107,12 @@ const mapUploadedFilesToData = (req, data) => {
     multiple("driving_license_doc") || data.driving_license_doc_url;
   data.voter_id_doc_url = multiple("voter_id_doc") || data.voter_id_doc_url;
 
-  data.spouse_gov_doc_url =
-    multiple("spouse_gov_doc") || data.spouse_gov_doc_url;
-  data.father_gov_doc_url =
-    multiple("father_gov_doc") || data.father_gov_doc_url;
-  data.mother_gov_doc_url =
-    multiple("mother_gov_doc") || data.mother_gov_doc_url;
-  data.child1_gov_doc_url =
-    multiple("child1_gov_doc") || data.child1_gov_doc_url;
-  data.child2_gov_doc_url =
-    multiple("child2_gov_doc") || data.child2_gov_doc_url;
-  data.child3_gov_doc_url =
-    multiple("child3_gov_doc") || data.child3_gov_doc_url;
+  mergeUrlFieldWithUploads("spouse_gov_doc_url", "spouse_gov_doc");
+  mergeUrlFieldWithUploads("father_gov_doc_url", "father_gov_doc");
+  mergeUrlFieldWithUploads("mother_gov_doc_url", "mother_gov_doc");
+  mergeUrlFieldWithUploads("child1_gov_doc_url", "child1_gov_doc");
+  mergeUrlFieldWithUploads("child2_gov_doc_url", "child2_gov_doc");
+  mergeUrlFieldWithUploads("child3_gov_doc_url", "child3_gov_doc");
 
   data.resume_url = multiple("resume") || data.resume_url;
   data.other_docs_urls = multiple("other_docs") || data.other_docs_urls;
