@@ -1,3 +1,11 @@
+
+console.log("========== SMTP CONFIG ==========");
+console.log("SMTP_HOST:", process.env.SMTP_HOST);
+console.log("SMTP_PORT:", process.env.SMTP_PORT);
+console.log("SMTP_SECURE:", process.env.SMTP_SECURE);
+console.log("SMTP_USER:", process.env.SMTP_USER ? "SET" : "NOT SET");
+console.log("SMTP_PASS:", process.env.SMTP_PASS ? "SET" : "NOT SET");
+console.log("=================================");
 const nodemailer = require("nodemailer");
 
 const transporter = nodemailer.createTransport({

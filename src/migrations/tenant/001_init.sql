@@ -1046,6 +1046,24 @@ CREATE TABLE IF NOT EXISTS vendors (
   org_id int NOT NULL DEFAULT '1',
   PRIMARY KEY (vendor_id)
 );
+CREATE TABLE IF NOT EXISTS vendor_registration_invites (
+  invite_id int NOT NULL AUTO_INCREMENT,
+  token_hash char(64) NOT NULL,
+  vendor_name varchar(255) NOT NULL,
+  username varchar(255) DEFAULT NULL,
+  password_hash varchar(255) DEFAULT NULL,
+  org_id int NOT NULL,
+  expires_at datetime NOT NULL,
+  used_at datetime DEFAULT NULL,
+  submission_data json DEFAULT NULL,
+  submitted_at datetime DEFAULT NULL,
+  status varchar(20) NOT NULL DEFAULT 'sent',
+  created_by varchar(50) DEFAULT NULL,
+  created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (invite_id),
+  UNIQUE KEY uq_vendor_registration_token (token_hash),
+  KEY idx_vendor_registration_expiry (expires_at)
+);
 
 CREATE TABLE IF NOT EXISTS weekly_tasks (
   task_id int NOT NULL AUTO_INCREMENT,

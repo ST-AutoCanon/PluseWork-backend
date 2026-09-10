@@ -120,6 +120,8 @@ const allowedOrigins = [
   "https://sukalpatechsolutions.com",
   "https://sts-test.site",
   "https://sukalpatest.sts-test.site",
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
   "http://localhost:3001",
   "http://127.0.0.1:3001",
   "http://192.168.1.2:3001",

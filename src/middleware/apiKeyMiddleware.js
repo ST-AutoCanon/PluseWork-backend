@@ -10,6 +10,8 @@ const PUBLIC_PATHS = [
   "/vapidPublicKey",
   "/subscribe",
   "/check-subscription",
+  "/vendors/public-registration",
+  "/vendors/public-registration/login",
   "/health",
   "/favicon.ico",
   "/api/socket.io",

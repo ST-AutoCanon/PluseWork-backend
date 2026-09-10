@@ -3,7 +3,7 @@ const router = express.Router();
 const simpleAuth = require("../middleware/simpleAuth");
 const chatHandler = require("../handlers/chatHandler");
 
-router.use(simpleAuth);
+router.use(["/rooms", "/ChatUploads"], simpleAuth);
 
 router.post("/rooms", chatHandler.createRoom);
 router.get("/rooms", chatHandler.listRooms);
