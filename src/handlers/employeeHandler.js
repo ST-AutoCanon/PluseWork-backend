@@ -22,6 +22,13 @@ const getWebPath = (fullPath) => {
 const mapUploadedFilesToData = (req, data) => {
   if (!req.files) return;
 
+  const uploadedFileFields = new Set();
+  const setUploadedUrls = (fileField, urlField, urls) => {
+    if (!urls || !urls.length) return;
+    data[urlField] = urls;
+    uploadedFileFields.add(urlField);
+  };
+
   const filesByField = Array.isArray(req.files)
     ? req.files.reduce((acc, f) => {
         const raw = String(f.fieldname || "");
@@ -77,29 +84,30 @@ const mapUploadedFilesToData = (req, data) => {
     return Array.from(new Set(mapped));
   };
 
-  data.photo_url = multiple("photo") || data.photo_url;
-  data.aadhaar_doc_url = multiple("aadhaar_doc") || data.aadhaar_doc_url;
-  data.pan_doc_url = multiple("pan_doc") || data.pan_doc_url;
-  data.passport_doc_url = multiple("passport_doc") || data.passport_doc_url;
-  data.driving_license_doc_url =
-    multiple("driving_license_doc") || data.driving_license_doc_url;
-  data.voter_id_doc_url = multiple("voter_id_doc") || data.voter_id_doc_url;
+  [
+    ["photo", "photo_url"],
+    ["aadhaar_doc", "aadhaar_doc_url"],
+    ["pan_doc", "pan_doc_url"],
+    ["passport_doc", "passport_doc_url"],
+    ["driving_license_doc", "driving_license_doc_url"],
+    ["voter_id_doc", "voter_id_doc_url"],
+    ["spouse_gov_doc", "spouse_gov_doc_url"],
+    ["father_gov_doc", "father_gov_doc_url"],
+    ["mother_gov_doc", "mother_gov_doc_url"],
+    ["child1_gov_doc", "child1_gov_doc_url"],
+    ["child2_gov_doc", "child2_gov_doc_url"],
+    ["child3_gov_doc", "child3_gov_doc_url"],
+    ["tenth_cert", "tenth_cert_url"],
+    ["twelfth_cert", "twelfth_cert_url"],
+    ["ug_cert", "ug_cert_url"],
+    ["pg_cert", "pg_cert_url"],
+    ["resume", "resume_url"],
+    ["other_docs", "other_docs_urls"],
+  ].forEach(([fileField, urlField]) => {
+    setUploadedUrls(fileField, urlField, multiple(fileField));
+  });
 
-  data.spouse_gov_doc_url =
-    multiple("spouse_gov_doc") || data.spouse_gov_doc_url;
-  data.father_gov_doc_url =
-    multiple("father_gov_doc") || data.father_gov_doc_url;
-  data.mother_gov_doc_url =
-    multiple("mother_gov_doc") || data.mother_gov_doc_url;
-  data.child1_gov_doc_url =
-    multiple("child1_gov_doc") || data.child1_gov_doc_url;
-  data.child2_gov_doc_url =
-    multiple("child2_gov_doc") || data.child2_gov_doc_url;
-  data.child3_gov_doc_url =
-    multiple("child3_gov_doc") || data.child3_gov_doc_url;
-
-  data.resume_url = multiple("resume") || data.resume_url;
-  data.other_docs_urls = multiple("other_docs") || data.other_docs_urls;
+  data._uploadedFileFields = Array.from(uploadedFileFields);
 
   try {
     console.debug(
