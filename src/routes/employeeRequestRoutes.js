@@ -84,6 +84,7 @@ router.post(
 router.post("/requests/:requestId/complete", handler.complete);
 
 router.post("/requests/:requestId/cancel", handler.cancel);
+router.post("/requests/:requestId/asset-process", handler.processAsset);
 router.get("/guest-houses", handler.getGuestHouses);
 
 module.exports = router;
