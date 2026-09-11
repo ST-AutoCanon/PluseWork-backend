@@ -349,6 +349,21 @@ exports.cancel = async (req, res) => {
   }
 };
 
+exports.processAsset = async (req, res) => {
+  try {
+    const result = await EmployeeRequestService.processAssetRequest(
+      resolveOrgId(req),
+      req.params.requestId,
+      resolveEmployeeId(req),
+      req.app.get("io"),
+    );
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error("[EmployeeRequest] processAsset:", error);
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
 exports.getGuestHouses = async (req, res) => {
   try {
     const orgId = req.headers["x-org-id"];
