@@ -1,5 +1,6 @@
 const queries = require("../constants/employeeRequestQueries");
 const { getTenantPool, sanitizeDbName } = require("../db/tenantPoolManager");
+const assetService = require("./assetsService");
 
 async function getTenantPoolForOrgId(orgId) {
   if (!orgId) {
@@ -1080,6 +1081,89 @@ async function cancelRequest(orgId, requestId, actorId, io = null) {
   }
 }
 
+async function processAssetRequest(orgId, requestId, actorId, io = null) {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  const conn = await tenantPool.getConnection();
+
+  try {
+    await conn.beginTransaction();
+
+    const request = await getRequestForUpdate(conn, orgId, requestId);
+    if (!request) throw new Error("Request not found");
+    if (String(request.current_assignee_id) !== String(actorId)) {
+      throw new Error("You are not assigned this request.");
+    }
+    if (request.request_type !== "ASSET_REQUEST") {
+      throw new Error("This is not an asset request.");
+    }
+    if (request.current_status !== "PENDING_ADMIN_ACTION") {
+      throw new Error("This asset request is not ready for processing.");
+    }
+
+    const details =
+      typeof request.details_json === "string"
+        ? JSON.parse(request.details_json || "{}")
+        : request.details_json || {};
+
+    const employee = await getEmployeeInfo(conn, request.employee_id);
+    const asset = await assetService.addAsset(orgId, {
+      asset_name: details.itemName,
+      configuration: details.configuration || details.additionalInfo || "",
+      valuation_date: details.requiredDate || new Date(),
+      assigned_to: [
+        {
+          name: employee?.employee_name || request.employee_id,
+          employeeId: request.employee_id,
+          startDate: new Date().toISOString().slice(0, 10),
+          returnDate: null,
+          comments: details.reason || "Created from employee asset request.",
+          status: "Assigned",
+        },
+      ],
+      category: details.category || "Others",
+      sub_category: details.subCategory || details.requestType || "Others",
+      status: "In Use",
+      document_path: null,
+    });
+
+    await conn.execute(queries.UPDATE_REQUEST_TO_COMPLETED, [requestId]);
+    await conn.execute(queries.CLOSE_THREAD_AFTER_COMPLETION, [
+      actorId,
+      request.thread_id,
+    ]);
+    await addEvent(
+      conn,
+      requestId,
+      "ASSET_REGISTERED",
+      "COMPLETED",
+      actorId,
+      "Admin",
+      `Asset ${asset.asset_id} assigned to ${request.employee_id}.`,
+      { assetId: asset.asset_id, assetCode: asset.asset_code },
+    );
+    await addNotification(
+      conn,
+      request.employee_id,
+      `${request.request_code} has been processed and assigned to you.`,
+    );
+
+    await conn.commit();
+
+    if (io) {
+      io.to(`user_${request.employee_id}`).emit("employeeRequestUpdated", {
+        requestId,
+      });
+    }
+
+    return getRequestDetail(orgId, requestId, actorId);
+  } catch (error) {
+    await conn.rollback();
+    throw error;
+  } finally {
+    conn.release();
+  }
+}
+
 async function sendPendingRequestReminders() {
   const [orgRows] = await require("../config").query(queries.GET_ALL_ORG_IDS);
   let sent = 0;
@@ -1132,4 +1216,5 @@ module.exports = {
   sendPendingRequestReminders,
   getGuestHouses,
   getSalaryAdvanceContext,
+  processAssetRequest,
 };
