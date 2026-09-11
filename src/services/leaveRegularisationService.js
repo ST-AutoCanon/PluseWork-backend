@@ -136,8 +136,33 @@ function hasPunchIn(rows) {
   return rows.some((r) => !!r.punchin_time);
 }
 
+function isAutomaticPunchOut(row) {
+  const punchMode = normalizeText(row.punchmode);
+  const punchOutDevice = normalizeText(row.punchout_device);
+  const punchOutLocation = normalizeText(row.punchout_location);
+
+  return (
+    punchMode === "automatic" ||
+    punchOutDevice === "automatic" ||
+    punchOutLocation === "automatic"
+  );
+}
+
 function hasPunchOut(rows) {
-  return rows.some((r) => !!r.punchout_time);
+  return rows.some((r) => !!r.punchout_time && !isAutomaticPunchOut(r));
+}
+
+function hasMissedPunchOut(rows) {
+  return rows.some((r) => {
+    const hasPunchInRecord = normalizeText(r.punch_status) === "punch in";
+    const hasAutomaticPunchOut = !!r.punchout_time && isAutomaticPunchOut(r);
+
+    return (
+      hasPunchInRecord ||
+      hasAutomaticPunchOut ||
+      (!!r.punchin_time && !r.punchout_time)
+    );
+  });
 }
 
 function hasAutomaticMode(rows) {
@@ -426,7 +451,7 @@ function evaluateDateForReason(
   const punchOut = hasPunchOut(rows);
 
   if (reason === "missed_punch_out") {
-    return hasRows && !punchOut;
+    return hasMissedPunchOut(rows);
   }
 
   if (reason === "late_login") {

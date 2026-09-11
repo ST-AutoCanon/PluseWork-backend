@@ -12,6 +12,10 @@ router.get("/requests/mine", handler.getMine);
 
 router.get("/requests/pending", handler.getPending);
 
+router.get("/requests/travel-operations", handler.getTravelOperations);
+
+router.get("/requests/salary-advance-context", handler.getSalaryAdvanceContext);
+
 // ---------------------------------------------------------
 // Attachment download
 // IMPORTANT: keep this BEFORE /requests/:requestId
@@ -78,5 +82,9 @@ router.post(
 );
 
 router.post("/requests/:requestId/complete", handler.complete);
+
+router.post("/requests/:requestId/cancel", handler.cancel);
+router.post("/requests/:requestId/asset-process", handler.processAsset);
+router.get("/guest-houses", handler.getGuestHouses);
 
 module.exports = router;

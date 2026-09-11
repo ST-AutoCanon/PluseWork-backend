@@ -14,6 +14,16 @@
   suffix INT
 );
 
+CREATE TABLE IF NOT EXISTS guest_houses (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  org_id INT UNSIGNED NOT NULL,
+  name VARCHAR(150) NOT NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_guest_house_org_name (org_id, name),
+  INDEX idx_guest_house_org_active (org_id, is_active)
+);
+
 CREATE TABLE IF NOT EXISTS employee_personal (
   employee_id VARCHAR(20) PRIMARY KEY,
   address TEXT,
