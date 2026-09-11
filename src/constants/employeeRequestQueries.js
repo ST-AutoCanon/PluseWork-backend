@@ -15,6 +15,7 @@ module.exports = {
       ) AS employee_name,
       ep.role,
       ep.department_id,
+      ep.salary,
 
       COALESCE(
         (
@@ -88,6 +89,24 @@ module.exports = {
 
     ORDER BY e.employee_id
 
+    LIMIT 1
+  `,
+
+  GET_ACTIVE_EMPLOYEE_BY_ROLE: `
+    SELECT
+      ep.employee_id,
+      CONCAT(
+        COALESCE(e.first_name, ''),
+        ' ',
+        COALESCE(e.last_name, '')
+      ) AS employee_name,
+      ep.role
+    FROM employee_professional ep
+    JOIN employees e ON e.employee_id = ep.employee_id
+    WHERE LOWER(REPLACE(ep.role, ' ', '')) LIKE CONCAT(LOWER(REPLACE(?, ' ', '')), '%')
+      AND e.org_id = ?
+      AND e.status = 'Active'
+    ORDER BY e.employee_id
     LIMIT 1
   `,
 
@@ -306,6 +325,21 @@ module.exports = {
     ORDER BY r.updated_at DESC
   `,
 
+  GET_TRAVEL_OPERATIONS: `
+    SELECT
+      r.*,
+      CONCAT(
+        COALESCE(e.first_name, ''),
+        ' ',
+        COALESCE(e.last_name, '')
+      ) AS employee_name
+    FROM employee_requests r
+    JOIN employees e ON e.employee_id = r.employee_id
+    WHERE r.org_id = ?
+      AND r.request_type = 'TRAVEL_BOOKING'
+    ORDER BY r.updated_at DESC
+  `,
+
   GET_REQUEST_DETAIL: `
     SELECT
       r.*,
@@ -373,6 +407,26 @@ module.exports = {
     WHERE id = ?
   `,
 
+  UPDATE_REQUEST_ASSIGNEE: `
+    UPDATE employee_requests
+    SET
+      current_status = 'PENDING_APPROVAL',
+      current_stage = ?,
+      current_assignee_id = ?,
+      current_assignee_role = ?
+    WHERE id = ?
+  `,
+
+  UPDATE_REQUEST_TO_TRAVEL_DESK: `
+    UPDATE employee_requests
+    SET
+      current_status = 'PENDING_ADMIN_ACTION',
+      current_stage = 'TRAVEL_DESK_ACTION',
+      current_assignee_id = ?,
+      current_assignee_role = ?
+    WHERE id = ?
+  `,
+
   UPDATE_REQUEST_TO_BOOKED: `
     UPDATE employee_requests
     SET
@@ -404,6 +458,42 @@ module.exports = {
       current_assignee_role = NULL,
       completed_at = NOW()
     WHERE id = ?
+  `,
+
+  UPDATE_REQUEST_TO_CANCELLED: `
+    UPDATE employee_requests
+    SET
+      current_status = 'CANCELLED',
+      current_stage = 'COMPLETED',
+      current_assignee_id = NULL,
+      current_assignee_role = NULL,
+      completed_at = NOW()
+    WHERE id = ?
+  `,
+
+  CANCEL_THREAD: `
+    UPDATE threads
+    SET
+      status = 'closed',
+      latest_message = ?,
+      updated_at = NOW(),
+      closed_by = ?,
+      closed_at = NOW()
+    WHERE id = ? AND status <> 'closed'
+  `,
+
+  GET_REMINDER_REQUESTS: `
+    SELECT id, request_code, title, employee_id, current_assignee_id
+    FROM employee_requests
+    WHERE org_id = ?
+      AND current_status IN ('PENDING_APPROVAL', 'PENDING_ADMIN_ACTION')
+      AND updated_at <= DATE_SUB(NOW(), INTERVAL 1 DAY)
+  `,
+
+  GET_ALL_ORG_IDS: `
+    SELECT id
+    FROM organizations
+    WHERE db_name IS NOT NULL AND db_name <> ''
   `,
 
   // =========================================================
@@ -499,5 +589,17 @@ module.exports = {
       ?,
       ?
     )
+  `,
+
+  ADD_EMPLOYEE_ADVANCE: `
+    INSERT INTO employee_advance_details
+    (
+      employee_id,
+      advance_amount,
+      recovery_months,
+      applicable_months,
+      created_at
+    )
+    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
   `,
 };

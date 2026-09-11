@@ -161,6 +161,35 @@ exports.getPending = async (req, res) => {
   }
 };
 
+exports.getTravelOperations = async (req, res) => {
+  try {
+    const rows = await EmployeeRequestService.getTravelOperations(
+      resolveOrgId(req),
+      resolveEmployeeId(req),
+    );
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    console.error("[EmployeeRequest] getTravelOperations:", error);
+    res.status(403).json({ success: false, message: error.message });
+  }
+};
+
+exports.getSalaryAdvanceContext = async (req, res) => {
+  try {
+    const orgId = resolveOrgId(req);
+    const employeeId = resolveEmployeeId(req);
+    const context = await EmployeeRequestService.getSalaryAdvanceContext(
+      orgId,
+      employeeId,
+    );
+
+    res.json({ success: true, data: context });
+  } catch (error) {
+    console.error("[EmployeeRequest] getSalaryAdvanceContext:", error);
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
 exports.getDetail = async (req, res) => {
   try {
     const orgId = resolveOrgId(req);
@@ -301,6 +330,40 @@ exports.complete = async (req, res) => {
     res.status(400).json({
       success: false,
       message: error.message,
+    });
+  }
+};
+
+exports.cancel = async (req, res) => {
+  try {
+    const result = await EmployeeRequestService.cancelRequest(
+      resolveOrgId(req),
+      req.params.requestId,
+      resolveEmployeeId(req),
+      req.app.get("io"),
+    );
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error("[EmployeeRequest] cancel:", error);
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+exports.getGuestHouses = async (req, res) => {
+  try {
+    const orgId = req.headers["x-org-id"];
+
+    if (!orgId) {
+      return res.status(400).json({ error: "x-org-id header is required" });
+    }
+
+    const guestHouses = await EmployeeRequestService.getGuestHouses(orgId);
+    res.json({ data: guestHouses });
+  } catch (err) {
+    console.error("getGuestHouses error:", err.message || err);
+    res.status(500).json({
+      error: "Failed to fetch guest houses",
+      details: err.sqlMessage || err.message,
     });
   }
 };
