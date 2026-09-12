@@ -535,6 +535,18 @@ exports.editFullEmployee = async (data) => {
       return existing[field];
     };
 
+    const mergeExistingUrls = (existingValue, incomingValue) => {
+      const existingUrls = toUrlArray(existingValue);
+      const incomingUrls = toUrlArray(incomingValue);
+      return Array.from(new Set([...existingUrls, ...incomingUrls]));
+    };
+
+    const uploadedFileFields = new Set(data._uploadedFileFields || []);
+    const resolveDocumentUrls = (field, incomingValue) =>
+      uploadedFileFields.has(field)
+        ? toUrlArray(incomingValue)
+        : mergeExistingUrls(existing[field], incomingValue);
+
     if (hasKey("resume_url") && typeof data.resume_url === "string") {
       const parsed = tryParseJSON(data.resume_url);
       if (Array.isArray(parsed)) data.resume_url = parsed;
@@ -573,8 +585,23 @@ exports.editFullEmployee = async (data) => {
       "child3_gov_doc_url",
     ];
 
+    const educationFileFields = [
+      "tenth_cert_url",
+      "twelfth_cert_url",
+      "ug_cert_url",
+      "pg_cert_url",
+    ];
+
     for (const field of personalFileFields) {
       if (!hasKey(field)) continue;
+      data[field] = resolveDocumentUrls(field, data[field]);
+      const removed = diffUrls(existing[field], data[field]);
+      if (removed.length) deleteFilesByUrlsMixed(removed);
+    }
+
+    for (const field of educationFileFields) {
+      if (!hasKey(field)) continue;
+      data[field] = resolveDocumentUrls(field, data[field]);
       const removed = diffUrls(existing[field], data[field]);
       if (removed.length) deleteFilesByUrlsMixed(removed);
     }
@@ -737,10 +764,11 @@ exports.editFullEmployee = async (data) => {
     await conn.execute(queries.UPDATE_EMPLOYEE_PERSONAL, personalParams);
 
     const resolveCertValue = (dbKey, altKeys = []) => {
+      const existingValue = existing[dbKey];
       for (const k of [dbKey, ...altKeys]) {
-        if (hasKey(k)) return data[k];
+        if (hasKey(k)) return resolveDocumentUrls(dbKey, data[k]);
       }
-      return existing[dbKey];
+      return existingValue;
     };
 
     await conn.execute(queries.UPDATE_EMPLOYEE_EDU, [

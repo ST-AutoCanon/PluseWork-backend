@@ -114,7 +114,7 @@ app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 
 const allowedOrigins = [
-  process.env.FRONTEND_URL,
+   process.env.FRONTEND_URL,
   "https://localhost",
   "capacitor://localhost",
   "https://sukalpatechsolutions.com",
@@ -126,6 +126,7 @@ const allowedOrigins = [
   "http://122.166.77.12:3001",
   "https://test.sts-test.online",
 ].filter(Boolean);
+
 
 app.use((req, res, next) => {
   const origin = req.headers.origin;
