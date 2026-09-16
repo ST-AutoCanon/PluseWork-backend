@@ -8,6 +8,7 @@ const {
   getPolicyFileHandler,
   viewEmployeePolicyFileHandler,
   saveAcknowledgementHandler,
+  saveReadCompletionHandler,
   getEmployeePolicyHistoryHandler,
 } = require("../handlers/employeePoliciesHandler");
 
@@ -56,6 +57,8 @@ router.post(
   "/employee-policy/acknowledgement",
   saveAcknowledgementHandler
 );
+
+router.post("/employee-policy/read", saveReadCompletionHandler);
 
 router.get(
   "/employee-policy/history",

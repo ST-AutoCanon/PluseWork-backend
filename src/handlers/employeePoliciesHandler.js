@@ -310,6 +310,24 @@ const saveAcknowledgementHandler = async (req, res) => {
   }
 };
 
+const saveReadCompletionHandler = async (req, res) => {
+  const orgId = getOrgIdFromHeaders(req);
+  const employeeId = getEmployeeIdFromHeaders(req);
+  const { policyId, policyFileId } = req.body;
+
+  if (!orgId || !employeeId || !policyId || !policyFileId) {
+    return res.status(400).json({ success: false, message: "org, employee, policy and file are required" });
+  }
+
+  try {
+    await employeePoliciesService.saveReadCompletion(orgId, employeeId, policyId, policyFileId);
+    return res.status(200).json({ success: true, message: "Read status saved" });
+  } catch (error) {
+    console.error("Error saving read status:", error);
+    return res.status(500).json({ success: false, message: "Failed to save read status" });
+  }
+};
+
 /* ==========================================================
    Employee Acknowledgement History
 ========================================================== */
@@ -363,5 +381,6 @@ module.exports = {
   getPolicyFilesHandler,
   getPolicyFileHandler,
   saveAcknowledgementHandler,
+  saveReadCompletionHandler,
   getEmployeePolicyHistoryHandler,viewEmployeePolicyFileHandler,
 };
