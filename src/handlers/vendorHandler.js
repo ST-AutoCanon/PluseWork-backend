@@ -119,6 +119,186 @@ const addVendorHandler = async (req, res) => {
   }
 };
 
+const sendVendorRegistrationInviteHandler = async (req, res) => {
+  const orgId = getOrgIdFromHeaders(req);
+  const { vendorName, recipientEmail, subject, body } = req.body || {};
+  if (!orgId || !vendorName || !recipientEmail || !subject || !body) {
+    return res.status(400).json({ message: "Vendor name, recipient email, subject and body are required" });
+  }
+  try {
+    const result = await vendorService.sendRegistrationInvite({
+      vendorName: vendorName.trim(),
+      recipientEmail: recipientEmail.trim(),
+      subject: subject.trim(),
+      body: body.trim(),
+      orgId,
+      createdBy: req.headers["x-employee-id"],
+    });
+    res.status(201).json({ success: true, message: "Registration email sent", expiresAt: result.expiresAt });
+  } catch (error) {
+    console.error("Error sending vendor registration invite:", error);
+    const providerError = error.response?.body || error.body || {};
+    const providerMessage = providerError.message || error.message;
+    const isUnauthorized =
+      providerError.code === "unauthorized" ||
+      providerError.code === "Unauthorized" ||
+      providerMessage?.toLowerCase() === "unauthorized";
+
+    if (error.code === "EDNS") {
+      return res.status(502).json({
+        message: "Email server hostname could not be resolved. Check SMTP_HOST in the backend .env file.",
+      });
+    }
+
+    if (isUnauthorized) {
+      const isIpRestriction = providerMessage?.toLowerCase().includes("ip");
+      return res.status(502).json({
+        message: isIpRestriction
+          ? "Brevo rejected this server IP. Remove the Brevo IP restriction or allow this server IP in Brevo API settings."
+          : "Brevo rejected the API credentials. Check BREVO_API_KEY and verify BREVO_SENDER_EMAIL in Brevo.",
+        providerCode: providerError.code || "unauthorized",
+      });
+    }
+
+    res.status(502).json({
+      message: providerMessage || "Failed to send registration email",
+    });
+  }
+};
+
+const loginPublicVendorRegistrationHandler = async (req, res) => {
+  const { token, orgId, username, password } = req.body || {};
+
+  console.log("[loginPublicVendorRegistration] incoming", {
+    hasToken: !!token,
+    orgId,
+    username,
+    hasPassword: !!password,
+  });
+
+  try {
+    const invite = await vendorService.authenticateRegistrationInvite({
+      token,
+      orgId,
+      username,
+      password,
+    });
+
+    if (!invite) {
+      console.warn("[loginPublicVendorRegistration] auth failed – invalid credentials");
+      return res.status(401).json({ message: "Invalid username or password" });
+    }
+
+    console.log("[loginPublicVendorRegistration] success", {
+      vendorName: invite.vendor_name,
+      expiresAt: invite.expires_at,
+    });
+
+    res.json({
+      success: true,
+      vendorName: invite.vendor_name,
+      expiresAt: invite.expires_at,
+    });
+  } catch (error) {
+    console.error("[loginPublicVendorRegistration] error", {
+      message: error.message,
+      code: error.code,
+      stack: error.stack,
+    });
+
+    if (error.code === "LEGACY_INVITE") {
+      return res.status(410).json({ message: error.message });
+    }
+    if (error.code === "ALREADY_SUBMITTED") {
+      return res.status(409).json({ message: error.message });
+    }
+    res.status(400).json({ message: "Registration link is invalid or expired" });
+  }
+};
+
+const getPublicVendorRegistrationHandler = async (req, res) => {
+  try {
+    const invite = await vendorService.getRegistrationInvite(req.query.token, req.query.orgId);
+    if (!invite) return res.status(410).json({ message: "Registration link is invalid or expired" });
+    res.json({ success: true, vendorName: invite.vendor_name, expiresAt: invite.expires_at });
+  } catch (error) {
+    if (error.code === "ALREADY_SUBMITTED") {
+      return res.status(409).json({ message: error.message });
+    }
+    console.error("Error validating vendor registration link:", error);
+    res.status(400).json({ message: "Registration link is invalid" });
+  }
+};
+
+const completePublicVendorRegistrationHandler = async (req, res) => {
+  const { token, orgId, username, password, ...data } = req.body || {};
+  try {
+    await vendorService.completeRegistration({ token, orgId, username, password, data });
+    res.status(201).json({ success: true, message: "Vendor registration submitted" });
+  } catch (error) {
+    if (error.message === "Registration link is invalid or expired") {
+      return res.status(410).json({ message: error.message });
+    }
+    if (error.code === "ALREADY_SUBMITTED") {
+      return res.status(409).json({ message: error.message });
+    }
+    if (error.code === "INVALID_VENDOR_DATA") {
+      return res.status(400).json({ message: error.message });
+    }
+    console.error("Error completing public vendor registration:", error);
+    res.status(500).json({ message: "Failed to submit vendor registration" });
+  }
+};
+
+const getPendingVendorRegistrationsHandler = async (req, res) => {
+  const orgId = getOrgIdFromHeaders(req);
+  if (!orgId) return res.status(400).json({ message: "org_id header is required" });
+  try {
+    const requests = await vendorService.getPendingRegistrations(orgId);
+    res.json({ success: true, data: requests });
+  } catch (error) {
+    console.error("Error fetching vendor registration requests:", error);
+    res.status(500).json({ message: "Failed to fetch vendor registration requests" });
+  }
+};
+
+const approveVendorRegistrationHandler = async (req, res) => {
+  const orgId = getOrgIdFromHeaders(req);
+  if (!orgId) return res.status(400).json({ message: "org_id header is required" });
+  try {
+    await vendorService.approveRegistration(req.params.id, orgId);
+    res.json({ success: true, message: "Vendor registration approved" });
+  } catch (error) {
+    console.error("Error approving vendor registration:", error);
+    const status = error.message === "Registration request not found" ? 404 : 500;
+    res.status(status).json({ message: error.message || "Failed to approve vendor registration" });
+  }
+};
+
+const rejectVendorRegistrationHandler = async (req, res) => {
+  const orgId = getOrgIdFromHeaders(req);
+  if (!orgId) return res.status(400).json({ message: "org_id header is required" });
+  try {
+    await vendorService.rejectRegistration(req.params.id, orgId);
+    res.json({ success: true, message: "Vendor registration rejected" });
+  } catch (error) {
+    const status = error.message === "Registration request not found" ? 404 : 500;
+    res.status(status).json({ message: error.message || "Failed to reject vendor registration" });
+  }
+};
+
+const sendVendorApprovalEmailHandler = async (req, res) => {
+  const orgId = getOrgIdFromHeaders(req);
+  if (!orgId) return res.status(400).json({ message: "org_id header is required" });
+  try {
+    await vendorService.sendApprovalEmail(req.params.id, orgId);
+    res.json({ success: true, message: "Approval email sent" });
+  } catch (error) {
+    console.error("Error sending vendor approval email:", error);
+    res.status(502).json({ message: error.message || "Failed to send approval email" });
+  }
+};
+
 const getAllVendorsHandler = async (req, res) => {
   const orgId = getOrgIdFromHeaders(req);
   if (!orgId) {
@@ -270,4 +450,12 @@ module.exports = {
   addVendorHandler,
   getAllVendorsHandler,
   updateVendorHandler,
+  sendVendorRegistrationInviteHandler,
+  loginPublicVendorRegistrationHandler,
+  getPublicVendorRegistrationHandler,
+  completePublicVendorRegistrationHandler,
+  getPendingVendorRegistrationsHandler,
+  approveVendorRegistrationHandler,
+  rejectVendorRegistrationHandler,
+  sendVendorApprovalEmailHandler,
 };

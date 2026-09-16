@@ -1,4 +1,5 @@
 const policyService = require("../services/policiesService");
+const employeePoliciesService = require("../services/employeePoliciesService");
 
 function getOrgId(req) {
   return (
@@ -28,6 +29,21 @@ const getPolicyAssignmentsHandler = async (req, res) => {
     return res.status(500).json({ success: false, message: err.message });
   }
 };
+const getPolicyReadingStatusHandler = async (req, res) => {
+  try {
+    const orgId = getOrgId(req);
+    const { policyId } = req.params;
+    if (!orgId || !policyId) {
+      return res.status(400).json({ success: false, message: "Missing orgId or policyId" });
+    }
+    const data = await employeePoliciesService.getPolicyReadingStatus(orgId, policyId);
+    return res.status(200).json({ success: true, data });
+  } catch (err) {
+    console.error("Get Policy Reading Status Error:", err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 const replacePolicyFileHandler = async (req, res) => {
   try {
     const orgId = getOrgId(req);
@@ -244,4 +260,5 @@ module.exports = {
   deletePolicyFileHandler,
   deletePolicyHandler,
   updatePolicyFileAcknowledgementHandler,replacePolicyFileHandler,getPolicyAssignmentsHandler,
+  getPolicyReadingStatusHandler,
 };

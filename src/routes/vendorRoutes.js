@@ -7,6 +7,14 @@ const {
   addVendorHandler,
   getAllVendorsHandler,
   updateVendorHandler,
+  sendVendorRegistrationInviteHandler,
+  loginPublicVendorRegistrationHandler,
+  getPublicVendorRegistrationHandler,
+  completePublicVendorRegistrationHandler,
+  getPendingVendorRegistrationsHandler,
+  approveVendorRegistrationHandler,
+  rejectVendorRegistrationHandler,
+  sendVendorApprovalEmailHandler,
 } = require("../handlers/vendorHandler");
 
 const router = express.Router();
@@ -61,6 +69,7 @@ const uploadFields = upload.fields([
   { name: "msme_certificate", maxCount: 1 },
   { name: "incorporation_certificate", maxCount: 1 },
 ]);
+const publicRegistrationUpload = upload.any();
 
 function mapVendorFilesToBody(req, res, next) {
   try {
@@ -70,10 +79,14 @@ function mapVendorFilesToBody(req, res, next) {
 
     if (!req.files) return next();
 
-    Object.entries(req.files).forEach(([field, files]) => {
-      if (!files || !files.length) return;
-      const filename = files[0].filename;
-      req.body[field] = `/vendors/${orgId}/${path.basename(filename)}`;
+    const files = Array.isArray(req.files)
+      ? req.files
+      : Object.entries(req.files).flatMap(([field, fieldFiles]) =>
+          (fieldFiles || []).map((file) => ({ ...file, fieldname: field }))
+        );
+
+    files.forEach((file) => {
+      req.body[file.fieldname] = `/vendors/${orgId}/${path.basename(file.filename)}`;
     });
 
     next();
@@ -89,11 +102,25 @@ router.post(
   addVendorHandler
 );
 router.get("/vendors/list", getAllVendorsHandler);
+router.get("/vendors/registration-requests", getPendingVendorRegistrationsHandler);
+router.post("/vendors/registration-requests/:id/approve", approveVendorRegistrationHandler);
+router.post("/vendors/registration-requests/:id/reject", rejectVendorRegistrationHandler);
+router.post("/vendors/registration-requests/:id/approval-email", sendVendorApprovalEmailHandler);
 router.put(
   "/vendors/update/:id",
   uploadFields,
   mapVendorFilesToBody,
   updateVendorHandler
+);
+
+router.post("/vendors/registration-invite", sendVendorRegistrationInviteHandler);
+router.post("/vendors/public-registration/login", loginPublicVendorRegistrationHandler);
+router.get("/vendors/public-registration", getPublicVendorRegistrationHandler);
+router.post(
+  "/vendors/public-registration",
+  publicRegistrationUpload,
+  mapVendorFilesToBody,
+  completePublicVendorRegistrationHandler
 );
 
 router.get("/vendors/download/:orgId/:filename", (req, res) => {

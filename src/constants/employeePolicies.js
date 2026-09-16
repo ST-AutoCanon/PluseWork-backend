@@ -33,7 +33,11 @@ SELECT
     CASE 
       WHEN pa.id IS NOT NULL AND pa.acknowledged = 1 THEN 1 
       ELSE 0 
-    END AS is_acknowledged
+        END AS is_acknowledged,
+        CASE
+            WHEN pa.id IS NOT NULL AND pa.read_completed = 1 THEN 1
+            ELSE 0
+        END AS is_read
 FROM policy_files pf
 INNER JOIN policies p
     ON pf.policy_id = p.id
@@ -88,6 +92,7 @@ const CHECK_ACKNOWLEDGEMENT = `
 SELECT
     id,
     acknowledged,
+    read_completed,
     acknowledged_at
 FROM policy_acknowledgements
 WHERE
@@ -97,6 +102,47 @@ AND
 AND
     policy_file_id = ?
 LIMIT 1;
+`;
+
+const SAVE_READ_COMPLETION = `
+UPDATE policy_acknowledgements
+SET
+    read_completed = 1,
+    read_at = COALESCE(read_at, CURRENT_TIMESTAMP)
+WHERE org_id = ? AND employee_id = ? AND policy_id = ? AND policy_file_id = ?;
+`;
+
+const GET_POLICY_READING_STATUS = `
+SELECT
+        e.employee_id,
+        CONCAT_WS(' ', e.first_name, e.last_name) AS employee_name,
+        COUNT(pf.id) AS total_files,
+        COUNT(CASE WHEN pa.read_completed = 1 THEN 1 END) AS read_files,
+        COUNT(CASE WHEN pf.acknowledgement_required = 1 THEN 1 END) AS required_ack_files,
+        COUNT(CASE WHEN pf.acknowledgement_required = 1 AND pa.acknowledged = 1 THEN 1 END) AS acknowledged_files
+FROM employees e
+JOIN (
+        SELECT DISTINCT pa.employee_id
+        FROM policy_assignments pa
+        WHERE pa.policy_id = ? AND pa.employee_id IS NOT NULL
+        UNION
+        SELECT e2.employee_id
+        FROM employees e2
+        JOIN employee_professional ep2 ON ep2.employee_id = e2.employee_id
+        JOIN policy_assignments pa2 ON pa2.policy_id = ? AND pa2.department_id = ep2.department_id
+        WHERE pa2.department_id IS NOT NULL
+        UNION
+        SELECT e3.employee_id
+        FROM employees e3
+        WHERE e3.status = 'Active' AND e3.org_id = ?
+            AND EXISTS (SELECT 1 FROM policies p3 WHERE p3.id = ? AND p3.assign_to_all = 1)
+) assigned ON assigned.employee_id = e.employee_id
+CROSS JOIN policy_files pf
+LEFT JOIN policy_acknowledgements pa
+    ON pa.policy_file_id = pf.id AND pa.employee_id = e.employee_id AND pa.org_id = ?
+WHERE pf.policy_id = ? AND e.org_id = ?
+GROUP BY e.employee_id, e.first_name, e.last_name
+ORDER BY employee_name ASC;
 `;
 
 const GET_EMPLOYEE_POLICY_HISTORY = `
@@ -124,5 +170,7 @@ module.exports = {
     GET_POLICY_FILE_BY_ID,
     SAVE_ACKNOWLEDGEMENT,
     CHECK_ACKNOWLEDGEMENT,
+    SAVE_READ_COMPLETION,
+    GET_POLICY_READING_STATUS,
     GET_EMPLOYEE_POLICY_HISTORY,
 };
