@@ -8,6 +8,8 @@ module.exports = {
       e.employee_id,
       e.org_id,
       e.status,
+      e.phone_number,
+      p.aadhaar_number,
       CONCAT(
         COALESCE(e.first_name, ''),
         ' ',
@@ -37,6 +39,9 @@ module.exports = {
 
     LEFT JOIN employee_professional ep
       ON ep.employee_id = e.employee_id
+
+    LEFT JOIN employee_personal p
+      ON p.employee_id = e.employee_id
 
     WHERE e.employee_id = ?
 
@@ -325,6 +330,40 @@ module.exports = {
     ORDER BY r.updated_at DESC
   `,
 
+  GET_ASSIGNED_REQUEST_HISTORY: `
+    SELECT
+      r.*,
+
+      CONCAT(
+        COALESCE(e.first_name, ''),
+        ' ',
+        COALESCE(e.last_name, '')
+      ) AS employee_name,
+
+      ep.role AS employee_role
+
+    FROM employee_requests r
+
+    JOIN employees e
+      ON e.employee_id = r.employee_id
+
+    LEFT JOIN employee_professional ep
+      ON ep.employee_id = e.employee_id
+
+    WHERE r.org_id = ?
+      AND (
+        r.current_assignee_id = ?
+        OR EXISTS (
+          SELECT 1
+          FROM employee_request_events ev
+          WHERE ev.request_id = r.id
+            AND ev.actor_id = ?
+        )
+      )
+
+    ORDER BY r.updated_at DESC
+  `,
+
   GET_TRAVEL_OPERATIONS: `
     SELECT
       r.*,
@@ -469,6 +508,15 @@ module.exports = {
       current_assignee_role = NULL,
       completed_at = NOW()
     WHERE id = ?
+  `,
+
+  UPDATE_TRAVEL_BOOKING_DRAFT: `
+    UPDATE employee_requests
+    SET details_json = ?
+    WHERE org_id = ?
+      AND id = ?
+      AND request_type = 'TRAVEL_BOOKING'
+      AND current_status = 'PENDING_ADMIN_ACTION'
   `,
 
   CANCEL_THREAD: `

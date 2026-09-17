@@ -41,9 +41,22 @@ function normalizedRole(role) {
     .replace(/[^a-z]/g, "");
 }
 
+function travelBandForRole(role) {
+  return [
+    "admin",
+    "director",
+    "manager",
+    "hr",
+    "finance",
+    "traveldesk",
+  ].includes(normalizedRole(role))
+    ? "UPPER"
+    : "LOWER";
+}
+
 function validateTravelDetails(details = {}) {
-  if (!details.cadreBand || !details.baseLocation || !details.travelLocation) {
-    throw new Error("Cadre band and travel locations are required.");
+  if (!details.baseLocation || !details.travelLocation) {
+    throw new Error("Travel locations are required.");
   }
 
   const distanceKm = Number(details.distanceKm);
@@ -109,6 +122,24 @@ async function getSalaryAdvanceContext(orgId, employeeId) {
     return {
       monthlyGrossSalary,
       maximumAdvance: monthlyGrossSalary * 3,
+    };
+  } finally {
+    conn.release();
+  }
+}
+
+async function getTravelContext(orgId, employeeId) {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  const conn = await tenantPool.getConnection();
+
+  try {
+    const employee = await getEmployeeInfo(conn, employeeId);
+    if (!employee) throw new Error("Employee not found");
+
+    return {
+      cadreBand: travelBandForRole(employee.role),
+      governmentId: employee.aadhaar_number || "",
+      mobileNumber: employee.phone_number || "",
     };
   } finally {
     conn.release();
@@ -200,10 +231,6 @@ async function createRequest({
   title,
   details,
 }) {
-  if (String(requestType).toUpperCase() === "TRAVEL_BOOKING") {
-    details = validateTravelDetails(details);
-  }
-
   const tenantPool = await getTenantPoolForOrgId(orgId);
 
   const conn = await tenantPool.getConnection();
@@ -219,6 +246,13 @@ async function createRequest({
 
     if (employee.status !== "Active") {
       throw new Error("Employee is inactive");
+    }
+
+    if (String(requestType).toUpperCase() === "TRAVEL_BOOKING") {
+      details = validateTravelDetails({
+        ...details,
+        cadreBand: travelBandForRole(employee.role),
+      });
     }
 
     const approver = await getNextApprover(conn, employee, orgId);
@@ -332,6 +366,18 @@ async function getPendingRequests(orgId, employeeId) {
   return rows;
 }
 
+async function getAssignedRequestHistory(orgId, employeeId) {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+
+  const [rows] = await tenantPool.query(queries.GET_ASSIGNED_REQUEST_HISTORY, [
+    orgId,
+    employeeId,
+    employeeId,
+  ]);
+
+  return rows;
+}
+
 async function getTravelOperations(orgId, employeeId) {
   const tenantPool = await getTenantPoolForOrgId(orgId);
   const conn = await tenantPool.getConnection();
@@ -391,6 +437,14 @@ async function getRequestDetail(orgId, requestId, actorId) {
     actorConn.release();
   }
 
+  const requesterConn = await tenantPool.getConnection();
+  let requester = null;
+  try {
+    requester = await getEmployeeInfo(requesterConn, request.employee_id);
+  } finally {
+    requesterConn.release();
+  }
+
   const operationalReader = ["traveldesk", "finance", "financeteam"].includes(
     normalizedRole(actor?.role),
   );
@@ -398,6 +452,7 @@ async function getRequestDetail(orgId, requestId, actorId) {
   const allowed =
     String(request.employee_id) === String(actorId) ||
     String(request.current_assignee_id) === String(actorId) ||
+    String(requester?.supervisor_id) === String(actorId) ||
     (admin && String(admin.employee_id) === String(actorId)) ||
     (operationalReader && request.request_type === "TRAVEL_BOOKING");
 
@@ -472,18 +527,55 @@ async function approveRequest(
       throw new Error("Request not found");
     }
 
-    if (String(request.current_assignee_id) !== String(actorId)) {
+    const actor = await getEmployeeInfo(conn, actorId);
+    if (!actor) {
+      throw new Error("Approver not found.");
+    }
+
+    const actorRole = normalizedRole(actor.role);
+    const isAdminApproval =
+      actorRole === "admin" &&
+      request.current_status === "PENDING_ADMIN_ACTION" &&
+      request.request_type !== "TRAVEL_BOOKING";
+
+    if (
+      !isAdminApproval &&
+      String(request.current_assignee_id) !== String(actorId)
+    ) {
       throw new Error("You are not the current approver for this request.");
+    }
+
+    if (isAdminApproval) {
+      await conn.execute(queries.UPDATE_REQUEST_TO_COMPLETED, [requestId]);
+      await conn.execute(queries.CLOSE_THREAD_AFTER_COMPLETION, [
+        actorId,
+        request.thread_id,
+      ]);
+      await addEvent(
+        conn,
+        requestId,
+        "ADMIN_APPROVED",
+        "COMPLETED",
+        actorId,
+        actor.role,
+        comment || "Request approved by Admin.",
+      );
+      await addNotification(
+        conn,
+        request.employee_id,
+        `${request.request_code} was approved by Admin.`,
+      );
+      await conn.commit();
+      if (io) {
+        io.to(`user_${request.employee_id}`).emit("employeeRequestUpdated", {
+          requestId,
+        });
+      }
+      return getRequestDetail(orgId, requestId, actorId);
     }
 
     if (request.current_status !== "PENDING_APPROVAL") {
       throw new Error("This request is no longer waiting for approval.");
-    }
-
-    const actor = await getEmployeeInfo(conn, actorId);
-
-    if (!actor) {
-      throw new Error("Approver not found.");
     }
 
     const details =
@@ -898,7 +990,7 @@ async function bookTravel(
     details = {
       ...details,
 
-      airline: booking.airline || "",
+      transportType: booking.transportType || booking.airline || "",
 
       pnr: booking.pnr || "",
 
@@ -933,7 +1025,7 @@ async function bookTravel(
       actor.role,
       "Travel tickets booked and e-ticket shared.",
       {
-        airline: booking.airline || "",
+        transportType: booking.transportType || booking.airline || "",
         pnr: booking.pnr || "",
         attachmentId,
       },
@@ -957,6 +1049,56 @@ async function bookTravel(
   } catch (error) {
     await conn.rollback();
     throw error;
+  } finally {
+    conn.release();
+  }
+}
+
+async function saveTravelBookingDraft(orgId, requestId, actorId, booking) {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  const conn = await tenantPool.getConnection();
+
+  try {
+    const request = await getRequestForUpdate(conn, orgId, requestId);
+    if (!request) throw new Error("Request not found");
+    if (request.request_type !== "TRAVEL_BOOKING") {
+      throw new Error("This is not a travel request.");
+    }
+    if (request.current_status !== "PENDING_ADMIN_ACTION") {
+      throw new Error("This travel request is not available for drafting.");
+    }
+
+    const actor = await getEmployeeInfo(conn, actorId);
+    const actorRole = normalizedRole(actor?.role);
+    if (
+      !["admin", "traveldesk", "finance", "financeteam"].includes(actorRole) ||
+      (actorRole !== "admin" &&
+        String(request.current_assignee_id) !== String(actorId))
+    ) {
+      throw new Error("You are not allowed to save this booking draft.");
+    }
+
+    const details =
+      typeof request.details_json === "string"
+        ? JSON.parse(request.details_json || "{}")
+        : request.details_json || {};
+
+    const nextDetails = {
+      ...details,
+      transportType: booking.transportType || booking.airline || "",
+      pnr: booking.pnr || "",
+      departureTime: booking.departureTime || "",
+      returnTime: booking.returnTime || "",
+      bookingMessage: booking.message || "",
+    };
+
+    await conn.execute(queries.UPDATE_TRAVEL_BOOKING_DRAFT, [
+      JSON.stringify(nextDetails),
+      orgId,
+      requestId,
+    ]);
+
+    return getRequestDetail(orgId, requestId, actorId);
   } finally {
     conn.release();
   }
@@ -1206,6 +1348,7 @@ module.exports = {
   createRequest,
   getRequestsForEmployee,
   getPendingRequests,
+  getAssignedRequestHistory,
   getTravelOperations,
   getRequestDetail,
   approveRequest,
@@ -1216,5 +1359,7 @@ module.exports = {
   sendPendingRequestReminders,
   getGuestHouses,
   getSalaryAdvanceContext,
+  getTravelContext,
+  saveTravelBookingDraft,
   processAssetRequest,
 };

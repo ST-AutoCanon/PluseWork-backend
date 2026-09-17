@@ -12,9 +12,13 @@ router.get("/requests/mine", handler.getMine);
 
 router.get("/requests/pending", handler.getPending);
 
+router.get("/requests/assigned-history", handler.getAssignedHistory);
+
 router.get("/requests/travel-operations", handler.getTravelOperations);
 
 router.get("/requests/salary-advance-context", handler.getSalaryAdvanceContext);
+
+router.get("/requests/travel-context", handler.getTravelContext);
 
 // ---------------------------------------------------------
 // Attachment download
@@ -80,6 +84,8 @@ router.post(
   handler.upload.single("e_ticket"),
   handler.bookTravel,
 );
+
+router.post("/requests/:requestId/book-draft", handler.saveTravelBookingDraft);
 
 router.post("/requests/:requestId/complete", handler.complete);
 
