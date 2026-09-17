@@ -161,6 +161,20 @@ exports.getPending = async (req, res) => {
   }
 };
 
+exports.getAssignedHistory = async (req, res) => {
+  try {
+    const rows = await EmployeeRequestService.getAssignedRequestHistory(
+      resolveOrgId(req),
+      resolveEmployeeId(req),
+    );
+
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    console.error("[EmployeeRequest] getAssignedHistory:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 exports.getTravelOperations = async (req, res) => {
   try {
     const rows = await EmployeeRequestService.getTravelOperations(
@@ -186,6 +200,20 @@ exports.getSalaryAdvanceContext = async (req, res) => {
     res.json({ success: true, data: context });
   } catch (error) {
     console.error("[EmployeeRequest] getSalaryAdvanceContext:", error);
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+exports.getTravelContext = async (req, res) => {
+  try {
+    const context = await EmployeeRequestService.getTravelContext(
+      resolveOrgId(req),
+      resolveEmployeeId(req),
+    );
+
+    res.json({ success: true, data: context });
+  } catch (error) {
+    console.error("[EmployeeRequest] getTravelContext:", error);
     res.status(400).json({ success: false, message: error.message });
   }
 };
@@ -304,6 +332,22 @@ exports.bookTravel = async (req, res) => {
       success: false,
       message: error.message,
     });
+  }
+};
+
+exports.saveTravelBookingDraft = async (req, res) => {
+  try {
+    const result = await EmployeeRequestService.saveTravelBookingDraft(
+      resolveOrgId(req),
+      req.params.requestId,
+      resolveEmployeeId(req),
+      req.body || {},
+    );
+
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error("[EmployeeRequest] saveTravelBookingDraft:", error);
+    res.status(400).json({ success: false, message: error.message });
   }
 };
 
