@@ -41,16 +41,16 @@
 
 // const EMP_ATTENDANCE_QUERIES = {
 //   GET_EMPLOYEE_ATTENDANCE: `
-//       SELECT 
-//         punch_id, 
-//         employee_id, 
-//         punch_status, 
-//         punchin_time, 
-//         punchin_device, 
-//         punchin_location, 
-//         punchout_time, 
-//         punchout_device, 
-//         punchout_location, 
+//       SELECT
+//         punch_id,
+//         employee_id,
+//         punch_status,
+//         punchin_time,
+//         punchin_device,
+//         punchin_location,
+//         punchout_time,
+//         punchout_device,
+//         punchout_location,
 //         punchmode
 //       FROM emp_attendence
 //       WHERE employee_id = ?
@@ -58,25 +58,25 @@
 //     `,
 
 //   ADD_PUNCH_IN: `
-//   INSERT INTO emp_attendence 
-//   (employee_id, punch_status, punchin_time, punchin_device, punchin_location, punchmode) 
+//   INSERT INTO emp_attendence
+//   (employee_id, punch_status, punchin_time, punchin_device, punchin_location, punchmode)
 //   VALUES (?, 'Punch In', NOW(), ?, ?, ?)
 // `,
 //   UPDATE_PUNCH_OUT: `
-//   UPDATE emp_attendence 
-//   SET 
+//   UPDATE emp_attendence
+//   SET
 //     punch_status = 'Punch Out',
-//     punchout_time = NOW(), 
-//     punchout_device = ?, 
-//     punchout_location = ?, 
+//     punchout_time = NOW(),
+//     punchout_device = ?,
+//     punchout_location = ?,
 //     punchmode = ?
 //   WHERE employee_id = ? AND punch_status = 'Punch In'
 //   ORDER BY punchin_time DESC
 //   LIMIT 1
 // `,
 //   GET_TODAY_ATTENDANCE: `
-//       SELECT 
-//         employee_id, 
+//       SELECT
+//         employee_id,
 //         COUNT(*) AS total_punches,
 //         SUM(CASE WHEN punch_status = 'Punch In' THEN 1 ELSE 0 END) AS total_punch_ins,
 //         SUM(CASE WHEN punch_status = 'Punch Out' THEN 1 ELSE 0 END) AS total_punch_outs
@@ -86,10 +86,10 @@
 //     `,
 
 //   GET_LAST_PUNCH_STATUS: `
-//       SELECT punch_status 
-//       FROM emp_attendence 
-//       WHERE employee_id = ? 
-//       ORDER BY punchin_time DESC 
+//       SELECT punch_status
+//       FROM emp_attendence
+//       WHERE employee_id = ?
+//       ORDER BY punchin_time DESC
 //       LIMIT 1
 //     `,
 
@@ -109,7 +109,7 @@
 //   GET_TODAY_PUNCH_RECORDS: `
 //   SELECT punch_status, punchin_time, punchout_time
 //   FROM emp_attendence
-//   WHERE employee_id = ? 
+//   WHERE employee_id = ?
 //   AND DATE(punchin_time) = CURDATE();
 // `,
 
@@ -119,7 +119,7 @@
 //     UNION ALL
 //     SELECT DATE_ADD(work_date, INTERVAL 1 DAY)
 //     FROM month_days
-//     WHERE work_date < LAST_DAY(NOW()) 
+//     WHERE work_date < LAST_DAY(NOW())
 // ),
 // all_saturdays AS (
 //     SELECT work_date, ROW_NUMBER() OVER (ORDER BY work_date) AS sat_position
@@ -141,13 +141,13 @@
 // working_days AS (
 //     SELECT work_date
 //     FROM month_days
-//     WHERE 
-//         WEEKDAY(work_date) != 6  
-//         AND work_date NOT IN (SELECT holiday_date FROM saturday_list) 
+//     WHERE
+//         WEEKDAY(work_date) != 6
+//         AND work_date NOT IN (SELECT holiday_date FROM saturday_list)
 //         AND work_date NOT IN (
 //             SELECT date FROM holidays
-//             WHERE MONTH(date) = MONTH(NOW()) 
-//             AND YEAR(date) = YEAR(NOW())  
+//             WHERE MONTH(date) = MONTH(NOW())
+//             AND YEAR(date) = YEAR(NOW())
 //         )
 // ),
 // leave_days AS (
@@ -156,7 +156,7 @@
 //         FROM leavequeries
 //         WHERE status = 'approved'
 //         AND employee_id = ?
-//       AND start_date <= LAST_DAY(NOW())  
+//       AND start_date <= LAST_DAY(NOW())
 //         AND end_date >= DATE_FORMAT(NOW(), '%Y-%m-01')
 
 //         UNION ALL
@@ -197,46 +197,45 @@
 //     SELECT DISTINCT DATE(punchin_time) AS punch_date FROM emp_attendence
 //     WHERE employee_id = ?
 //     AND punch_status = 'Punch In'
-//     AND MONTH(punchin_time) = MONTH(NOW()) 
+//     AND MONTH(punchin_time) = MONTH(NOW())
 //     AND YEAR(punchin_time) = YEAR(NOW())
 
-//     UNION 
+//     UNION
 
 //     SELECT DISTINCT DATE(punchout_time) AS punch_date FROM emp_attendence
 //     WHERE employee_id = ?
 //     AND punch_status = 'Punch Out'
-//     AND MONTH(punchout_time) = MONTH(NOW()) 
+//     AND MONTH(punchout_time) = MONTH(NOW())
 //     AND YEAR(punchout_time) = YEAR(NOW())
 // ),
 // past_working_days AS (
 //     SELECT work_date FROM working_days WHERE work_date <= CURDATE()
 // )
-// SELECT 
-//     (SELECT COUNT(*) FROM working_days) AS total_working_days,  
-//     (SELECT COUNT(*) FROM leave_days) AS leave_count,           
-//     (SELECT COUNT(*) FROM past_working_days 
+// SELECT
+//     (SELECT COUNT(*) FROM working_days) AS total_working_days,
+//     (SELECT COUNT(*) FROM leave_days) AS leave_count,
+//     (SELECT COUNT(*) FROM past_working_days
 //         WHERE work_date IN (
 //             SELECT punch_date FROM present_days
 //             UNION
 //             SELECT regularisation_date FROM regularisation_days
 //         )
-//         AND work_date NOT IN (SELECT leave_date FROM leave_days)) AS present_count,  
-//     (SELECT COUNT(*) FROM past_working_days 
+//         AND work_date NOT IN (SELECT leave_date FROM leave_days)) AS present_count,
+//     (SELECT COUNT(*) FROM past_working_days
 //         WHERE work_date NOT IN (
 //             SELECT punch_date FROM present_days
 //             UNION
 //             SELECT regularisation_date FROM regularisation_days
-//         )  
+//         )
 //         AND work_date NOT IN (SELECT leave_date FROM leave_days)) AS absent_count;
 // `,
 
 //   WORK_HOURS_QUERY1: `
-//     SELECT view, data 
-//     FROM emp_work_hours 
+//     SELECT view, data
+//     FROM emp_work_hours
 //     WHERE employee_id = ?
 // `,
 //   workHourSummaryQuery: `
-
 
 // WITH RECURSIVE Days AS (
 //     SELECT DATE_SUB(CURRENT_DATE(), INTERVAL 6 DAY) AS work_date
@@ -246,7 +245,7 @@
 //     WHERE work_date < CURRENT_DATE()
 // ),
 // DailyData AS (
-//     SELECT 
+//     SELECT
 //         DATE(punchin_time) AS work_date,
 
 //         MIN(punchin_time) AS first_punchin,
@@ -263,7 +262,7 @@
 //     GROUP BY work_date
 // ),
 // FinalDailyData AS (
-//     SELECT 
+//     SELECT
 //         d.work_date,
 
 //         dd.first_punchin,
@@ -282,7 +281,7 @@
 //     -- Generate up to 6 weeks dynamically for the current month
 //     SELECT week_number + 1
 //     FROM Weeks
-//     WHERE week_number < 
+//     WHERE week_number <
 //         TIMESTAMPDIFF(WEEK, DATE_SUB(CURRENT_DATE(), INTERVAL DAY(CURRENT_DATE()) - 1 DAY), LAST_DAY(CURRENT_DATE())) + 1
 // ),
 // CurrentMonthDays AS (
@@ -306,7 +305,7 @@
 //     GROUP BY work_date
 // ),
 // FinalWeeklyData AS (
-//     SELECT 
+//     SELECT
 //         cmd.work_date,
 //         DAY(cmd.work_date) AS day_of_month,
 
@@ -314,7 +313,7 @@
 //         cmd_data.last_punchout,
 //         COALESCE(cmd_data.total_hours, 0) AS total_hours
 //     FROM CurrentMonthDays cmd
-//     LEFT JOIN CurrentMonthData cmd_data 
+//     LEFT JOIN CurrentMonthData cmd_data
 //         ON cmd.work_date = cmd_data.work_date
 // ),
 // PreviousMonthDays AS (
@@ -338,11 +337,11 @@
 //     GROUP BY work_date
 // ),
 // FinalMonthlyData AS (
-//     SELECT 
-//         pmd.work_date, 
-//         DAY(pmd.work_date) AS day_of_month, 
+//     SELECT
+//         pmd.work_date,
+//         DAY(pmd.work_date) AS day_of_month,
 //          pmd_prev.first_punchin,   -- ✅ ADD
-//         pmd_prev.last_punchout, 
+//         pmd_prev.last_punchout,
 //         COALESCE(pmd_prev.total_hours, 0) AS total_hours
 //     FROM PreviousMonthDays pmd
 //     LEFT JOIN PreviousMonthData pmd_prev ON pmd.work_date = pmd_prev.work_date
@@ -394,6 +393,7 @@ const UPSERT_LOGIN_HOURS_CONFIG = `
         punch_out_start,
         buffer_minutes,
         late_login_enabled,
+        missed_punch_notification_enabled,
         late_streak_days,
         auto_mark_late,
         escalation_mode,
@@ -402,12 +402,13 @@ const UPSERT_LOGIN_HOURS_CONFIG = `
         deficit_detection_enabled,
         allowed_late_streaks,
         streak_period
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     ON DUPLICATE KEY UPDATE
         punch_in_start = VALUES(punch_in_start),
         punch_out_start = VALUES(punch_out_start),
         buffer_minutes = VALUES(buffer_minutes),
         late_login_enabled = VALUES(late_login_enabled),
+        missed_punch_notification_enabled = VALUES(missed_punch_notification_enabled),
         late_streak_days = VALUES(late_streak_days),
         auto_mark_late = VALUES(auto_mark_late),
         escalation_mode = VALUES(escalation_mode),

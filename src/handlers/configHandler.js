@@ -39,6 +39,10 @@ const getConfig = async (req, res) => {
           loginCfg.late_login_enabled ??
           loginCfg.lateLoginEnabled ??
           data.late_login_enabled;
+        data.missed_punch_notification_enabled =
+          loginCfg.missed_punch_notification_enabled ??
+          loginCfg.missedPunchNotificationEnabled ??
+          data.missed_punch_notification_enabled;
         data.late_login_streak_days =
           loginCfg.late_streak_days ??
           loginCfg.lateStreakDays ??
@@ -100,6 +104,7 @@ const updateConfig = async (req, res) => {
       "attendance_punch_out_start",
       "attendance_punch_buffer_minutes",
       "late_login_enabled",
+      "missed_punch_notification_enabled",
       "late_login_streak_days",
       "auto_mark_late",
       "late_escalation_mode",
@@ -135,6 +140,13 @@ const updateConfig = async (req, res) => {
             existing.lateLoginEnabled ??
             (existing.late_login_enabled || existing.late_login_enabled === 0
               ? existing.late_login_enabled
+              : undefined),
+          missedPunchNotificationEnabled:
+            existing.missed_punch_notification_enabled ??
+            existing.missedPunchNotificationEnabled ??
+            (existing.missed_punch_notification_enabled ||
+            existing.missed_punch_notification_enabled === 0
+              ? existing.missed_punch_notification_enabled
               : undefined),
           lateStreakDays:
             existing.late_streak_days ??
@@ -173,6 +185,9 @@ const updateConfig = async (req, res) => {
           payload.bufferMinutes = Number(value || 10);
         if (key === "late_login_enabled")
           payload.lateLoginEnabled =
+            String(value) === "1" || value === 1 || value === true;
+        if (key === "missed_punch_notification_enabled")
+          payload.missedPunchNotificationEnabled =
             String(value) === "1" || value === 1 || value === true;
         if (key === "late_login_streak_days")
           payload.lateStreakDays = Number(value || 3);
