@@ -61,6 +61,207 @@ function prettyLabel(k) {
     .join(" ");
 }
 
+function getDateKey(dateValue) {
+  if (!dateValue) return null;
+  try {
+    const d = new Date(dateValue);
+    if (Number.isNaN(d.getTime())) return null;
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${dd}`;
+  } catch (e) {
+    return null;
+  }
+}
+
+function getRangeDates(startDate, endDate) {
+  if (!startDate && !endDate) return [];
+  const start = new Date(startDate || endDate);
+  const end = new Date(endDate || startDate);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return [];
+
+  const dates = [];
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    dates.push(new Date(d));
+  }
+  return dates;
+}
+
+function parseSelectedRegularisationDates(rawValue) {
+  if (rawValue === null || typeof rawValue === "undefined") return [];
+  const raw = String(rawValue).trim();
+  if (!raw) return [];
+
+  const candidates = [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      for (const item of parsed) {
+        const value = getDateKey(item);
+        if (value) candidates.push(value);
+      }
+    } else if (parsed && typeof parsed === "object") {
+      const str = getDateKey(parsed.date || parsed.day || parsed.value);
+      if (str) candidates.push(str);
+    }
+  } catch (e) {
+    const parts = raw
+      .split(/[\s,]+/)
+      .map((part) => part.replace(/^[\[\]"]+|[\[\]"]+$/g, ""))
+      .filter(Boolean);
+    for (const part of parts) {
+      const value = getDateKey(part);
+      if (value) candidates.push(value);
+    }
+  }
+
+  return Array.from(new Set(candidates));
+}
+
+async function enrichAttendanceCounts(rows, startDate, endDate) {
+  if (!Array.isArray(rows) || rows.length === 0) return rows;
+  if (!startDate && !endDate) return rows;
+
+  const employeeIds = Array.from(
+    new Set(
+      rows
+        .map((r) =>
+          r && r.employee_id != null ? String(r.employee_id).trim() : null,
+        )
+        .filter(Boolean),
+    ),
+  );
+
+  if (employeeIds.length === 0) return rows;
+
+  const workingDates = getRangeDates(startDate, endDate);
+  // Only exclude Sunday (getDay() === 0). Saturday is counted as a working day.
+  const activeDates = new Set(
+    workingDates.filter((d) => d.getDay() !== 0).map((d) => getDateKey(d)),
+  );
+
+  let holidayDates = new Set();
+  try {
+    const holidayRows = await fetchRows(
+      `SELECT DISTINCT DATE(date) AS date_key FROM holidays WHERE date BETWEEN ? AND ?`,
+      [startDate || endDate, endDate || startDate],
+    );
+    for (const row of holidayRows || []) {
+      const key = getDateKey(row.date_key || row.date || row.day);
+      if (key) holidayDates.add(key);
+    }
+  } catch (e) {
+    console.warn(
+      "[reports] Unable to load holiday dates for attendance totals:",
+      e && e.message,
+    );
+  }
+
+  const placeholders = employeeIds.map(() => "?").join(", ");
+  let leaveRows = [];
+  try {
+    leaveRows =
+      (await fetchRows(
+        `SELECT employee_id, start_date, end_date FROM leavequeries WHERE employee_id IN (${placeholders}) AND status = 'Approved' AND start_date <= ? AND end_date >= ?`,
+        [...employeeIds, endDate || startDate, startDate || endDate],
+      )) || [];
+  } catch (e) {
+    console.warn(
+      "[reports] Unable to fetch approved leaves for attendance totals:",
+      e && e.message,
+    );
+    leaveRows = [];
+  }
+
+  let regularisationRows = [];
+  try {
+    regularisationRows =
+      (await fetchRows(
+        `SELECT employee_id, selected_dates FROM leave_regularisation_requests WHERE employee_id IN (${placeholders}) AND status = 'Approved' AND regularisation_type IN ('missed_apply_leave', 'missed_punch_in') AND primary_date BETWEEN ? AND ?`,
+        [...employeeIds, startDate || endDate, endDate || startDate],
+      )) || [];
+  } catch (e) {
+    console.warn(
+      "[reports] Unable to fetch approved regularisations for attendance totals:",
+      e && e.message,
+    );
+    regularisationRows = [];
+  }
+
+  const employeeSummary = new Map();
+  for (const empId of employeeIds) {
+    employeeSummary.set(empId, {
+      present: new Set(),
+      leave: new Set(),
+      regularised: new Set(),
+    });
+  }
+
+  for (const row of rows) {
+    const empId =
+      row && row.employee_id != null ? String(row.employee_id).trim() : null;
+    if (!empId || !employeeSummary.has(empId)) continue;
+    const dateKey = getDateKey(row.punchin_time || row.punchout_time);
+    if (dateKey) {
+      employeeSummary.get(empId).present.add(dateKey);
+    }
+  }
+
+  for (const row of leaveRows) {
+    const empId =
+      row && row.employee_id != null ? String(row.employee_id).trim() : null;
+    if (!empId || !employeeSummary.has(empId)) continue;
+    const start = getDateKey(row.start_date);
+    const end = getDateKey(row.end_date);
+    if (!start || !end) continue;
+
+    const current = new Date(start);
+    const maxDate = new Date(end);
+    while (current <= maxDate) {
+      const key = getDateKey(current);
+      if (key) employeeSummary.get(empId).leave.add(key);
+      current.setDate(current.getDate() + 1);
+    }
+  }
+
+  for (const row of regularisationRows) {
+    const empId =
+      row && row.employee_id != null ? String(row.employee_id).trim() : null;
+    if (!empId || !employeeSummary.has(empId)) continue;
+    for (const dateKey of parseSelectedRegularisationDates(
+      row.selected_dates,
+    )) {
+      employeeSummary.get(empId).regularised.add(dateKey);
+    }
+  }
+
+  for (const row of rows) {
+    const empId =
+      row && row.employee_id != null ? String(row.employee_id).trim() : null;
+    if (!empId || !employeeSummary.has(empId)) continue;
+
+    const summary = employeeSummary.get(empId);
+    let presentCount = 0;
+    let absentCount = 0;
+
+    for (const dateKey of activeDates) {
+      if (holidayDates.has(dateKey)) continue;
+      if (summary.leave.has(dateKey)) continue;
+      if (summary.present.has(dateKey) || summary.regularised.has(dateKey)) {
+        presentCount += 1;
+      } else {
+        absentCount += 1;
+      }
+    }
+
+    row.present_count = presentCount;
+    row.absent_count = absentCount;
+  }
+
+  return rows;
+}
+
 function getFieldDisplayNames(component = "default") {
   const sets = {
     employees: [
@@ -154,7 +355,9 @@ function getFieldDisplayNames(component = "default") {
       "punchout_time",
       "punchout_device",
       "punchout_location",
-      "Total Login Hours",
+      "total_login_hours",
+      "present_count",
+      "absent_count",
       "punchmode",
       "created_at",
     ],
@@ -792,6 +995,13 @@ async function getAttendanceRows(
     );
   }
 
+  // Calculate present_count and absent_count
+  try {
+    rows = await enrichAttendanceCounts(rows, startDate, endDate);
+  } catch (e) {
+    console.warn("[reports] enrichAttendanceCounts failed:", e && e.message);
+  }
+
   const defaultOrder = [
     "punch_id",
     "employee_id",
@@ -805,6 +1015,8 @@ async function getAttendanceRows(
     "punchout_device",
     "punchout_location",
     "total_login_hours",
+    "present_count",
+    "absent_count",
     "punchmode",
     "created_at",
   ];
