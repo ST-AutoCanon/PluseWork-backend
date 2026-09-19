@@ -583,14 +583,38 @@ app.use((req, res, next) => {
         );
       }
 
-      if (socket.userId) {
-        EmployeeQueries.getThreadsByEmployee(socket.userId)
+      if (socket.userId && socketOrgId) {
+        console.log("[socket] Loading employee query threads:", {
+          userId: socket.userId,
+          orgId: socketOrgId,
+        });
+
+        EmployeeQueries.getThreadsByEmployee(socket.userId, socketOrgId)
           .then((threads) => {
-            threads.forEach((t) => socket.join(`query_${String(t.id)}`));
+            console.log("[socket] Employee query threads loaded:", {
+              userId: socket.userId,
+              orgId: socketOrgId,
+              count: threads?.length || 0,
+            });
+
+            (threads || []).forEach((t) => {
+              socket.join(`query_${String(t.id)}`);
+            });
           })
           .catch((err) =>
-            console.error("[socket] getThreadsByEmployee error:", err),
+            console.error("[socket] getThreadsByEmployee error:", {
+              userId: socket.userId,
+              orgId: socketOrgId,
+              error: err,
+            }),
           );
+      } else if (socket.userId && !socketOrgId) {
+        console.warn(
+          `[socket:${socket.id}] Cannot load employee query threads because orgId is missing.`,
+          {
+            userId: socket.userId,
+          },
+        );
       }
 
       socket.on("joinThread", (threadId) => {

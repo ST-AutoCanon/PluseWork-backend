@@ -117,7 +117,8 @@ async function getSalaryAdvanceContext(orgId, employeeId) {
     const employee = await getEmployeeInfo(conn, employeeId);
     if (!employee) throw new Error("Employee not found");
 
-    const monthlyGrossSalary = Number(employee.salary) || 0;
+    const annualCtc = Number(employee.salary) || 0;
+    const monthlyGrossSalary = annualCtc / 12;
 
     return {
       monthlyGrossSalary,
@@ -182,10 +183,56 @@ async function addEvent(
   ]);
 }
 
-async function addNotification(conn, userId, message) {
-  if (!userId) return;
+async function addServiceNotification(
+  db,
+  {
+    userId,
+    requestId = null,
+    type = "NOTIFICATION",
+    title,
+    message,
+    metadata = null,
+  },
+) {
+  console.log("[EMPLOYEE_SERVICES][NOTIFICATION] Creating notification:", {
+    userId,
+    requestId,
+    type,
+    title,
+    message,
+  });
 
-  await conn.execute(queries.ADD_NOTIFICATION, [userId, message]);
+  if (!userId || !message) {
+    console.warn(
+      "[EMPLOYEE_SERVICES][NOTIFICATION] Skipping notification because userId or message is missing.",
+      {
+        userId,
+        requestId,
+        type,
+        message,
+      },
+    );
+
+    return;
+  }
+
+  await db.execute(queries.ADD_SERVICE_NOTIFICATION, [
+    requestId,
+    userId,
+    type,
+    title || "Employee Services",
+    message,
+    metadata ? JSON.stringify(metadata) : null,
+  ]);
+
+  console.log(
+    "[EMPLOYEE_SERVICES][NOTIFICATION] Notification created successfully.",
+    {
+      userId,
+      requestId,
+      type,
+    },
+  );
 }
 
 async function createThread(
@@ -230,6 +277,7 @@ async function createRequest({
   requestType,
   title,
   details,
+  attachment = null,
 }) {
   const tenantPool = await getTenantPoolForOrgId(orgId);
 
@@ -300,6 +348,18 @@ async function createRequest({
 
     const requestId = result.insertId;
 
+    if (attachment) {
+      await conn.execute(queries.CREATE_REQUEST_ATTACHMENT, [
+        requestId,
+        employeeId,
+        attachment.originalname,
+        attachment.path,
+        attachment.mimetype,
+        attachment.size,
+        "REQUEST_ATTACHMENT",
+      ]);
+    }
+
     const requestCode = makeRequestCode(requestPrefix(requestType), requestId);
 
     await conn.execute(queries.UPDATE_REQUEST_CODE, [requestCode, requestId]);
@@ -319,11 +379,17 @@ async function createRequest({
       },
     );
 
-    await addNotification(
-      conn,
-      approver.employee_id,
-      `New ${title} ${requestCode} is waiting for your action.`,
-    );
+    await addServiceNotification(conn, {
+      userId: approver.employee_id,
+      requestId,
+      type: "NOTIFICATION",
+      title: "New Employee Service Request",
+      message: `New ${title} ${requestCode} is waiting for your action.`,
+      metadata: {
+        requestCode,
+        requestType,
+      },
+    });
 
     await conn.commit();
 
@@ -478,6 +544,11 @@ async function getRequestDetail(orgId, requestId, actorId) {
     request.thread_id,
   ]);
 
+  const [attachments] = await tenantPool.query(
+    queries.GET_REQUEST_ATTACHMENTS,
+    [requestId],
+  );
+
   let details = {};
 
   if (request.details_json) {
@@ -492,16 +563,29 @@ async function getRequestDetail(orgId, requestId, actorId) {
     }
   }
 
-  if (request.e_ticket_file_name) {
+  const publicAttachments = (attachments || []).map((attachment) => ({
+    id: attachment.id,
+    fileName: attachment.file_name,
+    mimeType: attachment.mime_type,
+    fileSize: attachment.file_size,
+    purpose: attachment.purpose,
+  }));
+  const eTicket = publicAttachments.find(
+    (attachment) => attachment.purpose === "E_TICKET",
+  );
+
+  if (eTicket) {
     details = {
       ...details,
-      eTicketFileName: request.e_ticket_file_name,
+      eTicketFileName: eTicket.fileName,
+      eTicketAttachmentId: eTicket.id,
     };
   }
 
   return {
     ...request,
     details_json: details || {},
+    attachments: publicAttachments,
     events,
     messages,
   };
@@ -545,12 +629,20 @@ async function approveRequest(
       throw new Error("You are not the current approver for this request.");
     }
 
+    if (isAdminApproval && request.request_type === "ASSET_REQUEST") {
+      throw new Error(
+        "Use 'Add to Assets and Assign' to process an approved asset request.",
+      );
+    }
+
     if (isAdminApproval) {
       await conn.execute(queries.UPDATE_REQUEST_TO_COMPLETED, [requestId]);
+
       await conn.execute(queries.CLOSE_THREAD_AFTER_COMPLETION, [
         actorId,
         request.thread_id,
       ]);
+
       await addEvent(
         conn,
         requestId,
@@ -560,17 +652,23 @@ async function approveRequest(
         actor.role,
         comment || "Request approved by Admin.",
       );
-      await addNotification(
-        conn,
-        request.employee_id,
-        `${request.request_code} was approved by Admin.`,
-      );
+
+      await addServiceNotification(conn, {
+        userId: request.employee_id,
+        requestId,
+        type: "NOTIFICATION",
+        title: "Request Approved",
+        message: `${request.request_code} was approved by Admin.`,
+      });
+
       await conn.commit();
+
       if (io) {
         io.to(`user_${request.employee_id}`).emit("employeeRequestUpdated", {
           requestId,
         });
       }
+
       return getRequestDetail(orgId, requestId, actorId);
     }
 
@@ -589,7 +687,7 @@ async function approveRequest(
 
     if (request.request_type === "SALARY_ADVANCE") {
       const employee = await getEmployeeInfo(conn, request.employee_id);
-      const monthlyGrossSalary = Number(employee?.salary) || 0;
+      const monthlyGrossSalary = (Number(employee?.salary) || 0) / 12;
       const maximumAdvance = monthlyGrossSalary * 3;
       const advanceAmount = Number(details.amount);
       const recoveryMonths = Number(details.repaymentMonths);
@@ -653,11 +751,13 @@ async function approveRequest(
         actor.role,
         comment || "Approved by Reporting Manager.",
       );
-      await addNotification(
-        conn,
-        projectHead.employee_id,
-        `${request.request_code} requires Project Head approval.`,
-      );
+      await addServiceNotification(conn, {
+        userId: projectHead.employee_id,
+        requestId,
+        type: "NOTIFICATION",
+        title: "Project Head Approval Required",
+        message: `${request.request_code} requires Project Head approval.`,
+      });
       await conn.commit();
       if (io)
         io.to(`user_${projectHead.employee_id}`).emit(
@@ -694,11 +794,13 @@ async function approveRequest(
         actor.role,
         comment || "Approved by Project Head.",
       );
-      await addNotification(
-        conn,
-        hr.employee_id,
-        `${request.request_code} requires HR and Finance approval.`,
-      );
+      await addServiceNotification(conn, {
+        userId: hr.employee_id,
+        requestId,
+        type: "NOTIFICATION",
+        title: "HR & Finance Approval Required",
+        message: `${request.request_code} requires HR and Finance approval.`,
+      });
       await conn.commit();
       if (io)
         io.to(`user_${hr.employee_id}`).emit("employeeRequestUpdated", {
@@ -731,11 +833,13 @@ async function approveRequest(
         actor.role,
         comment || "Approved by HR.",
       );
-      await addNotification(
-        conn,
-        finance.employee_id,
-        `${request.request_code} requires Finance approval.`,
-      );
+      await addServiceNotification(conn, {
+        userId: finance.employee_id,
+        requestId,
+        type: "NOTIFICATION",
+        title: "Finance Approval Required",
+        message: `${request.request_code} requires Finance approval.`,
+      });
       await conn.commit();
       if (io)
         io.to(`user_${finance.employee_id}`).emit("employeeRequestUpdated", {
@@ -774,11 +878,13 @@ async function approveRequest(
         actor.role,
         comment || "Approved by Finance.",
       );
-      await addNotification(
-        conn,
-        travelDesk.employee_id,
-        `${request.request_code} is ready for Travel Desk action.`,
-      );
+      await addServiceNotification(conn, {
+        userId: travelDesk.employee_id,
+        requestId,
+        type: "NOTIFICATION",
+        title: "Travel Desk Action Required",
+        message: `${request.request_code} is ready for Travel Desk action.`,
+      });
       await conn.commit();
       if (io)
         io.to(`user_${travelDesk.employee_id}`).emit("employeeRequestUpdated", {
@@ -812,17 +918,21 @@ async function approveRequest(
       comment || "Approved by supervisor.",
     );
 
-    await addNotification(
-      conn,
-      admin.employee_id,
-      `${request.request_code} requires admin action.`,
-    );
+    await addServiceNotification(conn, {
+      userId: admin.employee_id,
+      requestId,
+      type: "NOTIFICATION",
+      title: "Admin Action Required",
+      message: `${request.request_code} requires admin action.`,
+    });
 
-    await addNotification(
-      conn,
-      request.employee_id,
-      `${request.request_code} has been approved by your supervisor.`,
-    );
+    await addServiceNotification(conn, {
+      userId: request.employee_id,
+      requestId,
+      type: "NOTIFICATION",
+      title: "Request Approved",
+      message: `${request.request_code} has been approved by your supervisor.`,
+    });
 
     await conn.commit();
 
@@ -842,6 +952,634 @@ async function approveRequest(
     throw error;
   } finally {
     conn.release();
+  }
+}
+
+async function getRequestAttachment(orgId, requestId, attachmentId, actorId) {
+  // Reuse the detail authorization rules before exposing an on-disk file.
+  await getRequestDetail(orgId, requestId, actorId);
+
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  const [rows] = await tenantPool.query(queries.GET_REQUEST_ATTACHMENT, [
+    requestId,
+    attachmentId,
+  ]);
+  const attachment = rows?.[0];
+  if (!attachment) throw new Error("Attachment not found.");
+
+  return attachment;
+}
+
+function parseAssetAssignments(value) {
+  if (!value) return [];
+  try {
+    const parsed = typeof value === "string" ? JSON.parse(value) : value;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function normalizeAssetStatus(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase();
+}
+
+function parseAssignedTo(assignedTo) {
+  console.log("[ASSET_CANDIDATES][assigned_to] Raw value:", assignedTo);
+
+  if (!assignedTo) {
+    console.log("[ASSET_CANDIDATES][assigned_to] No assigned_to value.");
+    return [];
+  }
+
+  try {
+    let parsed = assignedTo;
+
+    if (typeof assignedTo === "string") {
+      parsed = JSON.parse(assignedTo);
+    }
+
+    if (Array.isArray(parsed)) {
+      console.log(
+        "[ASSET_CANDIDATES][assigned_to] Parsed assignment history:",
+        {
+          count: parsed.length,
+          history: parsed,
+        },
+      );
+
+      return parsed;
+    }
+
+    if (parsed && typeof parsed === "object") {
+      console.log(
+        "[ASSET_CANDIDATES][assigned_to] assigned_to is a single object. Converting to array.",
+      );
+
+      return [parsed];
+    }
+
+    console.log(
+      "[ASSET_CANDIDATES][assigned_to] Parsed value is not an array/object.",
+    );
+
+    return [];
+  } catch (error) {
+    console.error(
+      "[ASSET_CANDIDATES][assigned_to] Failed to parse assigned_to:",
+      {
+        error: error.message,
+        rawValue: assignedTo,
+      },
+    );
+
+    return null;
+  }
+}
+
+function getTodayDateString() {
+  // Use the organization's/business timezone rather than server UTC.
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+function normalizeDateOnly(value) {
+  if (!value) return null;
+
+  const stringValue = String(value).trim();
+
+  if (!stringValue) return null;
+
+  // Handles:
+  // 2026-09-18
+  // 2026-09-18T18:30:00.000Z
+  return stringValue.slice(0, 10);
+}
+
+function assetIsAvailable(asset) {
+  console.log("\n------------------------------------------------------");
+  console.log("[ASSET_CANDIDATES][Availability] Checking asset:", {
+    assetId: asset?.asset_id,
+    assetCode: asset?.asset_code,
+    assetName: asset?.asset_name,
+    category: asset?.category,
+    topLevelStatus: asset?.status,
+  });
+
+  const assignmentHistory = parseAssignedTo(asset?.assigned_to);
+
+  /*
+   * If assigned_to exists but cannot be parsed, do not risk
+   * treating an unknown asset as available.
+   */
+  if (assignmentHistory === null) {
+    console.error(
+      "[ASSET_CANDIDATES][Availability] assigned_to could not be parsed. Excluding asset.",
+      {
+        assetId: asset?.asset_id,
+      },
+    );
+
+    return false;
+  }
+
+  /*
+   * Remove malformed assignment records that have no useful
+   * status information.
+   */
+  const validHistory = assignmentHistory.filter((entry) => {
+    const status = normalizeAssetStatus(entry?.status);
+
+    return ["assigned", "pending", "returned", "decommissioned"].includes(
+      status,
+    );
+  });
+
+  console.log("[ASSET_CANDIDATES][Availability] Valid assignment history:", {
+    assetId: asset?.asset_id,
+    totalHistoryRecords: assignmentHistory.length,
+    validHistoryRecords: validHistory.length,
+    history: validHistory,
+  });
+
+  /*
+   * No usable assignment history means the asset has never been
+   * assigned through this field, so it is available.
+   */
+  if (validHistory.length === 0) {
+    console.log(
+      "[ASSET_CANDIDATES][Availability] No valid assignment history -> AVAILABLE",
+      {
+        assetId: asset?.asset_id,
+      },
+    );
+
+    return true;
+  }
+
+  /*
+   * IMPORTANT:
+   * assigned_to appears to be stored as assignment history in
+   * chronological/insertion order.
+   *
+   * Therefore the LAST valid record represents the current/latest
+   * lifecycle state.
+   */
+  const currentAssignment = validHistory[validHistory.length - 1];
+
+  const currentStatus = normalizeAssetStatus(currentAssignment.status);
+
+  const today = getTodayDateString();
+  const returnDate = normalizeDateOnly(currentAssignment.returnDate);
+
+  console.log("[ASSET_CANDIDATES][Availability] Current assignment record:", {
+    assetId: asset?.asset_id,
+    currentAssignment,
+    currentStatus,
+    today,
+    returnDate,
+  });
+
+  /*
+   * Returned = definitely available.
+   */
+  if (currentStatus === "returned") {
+    console.log(
+      "[ASSET_CANDIDATES][Availability] Current status is RETURNED -> AVAILABLE",
+      {
+        assetId: asset?.asset_id,
+      },
+    );
+
+    return true;
+  }
+
+  /*
+   * Pending = treat as available based on your requirement.
+   */
+  if (currentStatus === "pending") {
+    console.log(
+      "[ASSET_CANDIDATES][Availability] Current status is PENDING -> AVAILABLE",
+      {
+        assetId: asset?.asset_id,
+      },
+    );
+
+    return true;
+  }
+
+  /*
+   * Decommissioned assets must never be allocated.
+   */
+  if (currentStatus === "decommissioned") {
+    console.log(
+      "[ASSET_CANDIDATES][Availability] Current status is DECOMMISSIONED -> NOT AVAILABLE",
+      {
+        assetId: asset?.asset_id,
+      },
+    );
+
+    return false;
+  }
+
+  /*
+   * Assigned:
+   *
+   * - No return date -> still assigned
+   * - Return date today/future -> still assigned
+   * - Return date in past -> assignment has ended, so available
+   */
+  if (currentStatus === "assigned") {
+    if (!returnDate) {
+      console.log(
+        "[ASSET_CANDIDATES][Availability] ASSIGNED with no returnDate -> NOT AVAILABLE",
+        {
+          assetId: asset?.asset_id,
+          assignedTo: currentAssignment?.name,
+          employeeId: currentAssignment?.employeeId,
+        },
+      );
+
+      return false;
+    }
+
+    if (returnDate >= today) {
+      console.log(
+        "[ASSET_CANDIDATES][Availability] ASSIGNED with current/future returnDate -> NOT AVAILABLE",
+        {
+          assetId: asset?.asset_id,
+          assignedTo: currentAssignment?.name,
+          employeeId: currentAssignment?.employeeId,
+          returnDate,
+          today,
+        },
+      );
+
+      return false;
+    }
+
+    console.log(
+      "[ASSET_CANDIDATES][Availability] ASSIGNED record has expired returnDate -> AVAILABLE",
+      {
+        assetId: asset?.asset_id,
+        assignedTo: currentAssignment?.name,
+        employeeId: currentAssignment?.employeeId,
+        returnDate,
+        today,
+      },
+    );
+
+    return true;
+  }
+
+  /*
+   * Unknown state -> exclude rather than risk assigning an asset
+   * whose lifecycle state cannot be determined.
+   */
+  console.warn(
+    "[ASSET_CANDIDATES][Availability] Unknown assignment state -> NOT AVAILABLE",
+    {
+      assetId: asset?.asset_id,
+      currentAssignment,
+      currentStatus,
+    },
+  );
+
+  return false;
+}
+
+async function getAssetCandidates(orgId, requestId, actorId) {
+  console.log("\n======================================================");
+  console.log("[ASSET_CANDIDATES] getAssetCandidates START");
+  console.log("[ASSET_CANDIDATES] Input:", {
+    orgId,
+    requestId,
+    actorId,
+  });
+  console.log("======================================================");
+
+  console.log("[ASSET_CANDIDATES] Step 1: Getting tenant pool...");
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+
+  console.log("[ASSET_CANDIDATES] Step 1 complete: Tenant pool obtained.");
+
+  console.log("[ASSET_CANDIDATES] Step 2: Getting database connection...");
+  const conn = await tenantPool.getConnection();
+
+  console.log(
+    "[ASSET_CANDIDATES] Step 2 complete: Database connection obtained.",
+  );
+
+  try {
+    console.log(
+      "[ASSET_CANDIDATES] Step 3: Fetching asset request for update...",
+      {
+        orgId,
+        requestId,
+      },
+    );
+
+    const request = await getRequestForUpdate(conn, orgId, requestId);
+
+    console.log("[ASSET_CANDIDATES] Step 3 complete: Request fetched:", {
+      found: !!request,
+      requestType: request?.request_type,
+      currentAssigneeId: request?.current_assignee_id,
+      currentStatus: request?.current_status,
+      detailsJson: request?.details_json,
+    });
+
+    console.log(
+      "[ASSET_CANDIDATES] Step 4: Fetching actor employee information...",
+      {
+        actorId,
+      },
+    );
+
+    const actor = await getEmployeeInfo(conn, actorId);
+
+    console.log("[ASSET_CANDIDATES] Step 4 complete: Actor fetched:", {
+      found: !!actor,
+      actorId: actor?.employee_id || actorId,
+      role: actor?.role,
+      normalizedRole: normalizedRole(actor?.role),
+    });
+
+    console.log("[ASSET_CANDIDATES] Step 5: Validating request type...");
+
+    if (!request || request.request_type !== "ASSET_REQUEST") {
+      console.error(
+        "[ASSET_CANDIDATES] Validation failed: Invalid asset request.",
+        {
+          requestExists: !!request,
+          requestType: request?.request_type,
+        },
+      );
+
+      throw new Error("This is not an asset request.");
+    }
+
+    console.log(
+      "[ASSET_CANDIDATES] Step 5 complete: Request type is ASSET_REQUEST.",
+    );
+
+    console.log(
+      "[ASSET_CANDIDATES] Step 6: Validating actor authorization...",
+      {
+        actorRole: actor?.role,
+        normalizedActorRole: normalizedRole(actor?.role),
+        actorId,
+        requestAssigneeId: request.current_assignee_id,
+      },
+    );
+
+    const actorIsAdmin = normalizedRole(actor?.role) === "admin";
+    const actorIsAssigned =
+      String(request.current_assignee_id) === String(actorId);
+
+    console.log("[ASSET_CANDIDATES] Authorization checks:", {
+      actorIsAdmin,
+      actorIsAssigned,
+      authorized: actorIsAdmin && actorIsAssigned,
+    });
+
+    if (!actorIsAdmin || !actorIsAssigned) {
+      console.error(
+        "[ASSET_CANDIDATES] Authorization failed: Actor is not the assigned Admin.",
+        {
+          actorId,
+          actorRole: actor?.role,
+          requestAssigneeId: request.current_assignee_id,
+        },
+      );
+
+      throw new Error(
+        "Only the assigned Admin can allocate this asset request.",
+      );
+    }
+
+    console.log("[ASSET_CANDIDATES] Step 6 complete: Actor is authorized.");
+
+    console.log(
+      "[ASSET_CANDIDATES] Step 7: Validating request current status...",
+      {
+        currentStatus: request.current_status,
+        expectedStatus: "PENDING_ADMIN_ACTION",
+      },
+    );
+
+    if (request.current_status !== "PENDING_ADMIN_ACTION") {
+      console.error("[ASSET_CANDIDATES] Status validation failed:", {
+        currentStatus: request.current_status,
+      });
+
+      throw new Error("This asset request is not ready for allocation.");
+    }
+
+    console.log(
+      "[ASSET_CANDIDATES] Step 7 complete: Request is ready for allocation.",
+    );
+
+    console.log("[ASSET_CANDIDATES] Step 8: Parsing request details...");
+
+    const requested =
+      typeof request.details_json === "string"
+        ? JSON.parse(request.details_json || "{}")
+        : request.details_json || {};
+
+    console.log("[ASSET_CANDIDATES] Step 8 complete: Parsed request details:", {
+      requested,
+    });
+
+    console.log(
+      "[ASSET_CANDIDATES] Step 9: Extracting requested asset category...",
+    );
+
+    const requestedCategory = String(requested.category || "")
+      .trim()
+      .toLowerCase();
+
+    console.log("[ASSET_CANDIDATES] Requested category:", {
+      originalCategory: requested.category,
+      normalizedCategory: requestedCategory,
+    });
+
+    if (!requestedCategory) {
+      console.error(
+        "[ASSET_CANDIDATES] Validation failed: Requested asset category is missing.",
+        {
+          requested,
+        },
+      );
+
+      throw new Error(
+        "The requested asset category is missing from this request.",
+      );
+    }
+
+    console.log(
+      "[ASSET_CANDIDATES] Step 9 complete: Requested category is valid.",
+    );
+
+    console.log(
+      "[ASSET_CANDIDATES] Step 10: Fetching all assets for organization...",
+      {
+        orgId,
+      },
+    );
+
+    const allAssets = await assetService.getAssets(orgId);
+
+    console.log("[ASSET_CANDIDATES] Step 10 complete: Assets fetched.", {
+      totalAssets: Array.isArray(allAssets) ? allAssets.length : 0,
+      isArray: Array.isArray(allAssets),
+    });
+
+    console.log(
+      "[ASSET_CANDIDATES] Step 11: Filtering assets by availability status...",
+    );
+
+    const availableAssets = allAssets.filter(assetIsAvailable);
+
+    console.log(
+      "[ASSET_CANDIDATES] Step 11 complete: Availability filtering finished.",
+      {
+        totalAssets: allAssets.length,
+        availableAssets: availableAssets.length,
+        excludedAssets: allAssets.length - availableAssets.length,
+      },
+    );
+
+    console.log(
+      "[ASSET_CANDIDATES] Step 12: Filtering available assets by category...",
+      {
+        requestedCategory,
+      },
+    );
+
+    const categoryMatchedAssets = availableAssets.filter((asset) => {
+      const assetCategory = String(asset.category || "")
+        .trim()
+        .toLowerCase();
+
+      const categoryMatches = assetCategory === requestedCategory;
+
+      console.log("[ASSET_CANDIDATES][CategoryFilter] Asset evaluation:", {
+        assetId: asset?.asset_id,
+        assetCode: asset?.asset_code,
+        assetName: asset?.asset_name,
+        rawCategory: asset?.category,
+        normalizedCategory: assetCategory,
+        requestedCategory,
+        categoryMatches,
+        status: asset?.status,
+      });
+
+      return categoryMatches;
+    });
+
+    console.log(
+      "[ASSET_CANDIDATES] Step 12 complete: Category filtering finished.",
+      {
+        requestedCategory,
+        categoryMatchedAssets: categoryMatchedAssets.length,
+      },
+    );
+
+    console.log(
+      "[ASSET_CANDIDATES] Step 13: Mapping candidate asset fields...",
+    );
+
+    const mappedAssets = categoryMatchedAssets.map((asset) => {
+      const mappedAsset = {
+        asset_id: asset.asset_id,
+        asset_code: asset.asset_code,
+        asset_name: asset.asset_name,
+        configuration: asset.configuration,
+        category: asset.category,
+        sub_category: asset.sub_category,
+        status: asset.status,
+      };
+
+      console.log("[ASSET_CANDIDATES][Map] Asset mapped:", mappedAsset);
+
+      return mappedAsset;
+    });
+
+    console.log("[ASSET_CANDIDATES] Step 13 complete: Assets mapped.", {
+      mappedCount: mappedAssets.length,
+    });
+
+    console.log("[ASSET_CANDIDATES] Step 14: Sorting assets by asset name...");
+
+    const assets = mappedAssets.sort((a, b) =>
+      String(a.asset_name || "").localeCompare(String(b.asset_name || "")),
+    );
+
+    console.log("[ASSET_CANDIDATES] Step 14 complete: Assets sorted.", {
+      sortedAssets: assets.map((asset) => ({
+        assetId: asset.asset_id,
+        assetCode: asset.asset_code,
+        assetName: asset.asset_name,
+        category: asset.category,
+        status: asset.status,
+      })),
+    });
+
+    console.log("[ASSET_CANDIDATES] Step 15: Preparing final response...");
+
+    const result = {
+      requested,
+      requestedCategory: requested.category,
+      totalAvailable: assets.length,
+      assets,
+    };
+
+    console.log("[ASSET_CANDIDATES] Final result:", {
+      requestedCategory: result.requestedCategory,
+      normalizedRequestedCategory: requestedCategory,
+      totalAvailable: result.totalAvailable,
+      assetCount: result.assets.length,
+      assets: result.assets,
+    });
+
+    console.log("\n======================================================");
+    console.log("[ASSET_CANDIDATES] getAssetCandidates SUCCESS");
+    console.log("======================================================\n");
+
+    return result;
+  } catch (error) {
+    console.error("\n======================================================");
+    console.error("[ASSET_CANDIDATES] getAssetCandidates ERROR");
+    console.error("[ASSET_CANDIDATES] Error details:", {
+      message: error?.message,
+      name: error?.name,
+      stack: error?.stack,
+      orgId,
+      requestId,
+      actorId,
+    });
+    console.error("======================================================\n");
+
+    throw error;
+  } finally {
+    console.log(
+      "[ASSET_CANDIDATES] Final step: Releasing database connection...",
+    );
+
+    conn.release();
+
+    console.log("[ASSET_CANDIDATES] Database connection released.");
+
+    console.log("======================================================");
+    console.log("[ASSET_CANDIDATES] getAssetCandidates END");
+    console.log("======================================================\n");
   }
 }
 
@@ -893,11 +1631,13 @@ async function rejectRequest(
       comment || "Request rejected.",
     );
 
-    await addNotification(
-      conn,
-      request.employee_id,
-      `${request.request_code} was rejected.`,
-    );
+    await addServiceNotification(conn, {
+      userId: request.employee_id,
+      requestId,
+      type: "NOTIFICATION",
+      title: "Request Rejected",
+      message: `${request.request_code} was rejected.`,
+    });
 
     await conn.commit();
 
@@ -1031,11 +1771,13 @@ async function bookTravel(
       },
     );
 
-    await addNotification(
-      conn,
-      request.employee_id,
-      `Your travel request ${request.request_code} has been booked.`,
-    );
+    await addServiceNotification(conn, {
+      userId: request.employee_id,
+      requestId,
+      type: "NOTIFICATION",
+      title: "Travel Booking Confirmed",
+      message: `Your travel request ${request.request_code} has been booked.`,
+    });
 
     await conn.commit();
 
@@ -1201,11 +1943,13 @@ async function cancelRequest(orgId, requestId, actorId, io = null) {
       "Employee",
       "Request cancelled by employee.",
     );
-    await addNotification(
-      conn,
-      request.current_assignee_id,
-      `${request.request_code} was cancelled by the employee.`,
-    );
+    await addServiceNotification(conn, {
+      userId: request.current_assignee_id,
+      requestId,
+      type: "NOTIFICATION",
+      title: "Request Cancelled",
+      message: `${request.request_code} was cancelled by the employee.`,
+    });
     await conn.commit();
 
     if (io && request.current_assignee_id) {
@@ -1223,7 +1967,13 @@ async function cancelRequest(orgId, requestId, actorId, io = null) {
   }
 }
 
-async function processAssetRequest(orgId, requestId, actorId, io = null) {
+async function processAssetRequest(
+  orgId,
+  requestId,
+  actorId,
+  processing = {},
+  io = null,
+) {
   const tenantPool = await getTenantPoolForOrgId(orgId);
   const conn = await tenantPool.getConnection();
 
@@ -1234,6 +1984,12 @@ async function processAssetRequest(orgId, requestId, actorId, io = null) {
     if (!request) throw new Error("Request not found");
     if (String(request.current_assignee_id) !== String(actorId)) {
       throw new Error("You are not assigned this request.");
+    }
+    const actor = await getEmployeeInfo(conn, actorId);
+    if (normalizedRole(actor?.role) !== "admin") {
+      throw new Error(
+        "Only the assigned Admin can allocate this asset request.",
+      );
     }
     if (request.request_type !== "ASSET_REQUEST") {
       throw new Error("This is not an asset request.");
@@ -1247,28 +2003,81 @@ async function processAssetRequest(orgId, requestId, actorId, io = null) {
         ? JSON.parse(request.details_json || "{}")
         : request.details_json || {};
 
-    const employee = await getEmployeeInfo(conn, request.employee_id);
-    const asset = await assetService.addAsset(orgId, {
-      asset_name: details.itemName,
-      configuration: details.configuration || details.additionalInfo || "",
-      valuation_date: details.requiredDate || new Date(),
-      assigned_to: [
-        {
-          name: employee?.employee_name || request.employee_id,
-          employeeId: request.employee_id,
-          startDate: new Date().toISOString().slice(0, 10),
-          returnDate: null,
-          comments: details.reason || "Created from employee asset request.",
-          status: "Assigned",
-        },
-      ],
-      category: details.category || "Others",
-      sub_category: details.subCategory || details.requestType || "Others",
-      status: "In Use",
-      document_path: null,
-    });
+    const isOffline = processing.offline === true;
+    let assignmentMetadata;
 
-    await conn.execute(queries.UPDATE_REQUEST_TO_COMPLETED, [requestId]);
+    if (isOffline) {
+      assignmentMetadata = {
+        mode: "OFFLINE",
+        note: String(processing.note || "Handled offline by Admin."),
+        processedBy: actorId,
+        processedAt: new Date().toISOString(),
+      };
+    } else {
+      const assetId = String(processing.assetId || "");
+
+      if (!assetId) {
+        throw new Error(
+          "Select an available asset or choose offline handling.",
+        );
+      }
+
+      const requestedCategory = String(details.category || "")
+        .trim()
+        .toLowerCase();
+
+      if (!requestedCategory) {
+        throw new Error(
+          "The requested asset category is missing from this request.",
+        );
+      }
+
+      const assets = await assetService.getAssets(orgId);
+
+      const asset = assets.find((item) => String(item.asset_id) === assetId);
+
+      if (!asset || !assetIsAvailable(asset)) {
+        throw new Error("The selected asset is no longer available.");
+      }
+
+      const assetCategory = String(asset.category || "")
+        .trim()
+        .toLowerCase();
+
+      if (assetCategory !== requestedCategory) {
+        throw new Error(
+          `The selected asset does not belong to the requested category "${details.category}".`,
+        );
+      }
+
+      const employee = await getEmployeeInfo(conn, request.employee_id);
+      await assetService.updateAssignedTo(orgId, asset.asset_id, {
+        name: employee?.employee_name || request.employee_id,
+        employeeId: request.employee_id,
+        startDate: new Date().toISOString().slice(0, 10),
+        returnDate: null,
+        comments: String(
+          processing.note ||
+            details.reason ||
+            "Assigned from employee asset request.",
+        ),
+        status: "Assigned",
+      });
+      assignmentMetadata = {
+        mode: "INVENTORY",
+        assetId: asset.asset_id,
+        assetCode: asset.asset_code,
+        assetName: asset.asset_name,
+        processedBy: actorId,
+        processedAt: new Date().toISOString(),
+      };
+    }
+
+    const nextDetails = { ...details, assetFulfillment: assignmentMetadata };
+    await conn.execute(queries.UPDATE_REQUEST_TO_COMPLETED_WITH_DETAILS, [
+      JSON.stringify(nextDetails),
+      requestId,
+    ]);
     await conn.execute(queries.CLOSE_THREAD_AFTER_COMPLETION, [
       actorId,
       request.thread_id,
@@ -1280,14 +2089,20 @@ async function processAssetRequest(orgId, requestId, actorId, io = null) {
       "COMPLETED",
       actorId,
       "Admin",
-      `Asset ${asset.asset_id} assigned to ${request.employee_id}.`,
-      { assetId: asset.asset_id, assetCode: asset.asset_code },
+      isOffline
+        ? "Asset request marked as handled offline."
+        : `Existing asset ${assignmentMetadata.assetId} assigned to ${request.employee_id}.`,
+      assignmentMetadata,
     );
-    await addNotification(
-      conn,
-      request.employee_id,
-      `${request.request_code} has been processed and assigned to you.`,
-    );
+    await addServiceNotification(conn, {
+      userId: request.employee_id,
+      requestId,
+      type: "NOTIFICATION",
+      title: "Asset Request Fulfilled",
+      message: isOffline
+        ? `${request.request_code} will be handled offline.`
+        : `${request.request_code} has been fulfilled with an assigned asset.`,
+    });
 
     await conn.commit();
 
@@ -1308,22 +2123,39 @@ async function processAssetRequest(orgId, requestId, actorId, io = null) {
 
 async function sendPendingRequestReminders() {
   const [orgRows] = await require("../config").query(queries.GET_ALL_ORG_IDS);
+
   let sent = 0;
 
   for (const { id: orgId } of orgRows || []) {
     const tenantPool = await getTenantPoolForOrgId(orgId);
+
     const [requests] = await tenantPool.query(queries.GET_REMINDER_REQUESTS, [
       orgId,
     ]);
+
     for (const request of requests || []) {
-      if (!request.current_assignee_id) continue;
-      await tenantPool.execute(queries.ADD_NOTIFICATION, [
-        request.current_assignee_id,
-        `Reminder: ${request.request_code} (${request.title}) is waiting for your action.`,
-      ]);
+      if (!request.current_assignee_id) {
+        continue;
+      }
+
+      await addServiceNotification(tenantPool, {
+        userId: request.current_assignee_id,
+        requestId: request.id,
+        type: "REMINDER",
+        title: "Pending Request Reminder",
+        message: `Reminder: ${request.request_code} (${request.title}) is waiting for your action.`,
+        metadata: {
+          requestCode: request.request_code,
+          requestType: request.request_type,
+          currentStatus: request.current_status,
+          currentStage: request.current_stage,
+        },
+      });
+
       sent += 1;
     }
   }
+
   return sent;
 }
 
@@ -1344,6 +2176,106 @@ const getGuestHouses = async (orgId) => {
   return rows.map((row) => row.name);
 };
 
+async function getServiceNotifications(orgId, employeeId, limit = 30) {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+
+  const safeLimit = Math.min(Math.max(Number(limit) || 30, 1), 100);
+
+  const [rows] = await tenantPool.query(
+    queries.GET_SERVICE_NOTIFICATIONS.replace("LIMIT ?", `LIMIT ${safeLimit}`),
+    [employeeId],
+  );
+
+  return rows;
+}
+
+async function getUnreadServiceCounts(orgId, employeeId) {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+
+  const [[notificationCount]] = await tenantPool.query(
+    queries.GET_UNREAD_SERVICE_NOTIFICATION_COUNT,
+    [employeeId],
+  );
+
+  const [[reminderCount]] = await tenantPool.query(
+    queries.GET_UNREAD_SERVICE_REMINDER_COUNT,
+    [employeeId],
+  );
+
+  return {
+    notifications: Number(notificationCount?.count || 0),
+    reminders: Number(reminderCount?.count || 0),
+  };
+}
+
+async function getServiceReminders(orgId, employeeId) {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+
+  const [rows] = await tenantPool.query(
+    queries.GET_SERVICE_REMINDER_REQUESTS_FOR_USER,
+    [orgId, employeeId],
+  );
+
+  return rows.map((request) => ({
+    id: `request-${request.id}`,
+    requestId: request.id,
+    type: "REMINDER",
+    title: request.title,
+    message: `${request.request_code} is waiting for your action.`,
+    requestCode: request.request_code,
+    requestType: request.request_type,
+    currentStatus: request.current_status,
+    currentStage: request.current_stage,
+    updatedAt: request.updated_at,
+  }));
+}
+
+async function markServiceNotificationRead(orgId, employeeId, notificationId) {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+
+  await tenantPool.execute(queries.MARK_SERVICE_NOTIFICATION_READ, [
+    notificationId,
+    employeeId,
+  ]);
+
+  return {
+    success: true,
+  };
+}
+
+async function markAllServiceNotificationsRead(orgId, employeeId) {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+
+  await tenantPool.execute(queries.MARK_ALL_SERVICE_NOTIFICATIONS_READ, [
+    employeeId,
+  ]);
+
+  return {
+    success: true,
+  };
+}
+
+async function getEmployeeServiceOverview(orgId, employeeId) {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+
+  const [[overview]] = await tenantPool.query(
+    queries.GET_EMPLOYEE_SERVICE_OVERVIEW,
+    [employeeId, employeeId, employeeId, employeeId, orgId],
+  );
+
+  const counts = await getUnreadServiceCounts(orgId, employeeId);
+
+  return {
+    totalRequests: Number(overview?.total_requests || 0),
+    myRequests: Number(overview?.my_requests || 0),
+    myPending: Number(overview?.my_pending || 0),
+    myCompleted: Number(overview?.my_completed || 0),
+    assignedPending: Number(overview?.assigned_pending || 0),
+    unreadNotifications: counts.notifications,
+    unreadReminders: counts.reminders,
+  };
+}
+
 module.exports = {
   createRequest,
   getRequestsForEmployee,
@@ -1351,6 +2283,8 @@ module.exports = {
   getAssignedRequestHistory,
   getTravelOperations,
   getRequestDetail,
+  getRequestAttachment,
+  getAssetCandidates,
   approveRequest,
   rejectRequest,
   bookTravel,
@@ -1362,4 +2296,10 @@ module.exports = {
   getTravelContext,
   saveTravelBookingDraft,
   processAssetRequest,
+  getServiceNotifications,
+  getUnreadServiceCounts,
+  getServiceReminders,
+  markServiceNotificationRead,
+  markAllServiceNotificationsRead,
+  getEmployeeServiceOverview,
 };

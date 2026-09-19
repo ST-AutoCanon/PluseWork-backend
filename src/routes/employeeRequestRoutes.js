@@ -6,7 +6,11 @@ const handler = require("../handlers/employeeRequestHandler");
 const fs = require("fs");
 const path = require("path");
 
-router.post("/requests", handler.createRequest);
+router.post(
+  "/requests",
+  handler.upload.single("attachment"),
+  handler.createRequest,
+);
 
 router.get("/requests/mine", handler.getMine);
 
@@ -20,10 +24,55 @@ router.get("/requests/salary-advance-context", handler.getSalaryAdvanceContext);
 
 router.get("/requests/travel-context", handler.getTravelContext);
 
-// ---------------------------------------------------------
-// Attachment download
-// IMPORTANT: keep this BEFORE /requests/:requestId
-// ---------------------------------------------------------
+router.get("/guest-houses", handler.getGuestHouses);
+
+router.get("/requests/service-notifications", handler.getServiceNotifications);
+
+router.get(
+  "/requests/service-notifications/counts",
+  handler.getServiceNotificationCounts,
+);
+
+router.get("/requests/service-reminders", handler.getServiceReminders);
+
+router.get("/requests/service-overview", handler.getEmployeeServiceOverview);
+
+router.patch(
+  "/requests/service-notifications/:notificationId/read",
+  handler.markServiceNotificationRead,
+);
+
+router.patch(
+  "/requests/service-notifications/read-all",
+  handler.markAllServiceNotificationsRead,
+);
+
+router.get(
+  "/requests/:requestId/attachments/:attachmentId",
+  handler.downloadAttachment,
+);
+
+router.get("/requests/:requestId", handler.getDetail);
+
+router.post("/requests/:requestId/approve", handler.approve);
+
+router.post("/requests/:requestId/reject", handler.reject);
+
+router.post(
+  "/requests/:requestId/book",
+  handler.upload.single("e_ticket"),
+  handler.bookTravel,
+);
+
+router.post("/requests/:requestId/book-draft", handler.saveTravelBookingDraft);
+
+router.post("/requests/:requestId/complete", handler.complete);
+
+router.post("/requests/:requestId/cancel", handler.cancel);
+
+router.post("/requests/:requestId/asset-process", handler.processAsset);
+
+router.get("/requests/:requestId/asset-candidates", handler.getAssetCandidates);
 
 router.get("/requests/attachments/:filename", async (req, res) => {
   try {
@@ -72,25 +121,5 @@ router.get("/requests/attachments/:filename", async (req, res) => {
     });
   }
 });
-
-router.get("/requests/:requestId", handler.getDetail);
-
-router.post("/requests/:requestId/approve", handler.approve);
-
-router.post("/requests/:requestId/reject", handler.reject);
-
-router.post(
-  "/requests/:requestId/book",
-  handler.upload.single("e_ticket"),
-  handler.bookTravel,
-);
-
-router.post("/requests/:requestId/book-draft", handler.saveTravelBookingDraft);
-
-router.post("/requests/:requestId/complete", handler.complete);
-
-router.post("/requests/:requestId/cancel", handler.cancel);
-router.post("/requests/:requestId/asset-process", handler.processAsset);
-router.get("/guest-houses", handler.getGuestHouses);
 
 module.exports = router;

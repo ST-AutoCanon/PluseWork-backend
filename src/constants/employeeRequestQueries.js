@@ -592,27 +592,6 @@ module.exports = {
   `,
 
   // =========================================================
-  // NOTIFICATIONS
-  // =========================================================
-
-  ADD_NOTIFICATION: `
-    INSERT INTO notifications
-    (
-      user_id,
-      message,
-      triggered_at,
-      is_read
-    )
-    VALUES
-    (
-      ?,
-      ?,
-      NOW(),
-      0
-    )
-  `,
-
-  // =========================================================
   // REQUEST ATTACHMENTS
   // =========================================================
 
@@ -639,6 +618,32 @@ module.exports = {
     )
   `,
 
+  UPDATE_REQUEST_TO_COMPLETED_WITH_DETAILS: `
+    UPDATE employee_requests
+    SET
+      details_json = ?,
+      current_status = 'COMPLETED',
+      current_stage = 'COMPLETED',
+      current_assignee_id = NULL,
+      current_assignee_role = NULL,
+      completed_at = NOW()
+    WHERE id = ?
+  `,
+
+  GET_REQUEST_ATTACHMENTS: `
+    SELECT id, request_id, uploaded_by, file_name, file_path, mime_type, file_size, purpose
+    FROM employee_request_attachments
+    WHERE request_id = ?
+    ORDER BY id ASC
+  `,
+
+  GET_REQUEST_ATTACHMENT: `
+    SELECT id, request_id, uploaded_by, file_name, file_path, mime_type, file_size, purpose
+    FROM employee_request_attachments
+    WHERE request_id = ? AND id = ?
+    LIMIT 1
+  `,
+
   ADD_EMPLOYEE_ADVANCE: `
     INSERT INTO employee_advance_details
     (
@@ -650,4 +655,171 @@ module.exports = {
     )
     VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
   `,
+
+  // =========================================================
+  // EMPLOYEE SERVICES NOTIFICATIONS
+  // =========================================================
+
+  ADD_SERVICE_NOTIFICATION: `
+  INSERT INTO employee_service_notifications
+  (
+    request_id,
+    user_id,
+    notification_type,
+    title,
+    message,
+    metadata,
+    is_read,
+    created_at
+  )
+  VALUES
+  (
+    ?,
+    ?,
+    ?,
+    ?,
+    ?,
+    ?,
+    0,
+    NOW()
+  )
+`,
+
+  GET_SERVICE_NOTIFICATIONS: `
+  SELECT
+    n.id,
+    n.request_id,
+    n.user_id,
+    n.notification_type,
+    n.title,
+    n.message,
+    n.metadata,
+    n.is_read,
+    n.read_at,
+    n.created_at,
+
+    r.request_code,
+    r.request_type,
+    r.title AS request_title,
+    r.current_status,
+    r.current_stage
+
+  FROM employee_service_notifications n
+
+  LEFT JOIN employee_requests r
+    ON r.id = n.request_id
+
+  WHERE n.user_id = ?
+
+  ORDER BY n.created_at DESC
+  LIMIT ?
+`,
+
+  GET_UNREAD_SERVICE_NOTIFICATION_COUNT: `
+  SELECT COUNT(*) AS count
+  FROM employee_service_notifications
+  WHERE user_id = ?
+    AND notification_type = 'NOTIFICATION'
+    AND is_read = 0
+`,
+
+  GET_UNREAD_SERVICE_REMINDER_COUNT: `
+  SELECT COUNT(*) AS count
+  FROM employee_service_notifications
+  WHERE user_id = ?
+    AND notification_type = 'REMINDER'
+    AND is_read = 0
+`,
+
+  MARK_SERVICE_NOTIFICATION_READ: `
+  UPDATE employee_service_notifications
+  SET
+    is_read = 1,
+    read_at = NOW()
+  WHERE id = ?
+    AND user_id = ?
+`,
+
+  MARK_ALL_SERVICE_NOTIFICATIONS_READ: `
+  UPDATE employee_service_notifications
+  SET
+    is_read = 1,
+    read_at = NOW()
+  WHERE user_id = ?
+    AND notification_type = 'NOTIFICATION'
+    AND is_read = 0
+`,
+
+  GET_SERVICE_REMINDER_REQUESTS_FOR_USER: `
+  SELECT
+    r.id,
+    r.request_code,
+    r.request_type,
+    r.title,
+    r.current_status,
+    r.current_stage,
+    r.current_assignee_id,
+    r.updated_at,
+    r.created_at
+
+  FROM employee_requests r
+
+  WHERE r.org_id = ?
+    AND r.current_assignee_id = ?
+    AND r.current_status IN (
+      'PENDING_APPROVAL',
+      'PENDING_ADMIN_ACTION'
+    )
+
+  ORDER BY r.updated_at ASC
+`,
+
+  GET_EMPLOYEE_SERVICE_OVERVIEW: `
+  SELECT
+    COUNT(*) AS total_requests,
+
+    SUM(
+      CASE
+        WHEN employee_id = ?
+        THEN 1
+        ELSE 0
+      END
+    ) AS my_requests,
+
+    SUM(
+      CASE
+        WHEN employee_id = ?
+         AND current_status IN (
+           'PENDING_APPROVAL',
+           'PENDING_ADMIN_ACTION'
+         )
+        THEN 1
+        ELSE 0
+      END
+    ) AS my_pending,
+
+    SUM(
+      CASE
+        WHEN employee_id = ?
+         AND current_status = 'COMPLETED'
+        THEN 1
+        ELSE 0
+      END
+    ) AS my_completed,
+
+    SUM(
+      CASE
+        WHEN current_assignee_id = ?
+         AND current_status IN (
+           'PENDING_APPROVAL',
+           'PENDING_ADMIN_ACTION'
+         )
+        THEN 1
+        ELSE 0
+      END
+    ) AS assigned_pending
+
+  FROM employee_requests
+  WHERE org_id = ?
+`,
 };
