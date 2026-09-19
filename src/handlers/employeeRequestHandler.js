@@ -97,6 +97,7 @@ exports.createRequest = async (req, res) => {
       requestType,
       title,
       details: parsedDetails || {},
+      attachment: req.file || null,
     });
 
     res.status(201).json({
@@ -109,6 +110,25 @@ exports.createRequest = async (req, res) => {
     res.status(500).json({
       success: false,
       message: error.message || "Failed to create request",
+    });
+  }
+};
+
+exports.downloadAttachment = async (req, res) => {
+  try {
+    const attachment = await EmployeeRequestService.getRequestAttachment(
+      resolveOrgId(req),
+      req.params.requestId,
+      req.params.attachmentId,
+      resolveEmployeeId(req),
+    );
+
+    return res.download(attachment.file_path, attachment.file_name);
+  } catch (error) {
+    console.error("[EmployeeRequest] downloadAttachment:", error);
+    return res.status(404).json({
+      success: false,
+      message: error.message || "Attachment not found.",
     });
   }
 };
@@ -399,11 +419,26 @@ exports.processAsset = async (req, res) => {
       resolveOrgId(req),
       req.params.requestId,
       resolveEmployeeId(req),
+      req.body || {},
       req.app.get("io"),
     );
     res.json({ success: true, data: result });
   } catch (error) {
     console.error("[EmployeeRequest] processAsset:", error);
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+exports.getAssetCandidates = async (req, res) => {
+  try {
+    const result = await EmployeeRequestService.getAssetCandidates(
+      resolveOrgId(req),
+      req.params.requestId,
+      resolveEmployeeId(req),
+    );
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error("[EmployeeRequest] getAssetCandidates:", error);
     res.status(400).json({ success: false, message: error.message });
   }
 };
@@ -423,6 +458,134 @@ exports.getGuestHouses = async (req, res) => {
     res.status(500).json({
       error: "Failed to fetch guest houses",
       details: err.sqlMessage || err.message,
+    });
+  }
+};
+
+exports.getServiceNotifications = async (req, res) => {
+  try {
+    const rows = await EmployeeRequestService.getServiceNotifications(
+      resolveOrgId(req),
+      resolveEmployeeId(req),
+      req.query.limit || 30,
+    );
+
+    res.json({
+      success: true,
+      data: rows,
+    });
+  } catch (error) {
+    console.error("[EmployeeRequest] getServiceNotifications:", error);
+
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+exports.getServiceNotificationCounts = async (req, res) => {
+  try {
+    const counts = await EmployeeRequestService.getUnreadServiceCounts(
+      resolveOrgId(req),
+      resolveEmployeeId(req),
+    );
+
+    res.json({
+      success: true,
+      data: counts,
+    });
+  } catch (error) {
+    console.error("[EmployeeRequest] getServiceNotificationCounts:", error);
+
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+exports.getServiceReminders = async (req, res) => {
+  try {
+    const rows = await EmployeeRequestService.getServiceReminders(
+      resolveOrgId(req),
+      resolveEmployeeId(req),
+    );
+
+    res.json({
+      success: true,
+      data: rows,
+    });
+  } catch (error) {
+    console.error("[EmployeeRequest] getServiceReminders:", error);
+
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+exports.getEmployeeServiceOverview = async (req, res) => {
+  try {
+    const data = await EmployeeRequestService.getEmployeeServiceOverview(
+      resolveOrgId(req),
+      resolveEmployeeId(req),
+    );
+
+    res.json({
+      success: true,
+      data,
+    });
+  } catch (error) {
+    console.error("[EmployeeRequest] getEmployeeServiceOverview:", error);
+
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+exports.markServiceNotificationRead = async (req, res) => {
+  try {
+    const result = await EmployeeRequestService.markServiceNotificationRead(
+      resolveOrgId(req),
+      resolveEmployeeId(req),
+      req.params.notificationId,
+    );
+
+    res.json({
+      success: true,
+      data: result,
+    });
+  } catch (error) {
+    console.error("[EmployeeRequest] markServiceNotificationRead:", error);
+
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+exports.markAllServiceNotificationsRead = async (req, res) => {
+  try {
+    const result = await EmployeeRequestService.markAllServiceNotificationsRead(
+      resolveOrgId(req),
+      resolveEmployeeId(req),
+    );
+
+    res.json({
+      success: true,
+      data: result,
+    });
+  } catch (error) {
+    console.error("[EmployeeRequest] markAllServiceNotificationsRead:", error);
+
+    res.status(500).json({
+      success: false,
+      message: error.message,
     });
   }
 };

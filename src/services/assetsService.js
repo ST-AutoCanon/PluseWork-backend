@@ -28,7 +28,7 @@ const getOrganizationPrefix = async (orgId) => {
   try {
     const [rows] = await db.execute(
       `SELECT Name, subdomain FROM Organizations WHERE id = ? LIMIT 1`,
-      [orgId]
+      [orgId],
     );
 
     if (!rows || rows.length === 0) {
@@ -98,7 +98,7 @@ const getLastAssetCode = async (orgId) => {
       ORDER BY CAST(SUBSTRING_INDEX(asset_code, '-', -1) AS UNSIGNED) DESC
       LIMIT 1
       `,
-      [likePattern, orgId]
+      [likePattern, orgId],
     );
 
     if (!rows || rows.length === 0) {
@@ -203,7 +203,7 @@ const updateAssignedTo = async (orgId, assetId, assignedTo) => {
 
     const [rows] = await tenantPool.query(
       "SELECT assigned_to FROM assets WHERE asset_id = ? AND org_id = ?",
-      [assetId, orgId]
+      [assetId, orgId],
     );
     if (rows.length === 0) return "not_found";
 
@@ -215,7 +215,7 @@ const updateAssignedTo = async (orgId, assetId, assignedTo) => {
     const existingIndex = assignedArray.findIndex(
       (entry) =>
         entry.name === assignedTo.name &&
-        entry.employeeId === assignedTo.employeeId
+        entry.employeeId === assignedTo.employeeId,
     );
 
     if (existingIndex !== -1) {
@@ -228,16 +228,16 @@ const updateAssignedTo = async (orgId, assetId, assignedTo) => {
       };
       const updatedJson = JSON.stringify(assignedArray);
       await tenantPool.query(
-        "UPDATE assets SET assigned_to = ? WHERE asset_id = ? AND org_id = ?",
-        [updatedJson, assetId, orgId]
+        "UPDATE assets SET assigned_to = ?, status = CASE WHEN ? = 'Assigned' THEN 'In Use' ELSE status END WHERE asset_id = ? AND org_id = ?",
+        [updatedJson, assignedTo.status, assetId, orgId],
       );
       return "updated";
     } else {
       assignedArray.push(assignedTo);
       const updatedJson = JSON.stringify(assignedArray);
       await tenantPool.query(
-        "UPDATE assets SET assigned_to = ? WHERE asset_id = ? AND org_id = ?",
-        [updatedJson, assetId, orgId]
+        "UPDATE assets SET assigned_to = ?, status = CASE WHEN ? = 'Assigned' THEN 'In Use' ELSE status END WHERE asset_id = ? AND org_id = ?",
+        [updatedJson, assignedTo.status, assetId, orgId],
       );
       return "inserted";
     }

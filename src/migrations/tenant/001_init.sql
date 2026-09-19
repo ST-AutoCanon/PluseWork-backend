@@ -1483,3 +1483,41 @@ CREATE TABLE IF NOT EXISTS employee_request_attachments (
         REFERENCES employee_requests(id)
         ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS employee_service_notifications (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    request_id BIGINT UNSIGNED NULL,
+    user_id VARCHAR(100) NOT NULL,
+
+    notification_type VARCHAR(30) NOT NULL DEFAULT 'NOTIFICATION',
+
+    title VARCHAR(255) NOT NULL,
+    message TEXT NOT NULL,
+
+    metadata JSON NULL,
+
+    is_read TINYINT(1) NOT NULL DEFAULT 0,
+    read_at DATETIME NULL,
+
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+
+    INDEX idx_esn_user_created (
+        user_id,
+        created_at
+    ),
+
+    INDEX idx_esn_user_read (
+        user_id,
+        is_read
+    ),
+
+    INDEX idx_esn_request (
+        request_id
+    ),
+
+    INDEX idx_esn_type (
+        notification_type
+    )
+);
