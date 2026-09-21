@@ -9,7 +9,7 @@ const {
   viewEmployeePolicyFileHandler,
   saveAcknowledgementHandler,
   saveReadCompletionHandler,
-  getEmployeePolicyHistoryHandler,
+  getEmployeePolicyHistoryHandler,getPolicyFileReadingStatusHandler,
 } = require("../handlers/employeePoliciesHandler");
 
 const router = express.Router();
@@ -64,7 +64,10 @@ router.get(
   "/employee-policy/history",
   getEmployeePolicyHistoryHandler
 );
-
+router.get(
+  "/reading-status/:policyId/files",
+  getPolicyFileReadingStatusHandler
+);
 /* ==========================================================
    View / Download Policy File
 ========================================================== */
