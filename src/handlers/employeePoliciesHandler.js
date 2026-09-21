@@ -375,12 +375,40 @@ const getEmployeePolicyHistoryHandler = async (req, res) => {
     });
   }
 };
+const getPolicyFileReadingStatusHandler = async (req, res) => {
+  try {
+    const orgId = getOrgIdFromHeaders(req);   // ← correct function
+    const { policyId } = req.params;
 
+    if (!orgId || !policyId) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing orgId or policyId",
+      });
+    }
+
+    const data = await employeePoliciesService.getPolicyFileReadingStatus(
+      orgId,
+      policyId
+    );
+
+    return res.status(200).json({
+      success: true,
+      data,
+    });
+  } catch (err) {
+    console.error("Get Policy File Reading Status Error:", err);
+    return res.status(500).json({
+      success: false,
+      message: err.message || "Failed to load file reading status",
+    });
+  }
+};
 module.exports = {
   getEmployeePoliciesHandler,
   getPolicyFilesHandler,
   getPolicyFileHandler,
   saveAcknowledgementHandler,
   saveReadCompletionHandler,
-  getEmployeePolicyHistoryHandler,viewEmployeePolicyFileHandler,
+  getEmployeePolicyHistoryHandler,viewEmployeePolicyFileHandler,getPolicyFileReadingStatusHandler
 };

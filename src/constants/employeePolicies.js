@@ -122,29 +122,69 @@ SELECT
         COUNT(CASE WHEN pf.acknowledgement_required = 1 AND pa.acknowledged = 1 THEN 1 END) AS acknowledged_files
 FROM employees e
 JOIN (
+        /* Only employees that were explicitly assigned (works for both pure-employee and partial-department cases) */
         SELECT DISTINCT pa.employee_id
         FROM policy_assignments pa
         WHERE pa.policy_id = ? AND pa.employee_id IS NOT NULL
+
         UNION
-        SELECT e2.employee_id
-        FROM employees e2
-        JOIN employee_professional ep2 ON ep2.employee_id = e2.employee_id
-        JOIN policy_assignments pa2 ON pa2.policy_id = ? AND pa2.department_id = ep2.department_id
-        WHERE pa2.department_id IS NOT NULL
-        UNION
+
+        /* Assign-to-all case */
         SELECT e3.employee_id
         FROM employees e3
         WHERE e3.status = 'Active' AND e3.org_id = ?
-            AND EXISTS (SELECT 1 FROM policies p3 WHERE p3.id = ? AND p3.assign_to_all = 1)
+          AND EXISTS (SELECT 1 FROM policies p3 WHERE p3.id = ? AND p3.assign_to_all = 1)
 ) assigned ON assigned.employee_id = e.employee_id
 CROSS JOIN policy_files pf
 LEFT JOIN policy_acknowledgements pa
-    ON pa.policy_file_id = pf.id AND pa.employee_id = e.employee_id AND pa.org_id = ?
-WHERE pf.policy_id = ? AND e.org_id = ?
+    ON pa.policy_file_id = pf.id
+   AND pa.employee_id = e.employee_id
+   AND pa.org_id = ?
+WHERE pf.policy_id = ?
+  AND e.org_id = ?
 GROUP BY e.employee_id, e.first_name, e.last_name
 ORDER BY employee_name ASC;
 `;
+const GET_POLICY_FILE_READING_STATUS = `
+SELECT
+  e.employee_id,
+  CONCAT_WS(' ', e.first_name, e.last_name) AS employee_name,
+  pf.id AS file_id,
+  pf.original_file_name,
+  pf.file_name,
+  pf.acknowledgement_required,
+  CASE WHEN pa.read_completed = 1 THEN 1 ELSE 0 END AS is_read,
+  CASE WHEN pa.acknowledged = 1 THEN 1 ELSE 0 END AS is_acknowledged
+FROM policy_files pf
+CROSS JOIN (
+  /* Employees explicitly assigned to this policy */
+  SELECT DISTINCT pa.employee_id
+  FROM policy_assignments pa
+  WHERE pa.policy_id = ?
+    AND pa.employee_id IS NOT NULL
 
+  UNION
+
+  /* Assign-to-all case */
+  SELECT e3.employee_id
+  FROM employees e3
+  WHERE e3.status = 'Active'
+    AND e3.org_id = ?
+    AND EXISTS (
+      SELECT 1 FROM policies p3
+      WHERE p3.id = ? AND p3.assign_to_all = 1
+    )
+) assigned
+JOIN employees e
+  ON e.employee_id = assigned.employee_id
+ AND e.org_id = ?
+LEFT JOIN policy_acknowledgements pa
+  ON pa.policy_file_id = pf.id
+ AND pa.employee_id = e.employee_id
+ AND pa.org_id = ?
+WHERE pf.policy_id = ?
+ORDER BY pf.id, employee_name;
+`;
 const GET_EMPLOYEE_POLICY_HISTORY = `
 SELECT
     p.policy_name,
@@ -172,5 +212,5 @@ module.exports = {
     CHECK_ACKNOWLEDGEMENT,
     SAVE_READ_COMPLETION,
     GET_POLICY_READING_STATUS,
-    GET_EMPLOYEE_POLICY_HISTORY,
+    GET_EMPLOYEE_POLICY_HISTORY,GET_POLICY_FILE_READING_STATUS
 };

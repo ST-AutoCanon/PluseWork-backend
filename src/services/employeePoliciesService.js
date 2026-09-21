@@ -6,7 +6,7 @@ const {
   CHECK_ACKNOWLEDGEMENT,
   SAVE_READ_COMPLETION,
   GET_POLICY_READING_STATUS,
-  GET_EMPLOYEE_POLICY_HISTORY,
+  GET_EMPLOYEE_POLICY_HISTORY,GET_POLICY_FILE_READING_STATUS,
 } = require("../constants/employeePolicies");
 
 const {
@@ -94,7 +94,21 @@ const getPolicyFiles = async (orgId, policyId, employeeId) => {
     throw new Error("Failed to fetch policy files");
   }
 };
+const getPolicyFileReadingStatus = async (orgId, policyId) => {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  await ensurePolicyTrackingSchema(tenantPool);
 
+  const [rows] = await tenantPool.query(GET_POLICY_FILE_READING_STATUS, [
+    policyId, // employee assignments
+    orgId,    // assign-to-all org
+    policyId, // assign-to-all policy
+    orgId,    // employees.org_id
+    orgId,    // acknowledgements.org_id
+    policyId, // policy_files filter
+  ]);
+
+  return rows;
+};
 /* ==========================================================
    Get Single Policy File
 ========================================================== */
@@ -203,12 +217,20 @@ const saveAcknowledgement = async (
 const saveReadCompletion = async (orgId, employeeId, policyId, policyFileId) => {
   const tenantPool = await getTenantPoolForOrgId(orgId);
   await ensurePolicyTrackingSchema(tenantPool);
-  const [result] = await tenantPool.query(SAVE_READ_COMPLETION, [orgId, employeeId, policyId, policyFileId]);
+
+  const [result] = await tenantPool.query(SAVE_READ_COMPLETION, [
+    orgId,
+    employeeId,
+    policyId,
+    policyFileId,
+  ]);
+
   if (result.affectedRows === 0) {
+    // Create a new row with ONLY read status (not acknowledged)
     await tenantPool.query(
       `INSERT INTO policy_acknowledgements
-       (org_id, employee_id, policy_id, policy_file_id, read_completed, read_at)
-       VALUES (?, ?, ?, ?, 1, CURRENT_TIMESTAMP)`,
+       (org_id, employee_id, policy_id, policy_file_id, acknowledged, read_completed, read_at)
+       VALUES (?, ?, ?, ?, 0, 1, CURRENT_TIMESTAMP)`,
       [orgId, employeeId, policyId, policyFileId]
     );
   }
@@ -217,14 +239,22 @@ const saveReadCompletion = async (orgId, employeeId, policyId, policyFileId) => 
 const getPolicyReadingStatus = async (orgId, policyId) => {
   const tenantPool = await getTenantPoolForOrgId(orgId);
   await ensurePolicyTrackingSchema(tenantPool);
+
   const [rows] = await tenantPool.query(GET_POLICY_READING_STATUS, [
-    policyId, policyId, orgId, policyId, orgId, policyId, orgId,
+    policyId, // employee assignments
+    orgId,    // assign-to-all org
+    policyId, // assign-to-all policy
+    orgId,    // acknowledgements.org_id
+    policyId, // policy_files filter
+    orgId,    // employees.org_id
   ]);
+
   return rows.map((row) => ({
     employee_id: row.employee_id,
     employee_name: row.employee_name || `Employee ${row.employee_id}`,
     read: Number(row.total_files) > 0 && Number(row.read_files) === Number(row.total_files),
-    acknowledged: Number(row.required_ack_files) > 0 &&
+    acknowledged:
+      Number(row.required_ack_files) > 0 &&
       Number(row.acknowledged_files) === Number(row.required_ack_files),
   }));
 };
@@ -263,5 +293,5 @@ module.exports = {
   saveAcknowledgement,
   saveReadCompletion,
   getPolicyReadingStatus,
-  getEmployeePolicyHistory,
+  getEmployeePolicyHistory,getEmployeePolicyHistory ,getPolicyFileReadingStatus,
 };
