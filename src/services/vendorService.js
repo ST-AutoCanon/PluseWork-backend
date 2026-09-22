@@ -357,7 +357,7 @@ const sendApprovalEmail = async (inviteId, orgId) => {
   const data = typeof request.submission_data === "string"
     ? JSON.parse(request.submission_data)
     : request.submission_data || {};
-  const recipientEmail = data.contact1_email || request.username;
+const recipientEmail = request.username;
   if (!recipientEmail) throw new Error("Vendor email address not found");
   await sendVendorApprovalEmail({ recipientEmail, vendorName: data.company_name || request.vendor_name });
 };
