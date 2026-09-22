@@ -78,8 +78,6 @@ function validateTravelDetails(details = {}) {
   return {
     ...details,
     distanceKm,
-    beyondEligibility:
-      String(details.cadreBand).toUpperCase() === "LOWER" && distanceKm > 1000,
   };
 }
 
@@ -92,14 +90,6 @@ async function getEmployeeInfo(conn, employeeId) {
 async function getAdmin(conn, orgId) {
   const [rows] = await conn.execute(queries.GET_ADMIN, [orgId]);
 
-  return rows?.[0] || null;
-}
-
-async function getEmployeeByRole(conn, role, orgId) {
-  const [rows] = await conn.execute(queries.GET_ACTIVE_EMPLOYEE_BY_ROLE, [
-    role,
-    orgId,
-  ]);
   return rows?.[0] || null;
 }
 
@@ -451,6 +441,7 @@ async function getTravelOperations(orgId, employeeId) {
   try {
     const employee = await getEmployeeInfo(conn, employeeId);
     const role = String(employee?.role || "").toLowerCase();
+
     if (!["admin", "travel desk", "finance"].includes(role)) {
       throw new Error("Travel operations access is restricted.");
     }
@@ -459,6 +450,7 @@ async function getTravelOperations(orgId, employeeId) {
   }
 
   const [rows] = await tenantPool.query(queries.GET_TRAVEL_OPERATIONS, [orgId]);
+
   return rows;
 }
 
@@ -496,7 +488,9 @@ async function getRequestDetail(orgId, requestId, actorId) {
   }
 
   const actorConn = await tenantPool.getConnection();
+
   let actor = null;
+
   try {
     actor = await getEmployeeInfo(actorConn, actorId);
   } finally {
@@ -504,7 +498,9 @@ async function getRequestDetail(orgId, requestId, actorId) {
   }
 
   const requesterConn = await tenantPool.getConnection();
+
   let requester = null;
+
   try {
     requester = await getEmployeeInfo(requesterConn, request.employee_id);
   } finally {
@@ -570,6 +566,7 @@ async function getRequestDetail(orgId, requestId, actorId) {
     fileSize: attachment.file_size,
     purpose: attachment.purpose,
   }));
+
   const eTicket = publicAttachments.find(
     (attachment) => attachment.purpose === "E_TICKET",
   );
@@ -612,11 +609,13 @@ async function approveRequest(
     }
 
     const actor = await getEmployeeInfo(conn, actorId);
+
     if (!actor) {
       throw new Error("Approver not found.");
     }
 
     const actorRole = normalizedRole(actor.role);
+
     const isAdminApproval =
       actorRole === "admin" &&
       request.current_status === "PENDING_ADMIN_ACTION" &&
@@ -681,38 +680,46 @@ async function approveRequest(
         ? JSON.parse(request.details_json || "{}")
         : request.details_json || {};
 
-    const beyondEligibility =
-      request.request_type === "TRAVEL_BOOKING" &&
-      details.beyondEligibility === true;
-
     if (request.request_type === "SALARY_ADVANCE") {
       const employee = await getEmployeeInfo(conn, request.employee_id);
+
       const monthlyGrossSalary = (Number(employee?.salary) || 0) / 12;
+
       const maximumAdvance = monthlyGrossSalary * 3;
+
       const advanceAmount = Number(details.amount);
+
       const recoveryMonths = Number(details.repaymentMonths);
+
       const recoveryStartMonth = String(details.recoveryStartMonth || "");
 
       if (!monthlyGrossSalary || advanceAmount <= 0) {
         throw new Error("Employee salary or advance amount is invalid.");
       }
+
       if (advanceAmount > maximumAdvance) {
         throw new Error(
-          `Salary advance cannot exceed ₹${maximumAdvance.toLocaleString("en-IN")}.`,
+          `Salary advance cannot exceed ₹${maximumAdvance.toLocaleString(
+            "en-IN",
+          )}.`,
         );
       }
+
       if (!Number.isInteger(recoveryMonths) || recoveryMonths < 1) {
         throw new Error("Recovery period must be at least one month.");
       }
+
       if (!/^\d{4}-\d{2}$/.test(recoveryStartMonth)) {
         throw new Error("A valid recovery start month is required.");
       }
 
       const [startYear, startMonth] = recoveryStartMonth.split("-").map(Number);
+
       const applicableMonths = Array.from(
         { length: recoveryMonths },
         (_, index) => {
           const month = new Date(startYear, startMonth - 1 + index, 1);
+
           return `${month.getFullYear()}-${String(
             month.getMonth() + 1,
           ).padStart(2, "0")}`;
@@ -727,175 +734,11 @@ async function approveRequest(
       ]);
     }
 
-    if (beyondEligibility && request.current_stage === "SUPERVISOR_APPROVAL") {
-      const projectHead = await getEmployeeByRole(conn, "Project Head", orgId);
-      if (!projectHead) throw new Error("No active Project Head is available.");
-
-      await conn.execute(queries.UPDATE_REQUEST_ASSIGNEE, [
-        "PROJECT_HEAD_APPROVAL",
-        projectHead.employee_id,
-        projectHead.role,
-        requestId,
-      ]);
-      await conn.execute(queries.UPDATE_THREAD_RECIPIENT, [
-        projectHead.employee_id,
-        "Reporting Manager approved. Project Head approval is required.",
-        request.thread_id,
-      ]);
-      await addEvent(
-        conn,
-        requestId,
-        "REPORTING_MANAGER_APPROVED",
-        "PROJECT_HEAD_APPROVAL",
-        actorId,
-        actor.role,
-        comment || "Approved by Reporting Manager.",
-      );
-      await addServiceNotification(conn, {
-        userId: projectHead.employee_id,
-        requestId,
-        type: "NOTIFICATION",
-        title: "Project Head Approval Required",
-        message: `${request.request_code} requires Project Head approval.`,
-      });
-      await conn.commit();
-      if (io)
-        io.to(`user_${projectHead.employee_id}`).emit(
-          "employeeRequestUpdated",
-          { requestId },
-        );
-      return getRequestDetail(orgId, requestId, actorId);
-    }
-
-    if (
-      beyondEligibility &&
-      request.current_stage === "PROJECT_HEAD_APPROVAL"
-    ) {
-      const hr = await getEmployeeByRole(conn, "HR", orgId);
-      if (!hr) throw new Error("No active HR approver is available.");
-
-      await conn.execute(queries.UPDATE_REQUEST_ASSIGNEE, [
-        "HR_FINANCE_APPROVAL",
-        hr.employee_id,
-        hr.role,
-        requestId,
-      ]);
-      await conn.execute(queries.UPDATE_THREAD_RECIPIENT, [
-        hr.employee_id,
-        "Project Head approved. HR and Finance approval is required.",
-        request.thread_id,
-      ]);
-      await addEvent(
-        conn,
-        requestId,
-        "PROJECT_HEAD_APPROVED",
-        "HR_FINANCE_APPROVAL",
-        actorId,
-        actor.role,
-        comment || "Approved by Project Head.",
-      );
-      await addServiceNotification(conn, {
-        userId: hr.employee_id,
-        requestId,
-        type: "NOTIFICATION",
-        title: "HR & Finance Approval Required",
-        message: `${request.request_code} requires HR and Finance approval.`,
-      });
-      await conn.commit();
-      if (io)
-        io.to(`user_${hr.employee_id}`).emit("employeeRequestUpdated", {
-          requestId,
-        });
-      return getRequestDetail(orgId, requestId, actorId);
-    }
-
-    if (beyondEligibility && request.current_stage === "HR_FINANCE_APPROVAL") {
-      const finance = await getEmployeeByRole(conn, "Finance", orgId);
-      if (!finance) throw new Error("No active Finance approver is available.");
-
-      await conn.execute(queries.UPDATE_REQUEST_ASSIGNEE, [
-        "FINANCE_APPROVAL",
-        finance.employee_id,
-        finance.role,
-        requestId,
-      ]);
-      await conn.execute(queries.UPDATE_THREAD_RECIPIENT, [
-        finance.employee_id,
-        "HR approved. Finance approval is required.",
-        request.thread_id,
-      ]);
-      await addEvent(
-        conn,
-        requestId,
-        "HR_APPROVED",
-        "FINANCE_APPROVAL",
-        actorId,
-        actor.role,
-        comment || "Approved by HR.",
-      );
-      await addServiceNotification(conn, {
-        userId: finance.employee_id,
-        requestId,
-        type: "NOTIFICATION",
-        title: "Finance Approval Required",
-        message: `${request.request_code} requires Finance approval.`,
-      });
-      await conn.commit();
-      if (io)
-        io.to(`user_${finance.employee_id}`).emit("employeeRequestUpdated", {
-          requestId,
-        });
-      return getRequestDetail(orgId, requestId, actorId);
-    }
-
-    if (beyondEligibility && request.current_stage === "FINANCE_APPROVAL") {
-      const travelDesk = await getEmployeeByRole(conn, "Travel Desk", orgId);
-      if (!travelDesk)
-        throw new Error("No active Travel Desk user is available.");
-
-      await conn.execute(queries.UPDATE_REQUEST_ASSIGNEE, [
-        "TRAVEL_DESK_ACTION",
-        travelDesk.employee_id,
-        travelDesk.role,
-        requestId,
-      ]);
-      await conn.execute(queries.UPDATE_THREAD_RECIPIENT, [
-        travelDesk.employee_id,
-        "Finance approved. Travel Desk action is required.",
-        request.thread_id,
-      ]);
-      await conn.execute(queries.UPDATE_REQUEST_TO_TRAVEL_DESK, [
-        travelDesk.employee_id,
-        travelDesk.role,
-        requestId,
-      ]);
-      await addEvent(
-        conn,
-        requestId,
-        "FINANCE_APPROVED",
-        "TRAVEL_DESK_ACTION",
-        actorId,
-        actor.role,
-        comment || "Approved by Finance.",
-      );
-      await addServiceNotification(conn, {
-        userId: travelDesk.employee_id,
-        requestId,
-        type: "NOTIFICATION",
-        title: "Travel Desk Action Required",
-        message: `${request.request_code} is ready for Travel Desk action.`,
-      });
-      await conn.commit();
-      if (io)
-        io.to(`user_${travelDesk.employee_id}`).emit("employeeRequestUpdated", {
-          requestId,
-        });
-      return getRequestDetail(orgId, requestId, actorId);
-    }
-
     const admin = await getAdmin(conn, orgId);
 
-    if (!admin) throw new Error("No active admin found.");
+    if (!admin) {
+      throw new Error("No active admin found.");
+    }
 
     await conn.execute(queries.UPDATE_REQUEST_TO_ADMIN_ACTION, [
       admin.employee_id,
@@ -960,20 +803,27 @@ async function getRequestAttachment(orgId, requestId, attachmentId, actorId) {
   await getRequestDetail(orgId, requestId, actorId);
 
   const tenantPool = await getTenantPoolForOrgId(orgId);
+
   const [rows] = await tenantPool.query(queries.GET_REQUEST_ATTACHMENT, [
     requestId,
     attachmentId,
   ]);
+
   const attachment = rows?.[0];
-  if (!attachment) throw new Error("Attachment not found.");
+
+  if (!attachment) {
+    throw new Error("Attachment not found.");
+  }
 
   return attachment;
 }
 
 function parseAssetAssignments(value) {
   if (!value) return [];
+
   try {
     const parsed = typeof value === "string" ? JSON.parse(value) : value;
+
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
@@ -991,6 +841,7 @@ function parseAssignedTo(assignedTo) {
 
   if (!assignedTo) {
     console.log("[ASSET_CANDIDATES][assigned_to] No assigned_to value.");
+
     return [];
   }
 
@@ -1064,6 +915,7 @@ function normalizeDateOnly(value) {
 
 function assetIsAvailable(asset) {
   console.log("\n------------------------------------------------------");
+
   console.log("[ASSET_CANDIDATES][Availability] Checking asset:", {
     assetId: asset?.asset_id,
     assetCode: asset?.asset_code,
@@ -1136,6 +988,7 @@ function assetIsAvailable(asset) {
   const currentStatus = normalizeAssetStatus(currentAssignment.status);
 
   const today = getTodayDateString();
+
   const returnDate = normalizeDateOnly(currentAssignment.returnDate);
 
   console.log("[ASSET_CANDIDATES][Availability] Current assignment record:", {
@@ -1256,20 +1109,25 @@ function assetIsAvailable(asset) {
 
 async function getAssetCandidates(orgId, requestId, actorId) {
   console.log("\n======================================================");
+
   console.log("[ASSET_CANDIDATES] getAssetCandidates START");
+
   console.log("[ASSET_CANDIDATES] Input:", {
     orgId,
     requestId,
     actorId,
   });
+
   console.log("======================================================");
 
   console.log("[ASSET_CANDIDATES] Step 1: Getting tenant pool...");
+
   const tenantPool = await getTenantPoolForOrgId(orgId);
 
   console.log("[ASSET_CANDIDATES] Step 1 complete: Tenant pool obtained.");
 
   console.log("[ASSET_CANDIDATES] Step 2: Getting database connection...");
+
   const conn = await tenantPool.getConnection();
 
   console.log(
@@ -1340,6 +1198,7 @@ async function getAssetCandidates(orgId, requestId, actorId) {
     );
 
     const actorIsAdmin = normalizedRole(actor?.role) === "admin";
+
     const actorIsAssigned =
       String(request.current_assignee_id) === String(actorId);
 
@@ -1656,6 +1515,63 @@ async function rejectRequest(
   }
 }
 
+async function saveOrReuseETicketAttachment(
+  conn,
+  requestId,
+  actorId,
+  attachment = null,
+) {
+  const [existingRows] = await conn.execute(
+    `
+      SELECT id
+      FROM employee_request_attachments
+      WHERE request_id = ?
+        AND purpose = 'E_TICKET'
+      ORDER BY id DESC
+      LIMIT 1
+    `,
+    [requestId],
+  );
+
+  const existingAttachment = existingRows?.[0] || null;
+
+  // No new file uploaded.
+  // Reuse whatever was already saved.
+  if (!attachment) {
+    return existingAttachment?.id || null;
+  }
+
+  /*
+   * A new e-ticket was selected.
+   *
+   * Remove the previous E_TICKET record first so that each request
+   * has only one current e-ticket attachment.
+   */
+  await conn.execute(
+    `
+      DELETE FROM employee_request_attachments
+      WHERE request_id = ?
+        AND purpose = 'E_TICKET'
+    `,
+    [requestId],
+  );
+
+  const [attachmentResult] = await conn.execute(
+    queries.CREATE_REQUEST_ATTACHMENT,
+    [
+      requestId,
+      actorId,
+      attachment.originalname,
+      attachment.path,
+      attachment.mimetype,
+      attachment.size,
+      "E_TICKET",
+    ],
+  );
+
+  return attachmentResult.insertId;
+}
+
 async function bookTravel(
   orgId,
   requestId,
@@ -1680,6 +1596,7 @@ async function bookTravel(
     const actor = await getEmployeeInfo(conn, actorId);
 
     const actorRole = normalizedRole(actor?.role);
+
     if (
       !["admin", "traveldesk", "finance", "financeteam"].includes(actorRole)
     ) {
@@ -1708,24 +1625,12 @@ async function bookTravel(
         ? JSON.parse(request.details_json || "{}")
         : request.details_json || {};
 
-    let attachmentId = null;
-
-    if (attachment) {
-      const [attachmentResult] = await conn.execute(
-        queries.CREATE_REQUEST_ATTACHMENT,
-        [
-          requestId,
-          actorId,
-          attachment.originalname,
-          attachment.path,
-          attachment.mimetype,
-          attachment.size,
-          "E_TICKET",
-        ],
-      );
-
-      attachmentId = attachmentResult.insertId;
-    }
+    const attachmentId = await saveOrReuseETicketAttachment(
+      conn,
+      requestId,
+      actorId,
+      attachment,
+    );
 
     details = {
       ...details,
@@ -1796,22 +1701,38 @@ async function bookTravel(
   }
 }
 
-async function saveTravelBookingDraft(orgId, requestId, actorId, booking) {
+async function saveTravelBookingDraft(
+  orgId,
+  requestId,
+  actorId,
+  booking,
+  attachment = null,
+) {
   const tenantPool = await getTenantPoolForOrgId(orgId);
+
   const conn = await tenantPool.getConnection();
 
   try {
+    await conn.beginTransaction();
+
     const request = await getRequestForUpdate(conn, orgId, requestId);
-    if (!request) throw new Error("Request not found");
+
+    if (!request) {
+      throw new Error("Request not found");
+    }
+
     if (request.request_type !== "TRAVEL_BOOKING") {
       throw new Error("This is not a travel request.");
     }
+
     if (request.current_status !== "PENDING_ADMIN_ACTION") {
       throw new Error("This travel request is not available for drafting.");
     }
 
     const actor = await getEmployeeInfo(conn, actorId);
+
     const actorRole = normalizedRole(actor?.role);
+
     if (
       !["admin", "traveldesk", "finance", "financeteam"].includes(actorRole) ||
       (actorRole !== "admin" &&
@@ -1825,13 +1746,31 @@ async function saveTravelBookingDraft(orgId, requestId, actorId, booking) {
         ? JSON.parse(request.details_json || "{}")
         : request.details_json || {};
 
+    /*
+     * Save the new e-ticket when supplied.
+     * Otherwise reuse the existing draft e-ticket.
+     */
+    const eTicketAttachmentId = await saveOrReuseETicketAttachment(
+      conn,
+      requestId,
+      actorId,
+      attachment,
+    );
+
     const nextDetails = {
       ...details,
+
       transportType: booking.transportType || booking.airline || "",
+
       pnr: booking.pnr || "",
+
       departureTime: booking.departureTime || "",
+
       returnTime: booking.returnTime || "",
+
       bookingMessage: booking.message || "",
+
+      eTicketAttachmentId: eTicketAttachmentId || null,
     };
 
     await conn.execute(queries.UPDATE_TRAVEL_BOOKING_DRAFT, [
@@ -1840,7 +1779,12 @@ async function saveTravelBookingDraft(orgId, requestId, actorId, booking) {
       requestId,
     ]);
 
+    await conn.commit();
+
     return getRequestDetail(orgId, requestId, actorId);
+  } catch (error) {
+    await conn.rollback();
+    throw error;
   } finally {
     conn.release();
   }
@@ -1912,16 +1856,22 @@ async function completeRequest(
 
 async function cancelRequest(orgId, requestId, actorId, io = null) {
   const tenantPool = await getTenantPoolForOrgId(orgId);
+
   const conn = await tenantPool.getConnection();
 
   try {
     await conn.beginTransaction();
+
     const request = await getRequestForUpdate(conn, orgId, requestId);
 
-    if (!request) throw new Error("Request not found");
+    if (!request) {
+      throw new Error("Request not found");
+    }
+
     if (String(request.employee_id) !== String(actorId)) {
       throw new Error("Only the requesting employee can cancel this request.");
     }
+
     if (
       ["COMPLETED", "REJECTED", "CANCELLED"].includes(request.current_status)
     ) {
@@ -1929,11 +1879,13 @@ async function cancelRequest(orgId, requestId, actorId, io = null) {
     }
 
     await conn.execute(queries.UPDATE_REQUEST_TO_CANCELLED, [requestId]);
+
     await conn.execute(queries.CANCEL_THREAD, [
       `Request ${request.request_code} cancelled by employee.`,
       actorId,
       request.thread_id,
     ]);
+
     await addEvent(
       conn,
       requestId,
@@ -1943,6 +1895,7 @@ async function cancelRequest(orgId, requestId, actorId, io = null) {
       "Employee",
       "Request cancelled by employee.",
     );
+
     await addServiceNotification(conn, {
       userId: request.current_assignee_id,
       requestId,
@@ -1950,6 +1903,7 @@ async function cancelRequest(orgId, requestId, actorId, io = null) {
       title: "Request Cancelled",
       message: `${request.request_code} was cancelled by the employee.`,
     });
+
     await conn.commit();
 
     if (io && request.current_assignee_id) {
@@ -1958,6 +1912,7 @@ async function cancelRequest(orgId, requestId, actorId, io = null) {
         { requestId },
       );
     }
+
     return getRequestDetail(orgId, requestId, actorId);
   } catch (error) {
     await conn.rollback();
@@ -1975,25 +1930,34 @@ async function processAssetRequest(
   io = null,
 ) {
   const tenantPool = await getTenantPoolForOrgId(orgId);
+
   const conn = await tenantPool.getConnection();
 
   try {
     await conn.beginTransaction();
 
     const request = await getRequestForUpdate(conn, orgId, requestId);
-    if (!request) throw new Error("Request not found");
+
+    if (!request) {
+      throw new Error("Request not found");
+    }
+
     if (String(request.current_assignee_id) !== String(actorId)) {
       throw new Error("You are not assigned this request.");
     }
+
     const actor = await getEmployeeInfo(conn, actorId);
+
     if (normalizedRole(actor?.role) !== "admin") {
       throw new Error(
         "Only the assigned Admin can allocate this asset request.",
       );
     }
+
     if (request.request_type !== "ASSET_REQUEST") {
       throw new Error("This is not an asset request.");
     }
+
     if (request.current_status !== "PENDING_ADMIN_ACTION") {
       throw new Error("This asset request is not ready for processing.");
     }
@@ -2004,6 +1968,7 @@ async function processAssetRequest(
         : request.details_json || {};
 
     const isOffline = processing.offline === true;
+
     let assignmentMetadata;
 
     if (isOffline) {
@@ -2051,6 +2016,7 @@ async function processAssetRequest(
       }
 
       const employee = await getEmployeeInfo(conn, request.employee_id);
+
       await assetService.updateAssignedTo(orgId, asset.asset_id, {
         name: employee?.employee_name || request.employee_id,
         employeeId: request.employee_id,
@@ -2063,6 +2029,7 @@ async function processAssetRequest(
         ),
         status: "Assigned",
       });
+
       assignmentMetadata = {
         mode: "INVENTORY",
         assetId: asset.asset_id,
@@ -2073,15 +2040,21 @@ async function processAssetRequest(
       };
     }
 
-    const nextDetails = { ...details, assetFulfillment: assignmentMetadata };
+    const nextDetails = {
+      ...details,
+      assetFulfillment: assignmentMetadata,
+    };
+
     await conn.execute(queries.UPDATE_REQUEST_TO_COMPLETED_WITH_DETAILS, [
       JSON.stringify(nextDetails),
       requestId,
     ]);
+
     await conn.execute(queries.CLOSE_THREAD_AFTER_COMPLETION, [
       actorId,
       request.thread_id,
     ]);
+
     await addEvent(
       conn,
       requestId,
@@ -2094,6 +2067,7 @@ async function processAssetRequest(
         : `Existing asset ${assignmentMetadata.assetId} assigned to ${request.employee_id}.`,
       assignmentMetadata,
     );
+
     await addServiceNotification(conn, {
       userId: request.employee_id,
       requestId,

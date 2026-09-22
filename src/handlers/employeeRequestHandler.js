@@ -357,17 +357,47 @@ exports.bookTravel = async (req, res) => {
 
 exports.saveTravelBookingDraft = async (req, res) => {
   try {
+    const orgId = resolveOrgId(req);
+    const employeeId = resolveEmployeeId(req);
+    const requestId = req.params.requestId;
+
+    console.log("[EmployeeRequest] saveTravelBookingDraft:", {
+      orgId,
+      employeeId,
+      requestId,
+      hasFile: !!req.file,
+      file: req.file
+        ? {
+            fieldname: req.file.fieldname,
+            originalname: req.file.originalname,
+            filename: req.file.filename,
+            path: req.file.path,
+            mimetype: req.file.mimetype,
+            size: req.file.size,
+          }
+        : null,
+      body: req.body,
+    });
+
     const result = await EmployeeRequestService.saveTravelBookingDraft(
-      resolveOrgId(req),
-      req.params.requestId,
-      resolveEmployeeId(req),
+      orgId,
+      requestId,
+      employeeId,
       req.body || {},
+      req.file || null,
     );
 
-    res.json({ success: true, data: result });
+    res.json({
+      success: true,
+      data: result,
+    });
   } catch (error) {
     console.error("[EmployeeRequest] saveTravelBookingDraft:", error);
-    res.status(400).json({ success: false, message: error.message });
+
+    res.status(400).json({
+      success: false,
+      message: error.message,
+    });
   }
 };
 
