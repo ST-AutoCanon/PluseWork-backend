@@ -64,7 +64,11 @@ router.post(
   handler.bookTravel,
 );
 
-router.post("/requests/:requestId/book-draft", handler.saveTravelBookingDraft);
+router.post(
+  "/requests/:requestId/book-draft",
+  handler.upload.single("e_ticket"),
+  handler.saveTravelBookingDraft,
+);
 
 router.post("/requests/:requestId/complete", handler.complete);
 
