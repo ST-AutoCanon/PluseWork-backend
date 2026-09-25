@@ -4,6 +4,7 @@ const { sendWithRetries } = require("../utils/mailer");
 const { PDFParse } = require("pdf-parse");
 const mammoth = require("mammoth");
 const db = require("../config");
+const crypto = require("crypto");
 
 const { getTenantPool, sanitizeDbName } = require("../db/tenantPoolManager");
 
@@ -29,6 +30,9 @@ const {
   INSERT_EMPLOYEE_FROM_RECRUITMENT,
   GET_RECRUITMENT_INTERVIEWERS,
   GET_ORGANIZATION_BY_ID,
+  SET_OFFER_ACCEPTANCE_RESPONSE_TOKEN,
+  GET_CANDIDATE_BY_OFFER_RESPONSE_TOKEN,
+  SUBMIT_CANDIDATE_OFFER_RESPONSE,
 } = require("../constants/recruitmentQueries");
 
 function emptyToNull(v) {
@@ -640,6 +644,31 @@ function parseResumeText(text = "") {
   };
 }
 
+function generateOfferResponseToken() {
+  return crypto.randomBytes(32).toString("hex");
+}
+
+function hashOfferResponseToken(token) {
+  return crypto.createHash("sha256").update(String(token)).digest("hex");
+}
+
+function getOfferResponseTokenExpiry() {
+  const ttlHours = Number(process.env.OFFER_RESPONSE_TOKEN_TTL_HOURS || 168);
+
+  return new Date(Date.now() + ttlHours * 60 * 60 * 1000);
+}
+
+function buildOfferResponseLink(orgId, rawToken) {
+  const frontendBase = String(process.env.FRONTEND_URL || "").replace(
+    /\/$/,
+    "",
+  );
+
+  return `${frontendBase}/OfferResponse?orgId=${encodeURIComponent(
+    orgId,
+  )}&token=${encodeURIComponent(rawToken)}`;
+}
+
 async function extractTextFromResume(file) {
   const ext = path.extname(file.originalname || "").toLowerCase();
 
@@ -848,16 +877,26 @@ function getRecruitmentStatusEmailContent({
   const organizationName = organization?.name || "HR Team";
   const candidateName = candidate?.name || "Candidate";
 
-  if (newStatus === "Offer Acceptance" && previousStatus === "Manager Round") {
+  if (newStatus === "Offer Acceptance") {
     return {
       subject: `Offer Acceptance Request - ${candidateName}`,
       body: `Hi ${candidateName},
 
 Congratulations! You have progressed to the offer acceptance stage.
-Please confirm whether you would like to accept the offer.
-If you accept, we will proceed with releasing your offer letter.
+
+Please review your offer and submit your response using the secure link below.
+
+Your response options are:
+• Accept
+• Concern
+• Reject
+
+{{OFFER_RESPONSE_LINK}}
+
+If you choose Concern, please explain your concern so our HR team can review it and re-initiate the offer where applicable.
 
 Regards,
+
 ${organizationName}`,
     };
   }
@@ -912,6 +951,7 @@ async function sendRecruitmentStatusEmail({
   sendEmail = true,
   emailSubject = null,
   emailBody = null,
+  offerResponseLink = null,
 }) {
   if (!candidate?.email || !sendEmail) return;
 
@@ -935,6 +975,45 @@ async function sendRecruitmentStatusEmail({
 
   if (!statusEmail || !statusEmail.subject || !statusEmail.body) return;
 
+  let finalEmailBody = String(statusEmail?.body || "");
+
+  if (newStatus === "Offer Acceptance" && offerResponseLink) {
+    if (finalEmailBody.includes("{{OFFER_RESPONSE_LINK}}")) {
+      finalEmailBody = finalEmailBody.replace(
+        "{{OFFER_RESPONSE_LINK}}",
+        offerResponseLink,
+      );
+    } else {
+      finalEmailBody += `\n\nOffer Response:\n${offerResponseLink}`;
+    }
+  }
+
+  let htmlEmailBody = finalEmailBody.replace(/\n/g, "<br/>");
+
+  if (newStatus === "Offer Acceptance" && offerResponseLink) {
+    const buttonHtml = `
+    <div style="margin:28px 0;text-align:center;">
+      <a
+        href="${offerResponseLink}"
+        style="
+          display:inline-block;
+          padding:13px 24px;
+          background:#2563eb;
+          color:#ffffff;
+          text-decoration:none;
+          border-radius:7px;
+          font-weight:600;
+          font-family:Arial,Helvetica,sans-serif;
+        "
+      >
+        Respond to Offer
+      </a>
+    </div>
+  `;
+
+    htmlEmailBody = htmlEmailBody.replace(offerResponseLink, buttonHtml);
+  }
+
   try {
     await sendWithRetries({
       sender: {
@@ -948,8 +1027,8 @@ async function sendRecruitmentStatusEmail({
         },
       ],
       subject: statusEmail.subject,
-      htmlContent: buildEmailHtml(statusEmail.body),
-      textContent: statusEmail.body,
+      htmlContent: htmlEmailBody,
+      textContent: finalEmailBody,
     });
   } catch (mailErr) {
     console.error(
@@ -1016,6 +1095,13 @@ async function updateRecruitmentService(id, payload, resumeFile, orgId) {
 
   try {
     const nextStatus = emptyToNull(payload.status) ?? mapped.status;
+    let offerResponseLink = null;
+
+    if (nextStatus === "Offer Acceptance") {
+      const offerToken = await issueOfferResponseToken(pool, id, orgId);
+
+      offerResponseLink = offerToken.responseLink;
+    }
     if (nextStatus) {
       const shouldSendStatusEmail = payload.hasOwnProperty("send_status_email")
         ? toBool(payload.send_status_email)
@@ -1035,6 +1121,7 @@ async function updateRecruitmentService(id, payload, resumeFile, orgId) {
         sendEmail: shouldSendStatusEmail,
         emailSubject: emptyToNull(payload.email_subject) || null,
         emailBody: emptyToNull(payload.email_body) || null,
+        offerResponseLink,
       });
     }
   } catch (mailErr) {
@@ -1063,6 +1150,14 @@ async function advanceRecruitmentService(id, payload, orgId) {
     orgId,
   ]);
 
+  let offerResponseLink = null;
+
+  if (nextStatus === "Offer Acceptance") {
+    const offerToken = await issueOfferResponseToken(pool, id, orgId);
+
+    offerResponseLink = offerToken.responseLink;
+  }
+
   try {
     await sendRecruitmentStatusEmail({
       candidate: {
@@ -1075,6 +1170,7 @@ async function advanceRecruitmentService(id, payload, orgId) {
       newStatus: nextStatus || existing.status || "Applied",
       previousStatus: existing?.status || "Applied",
       offerDecision: payload.offer_decision,
+      offerResponseLink,
     });
   } catch (mailErr) {
     console.error("Recruitment status email dispatch failed:", mailErr);
@@ -1432,6 +1528,142 @@ async function getRecruitmentInterviewersService(orgId) {
   return rows;
 }
 
+async function issueOfferResponseToken(pool, candidateId, orgId) {
+  const rawToken = generateOfferResponseToken();
+  const tokenHash = hashOfferResponseToken(rawToken);
+  const expiresAt = getOfferResponseTokenExpiry();
+
+  await pool.query(SET_OFFER_ACCEPTANCE_RESPONSE_TOKEN, [
+    tokenHash,
+    expiresAt,
+    candidateId,
+    orgId,
+  ]);
+
+  return {
+    rawToken,
+    tokenHash,
+    expiresAt,
+    responseLink: buildOfferResponseLink(orgId, rawToken),
+  };
+}
+
+async function getCandidateByOfferResponseTokenService(orgId, rawToken) {
+  const pool = await getTenantPoolForOrgId(orgId);
+
+  const tokenHash = hashOfferResponseToken(rawToken);
+
+  const [rows] = await pool.query(GET_CANDIDATE_BY_OFFER_RESPONSE_TOKEN, [
+    tokenHash,
+    orgId,
+  ]);
+
+  const candidate = rows?.[0];
+
+  if (!candidate) {
+    const err = new Error("Invalid or expired offer response link.");
+    err.code = "INVALID_OFFER_TOKEN";
+    throw err;
+  }
+
+  if (candidate.status !== "Offer Acceptance") {
+    const err = new Error("This offer response is no longer available.");
+    err.code = "OFFER_RESPONSE_CLOSED";
+    throw err;
+  }
+
+  if (
+    !candidate.offer_response_token_expires_at ||
+    new Date(candidate.offer_response_token_expires_at) < new Date()
+  ) {
+    const err = new Error("This offer response link has expired.");
+    err.code = "OFFER_TOKEN_EXPIRED";
+    throw err;
+  }
+
+  return candidate;
+}
+
+async function submitCandidateOfferResponseService(
+  orgId,
+  rawToken,
+  decision,
+  concern,
+) {
+  const normalizedDecision = String(decision || "").trim();
+
+  const allowed = ["Accepted", "Concern", "Rejected"];
+
+  if (!allowed.includes(normalizedDecision)) {
+    const err = new Error("Invalid offer response.");
+    err.code = "INVALID_OFFER_DECISION";
+    throw err;
+  }
+
+  const cleanConcern = String(concern || "").trim();
+
+  if (normalizedDecision === "Concern" && !cleanConcern) {
+    const err = new Error("Please describe your concern.");
+    err.code = "CONCERN_REQUIRED";
+    throw err;
+  }
+
+  const pool = await getTenantPoolForOrgId(orgId);
+  const tokenHash = hashOfferResponseToken(rawToken);
+
+  const [candidateRows] = await pool.query(
+    GET_CANDIDATE_BY_OFFER_RESPONSE_TOKEN,
+    [tokenHash, orgId],
+  );
+
+  const candidate = candidateRows?.[0];
+
+  if (!candidate) {
+    const err = new Error("Invalid or expired offer response link.");
+    err.code = "INVALID_OFFER_TOKEN";
+    throw err;
+  }
+
+  if (candidate.status !== "Offer Acceptance") {
+    const err = new Error("This offer response is already closed.");
+    err.code = "OFFER_RESPONSE_CLOSED";
+    throw err;
+  }
+
+  if (
+    !candidate.offer_response_token_expires_at ||
+    new Date(candidate.offer_response_token_expires_at) < new Date()
+  ) {
+    const err = new Error("This offer response link has expired.");
+    err.code = "OFFER_TOKEN_EXPIRED";
+    throw err;
+  }
+
+  const newStatus =
+    normalizedDecision === "Rejected" ? "Rejected" : "Offer Acceptance";
+
+  const [result] = await pool.query(SUBMIT_CANDIDATE_OFFER_RESPONSE, [
+    newStatus,
+    normalizedDecision,
+    normalizedDecision === "Concern" ? cleanConcern : null,
+    candidate.id,
+    orgId,
+    tokenHash,
+  ]);
+
+  if (!result.affectedRows) {
+    const err = new Error("The offer response could not be submitted.");
+    err.code = "OFFER_RESPONSE_NOT_UPDATED";
+    throw err;
+  }
+
+  return {
+    candidateId: candidate.id,
+    decision: normalizedDecision,
+    status: newStatus,
+  };
+}
+
 module.exports = {
   parseResumeService,
   addRecruitmentService,
@@ -1449,4 +1681,7 @@ module.exports = {
   convertRecruitmentToEmployeeService,
   getRecruitmentInterviewersService,
   getOrganizationById,
+  issueOfferResponseToken,
+  getCandidateByOfferResponseTokenService,
+  submitCandidateOfferResponseService,
 };

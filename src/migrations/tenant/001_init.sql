@@ -1309,9 +1309,15 @@ CREATE TABLE recruitment_candidates (
   offer_ctc decimal(12,2) DEFAULT NULL,
   offer_letter_url text ,
   joining_date date DEFAULT NULL,
+  offer_decision VARCHAR(50) NOT NULL DEFAULT 'Pending',
+  offer_concern TEXT NULL,
+  offer_response_at DATETIME NULL,
+  offer_response_token_hash CHAR(64) NULL,
+  offer_response_token_expires_at DATETIME NULL,
   created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (id)
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_offer_response_token_hash (offer_response_token_hash)
 );
 
 

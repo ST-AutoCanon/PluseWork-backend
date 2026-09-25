@@ -273,4 +273,55 @@ SET
 WHERE assessment_id = ?
 AND interviewer_id = ?
 `,
+
+  SET_OFFER_ACCEPTANCE_RESPONSE_TOKEN: `
+  UPDATE recruitment_candidates
+  SET
+    status = 'Offer Acceptance',
+    offer_decision = 'Pending',
+    offer_concern = NULL,
+    offer_response_at = NULL,
+    offer_response_token_hash = ?,
+    offer_response_token_expires_at = ?,
+    updated_at = NOW()
+  WHERE id = ?
+    AND org_id = ?
+`,
+
+  GET_CANDIDATE_BY_OFFER_RESPONSE_TOKEN: `
+  SELECT
+    id,
+    org_id,
+    name,
+    email,
+    applied_position,
+    department,
+    status,
+    offer_decision,
+    offer_concern,
+    offer_response_at,
+    offer_response_token_expires_at
+  FROM recruitment_candidates
+  WHERE offer_response_token_hash = ?
+    AND org_id = ?
+  LIMIT 1
+`,
+
+  SUBMIT_CANDIDATE_OFFER_RESPONSE: `
+  UPDATE recruitment_candidates
+  SET
+    status = ?,
+    offer_decision = ?,
+    offer_concern = ?,
+    offer_response_at = NOW(),
+    offer_response_token_hash = NULL,
+    offer_response_token_expires_at = NULL,
+    updated_at = NOW()
+  WHERE id = ?
+    AND org_id = ?
+    AND offer_response_token_hash = ?
+    AND status = 'Offer Acceptance'
+    AND offer_response_token_expires_at IS NOT NULL
+    AND offer_response_token_expires_at >= NOW()
+`,
 };
