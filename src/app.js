@@ -104,6 +104,7 @@ const teamRouter = require("./routes/team");
 const clearanceRoutes = require("./routes/clearance");
 const exitFilesRoutes = require("./routes/exitFilesRoutes");
 const downloadRoutes = require("./routes/downloadRoutes");
+const punchPolicyRoutes = require("./routes/punchPolicyRoutes");
 const formsRoutes = require("./routes/forms.routes");
 const officeLocationRoutes = require("./routes/officeLocationRoutes");
 const officeEmployeeRoutes = require("./routes/officeEmployeeRoutes");
@@ -187,6 +188,7 @@ app.use((req, res, next) => {
       express.static(path.join(__dirname, "../../policiesuploads")),
     );
 
+    app.use("/api/punch-policy", punchPolicyRoutes);
     app.use("/assets", express.static(path.join(__dirname, "assets")));
     app.use(
       "/letterheadfiles",
