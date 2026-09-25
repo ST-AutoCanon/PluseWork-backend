@@ -19,6 +19,8 @@ const {
   parseResumeHandler,
   getRecruitmentInterviewersHandler,
   getOrganizationHandler,
+  getPublicOfferResponseHandler,
+  submitPublicOfferResponseHandler,
 } = require("../handlers/recruitmentHandler");
 
 const router = express.Router();
@@ -120,6 +122,17 @@ router.post("/recruitment/:id/manager-feedback", managerFeedbackHandler);
 router.post("/recruitment/:id/convert-to-employee", convertToEmployeeHandler);
 
 router.get("/organization/:id", getOrganizationHandler);
+
+router.get(
+  "/recruitment/public/offer-response/:orgId/:token",
+  getPublicOfferResponseHandler,
+);
+
+router.post(
+  "/recruitment/public/offer-response/:orgId/:token",
+  express.json(),
+  submitPublicOfferResponseHandler,
+);
 
 router.get("/recruitment/files/:orgId/:filename", (req, res) => {
   const apiKey = req.headers["x-api-key"];

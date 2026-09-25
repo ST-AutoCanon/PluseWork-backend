@@ -14,6 +14,8 @@ const {
   parseResumeService,
   getRecruitmentInterviewersService,
   getOrganizationById,
+  getCandidateByOfferResponseTokenService,
+  submitCandidateOfferResponseService,
 } = require("../services/recruitmentService");
 
 const resolveOrgIdFromReq = (req) => {
@@ -297,6 +299,100 @@ const getOrganizationHandler = async (req, res) => {
   }
 };
 
+const getPublicOfferResponseHandler = async (req, res) => {
+  try {
+    const { orgId, token } = req.params;
+
+    if (!orgId || !token) {
+      return res.status(400).json({
+        message: "Invalid offer response link.",
+      });
+    }
+
+    const candidate = await getCandidateByOfferResponseTokenService(
+      orgId,
+      token,
+    );
+
+    return res.status(200).json({
+      data: {
+        name: candidate.name,
+        applied_position: candidate.applied_position,
+        department: candidate.department,
+        offer_decision: candidate.offer_decision || "Pending",
+      },
+    });
+  } catch (error) {
+    console.error("getPublicOfferResponseHandler error:", error);
+
+    if (
+      [
+        "INVALID_OFFER_TOKEN",
+        "OFFER_RESPONSE_CLOSED",
+        "OFFER_TOKEN_EXPIRED",
+      ].includes(error.code)
+    ) {
+      return res.status(400).json({
+        message: error.message,
+      });
+    }
+
+    return res.status(500).json({
+      message: "Unable to load offer response.",
+    });
+  }
+};
+
+const submitPublicOfferResponseHandler = async (req, res) => {
+  try {
+    const { orgId, token } = req.params;
+    const { decision, concern } = req.body || {};
+
+    if (!orgId || !token) {
+      return res.status(400).json({
+        message: "Invalid offer response link.",
+      });
+    }
+
+    const result = await submitCandidateOfferResponseService(
+      orgId,
+      token,
+      decision,
+      concern,
+    );
+
+    return res.status(200).json({
+      message:
+        result.decision === "Accepted"
+          ? "Thank you. Your offer has been accepted."
+          : result.decision === "Concern"
+            ? "Your concern has been submitted to HR."
+            : "Your offer rejection has been recorded.",
+      data: result,
+    });
+  } catch (error) {
+    console.error("submitPublicOfferResponseHandler error:", error);
+
+    if (
+      [
+        "INVALID_OFFER_TOKEN",
+        "OFFER_RESPONSE_CLOSED",
+        "OFFER_TOKEN_EXPIRED",
+        "INVALID_OFFER_DECISION",
+        "CONCERN_REQUIRED",
+      ].includes(error.code)
+    ) {
+      return res.status(400).json({
+        message: error.message,
+      });
+    }
+
+    return res.status(500).json({
+      message: error.message || "Unable to submit offer response.",
+    });
+  }
+};
+
 module.exports = {
   addRecruitmentHandler,
   getRecruitmentHandler,
@@ -313,4 +409,6 @@ module.exports = {
   parseResumeHandler,
   getRecruitmentInterviewersHandler,
   getOrganizationHandler,
+  getPublicOfferResponseHandler,
+  submitPublicOfferResponseHandler,
 };
