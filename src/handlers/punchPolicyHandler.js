@@ -27,11 +27,7 @@ async function listPoliciesHandler(req, res) {
   try {
     const { orgId } = getHeaders(req);
     const search = req.query?.search || req.query?.q || "";
-
-    const result = await punchPolicyService.listPolicies({
-      orgId,
-      search,
-    });
+    const result = await punchPolicyService.listPolicies({ orgId, search });
     return send(res, result);
   } catch (err) {
     console.error("[listPoliciesHandler]", err);
@@ -47,7 +43,6 @@ async function getPolicyByIdHandler(req, res) {
   try {
     const { orgId } = getHeaders(req);
     const id = req.params?.id;
-
     const result = await punchPolicyService.getPolicyById({ orgId, id });
     return send(res, result);
   } catch (err) {
@@ -64,7 +59,6 @@ async function createPolicyHandler(req, res) {
   try {
     const { orgId, employeeId } = getHeaders(req);
     const payload = req.body || {};
-
     const result = await punchPolicyService.createPolicy({
       orgId,
       employeeId,
@@ -86,7 +80,6 @@ async function updatePolicyHandler(req, res) {
     const { orgId, employeeId } = getHeaders(req);
     const id = req.params?.id;
     const payload = req.body || {};
-
     const result = await punchPolicyService.updatePolicy({
       orgId,
       employeeId,
@@ -108,7 +101,6 @@ async function deletePolicyHandler(req, res) {
   try {
     const { orgId, employeeId } = getHeaders(req);
     const id = req.params?.id;
-
     const result = await punchPolicyService.deletePolicy({
       orgId,
       employeeId,
@@ -144,7 +136,6 @@ async function getEmployeesHandler(req, res) {
   try {
     const { orgId } = getHeaders(req);
     const search = req.query?.search || req.query?.q || "";
-
     const result = await punchPolicyService.getEmployeesForAssignment({
       orgId,
       search,
