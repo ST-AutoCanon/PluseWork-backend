@@ -37,7 +37,12 @@ function normalizePolicyType(value) {
     .trim()
     .toLowerCase()
     .replace(/[-\s]+/g, "_");
-  if (["late_login", "missed_punch_in", "both"].includes(v)) return v;
+  if (v === "missed_punch_in" || v === "miss_punch_out")
+    return "miss_punch_out";
+  if (v === "less_login_hours" || v === "less_hours") return "less_login_hours";
+  if (v === "late_login" || v === "both") return "late_login";
+  if (["late_login", "miss_punch_out", "less_login_hours"].includes(v))
+    return v;
   return null;
 }
 
@@ -53,9 +58,9 @@ function normalizeDeductionBasis(value) {
   const v = String(value || "")
     .trim()
     .toLowerCase();
-  if (["hours", "percentage", "amount"].includes(v)) return v;
-  if (v === "per_hour" || v === "hour") return "hours";
-  return null;
+  if (v === "hours" || v === "hour" || v === "per_hour") return "percentage";
+  if (v === "percentage" || v === "amount") return v;
+  return "percentage";
 }
 
 function normalizeDeductionType(value) {
@@ -63,27 +68,10 @@ function normalizeDeductionType(value) {
     .trim()
     .toLowerCase()
     .replace(/[-\s]+/g, "_");
-  if (["hour", "half_day", "full_day"].includes(v)) return v;
-  if (v === "per_hour") return "hour";
+  if (v === "hour" || v === "per_hour") return "half_day";
   if (v === "per_day") return "full_day";
-  return null;
-}
-
-function normalizeRounding(value) {
-  const v = String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[-\s]+/g, "_");
-  if (["nearest_minute", "nearest_five", "nearest_half"].includes(v)) return v;
-  return "nearest_minute";
-}
-
-function normalizeOperator(value) {
-  const v = String(value || "")
-    .trim()
-    .toLowerCase();
-  if (v === "greater" || v === "equal") return v;
-  return "greater";
+  if (v === "half_day" || v === "full_day") return v;
+  return "half_day";
 }
 
 function normalizeStatus(value) {
@@ -92,6 +80,14 @@ function normalizeStatus(value) {
     .toLowerCase();
   if (v === "active" || v === "inactive") return v;
   return "active";
+}
+
+function normalizeShiftMode(value) {
+  const v = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (v === "multiple" || v === "multi") return "multiple";
+  return "general";
 }
 
 function isValidDateString(dateStr) {
@@ -116,10 +112,11 @@ function toBoolInt(value, defaultVal = 0) {
 
 function safeJsonParse(value, fallback = []) {
   if (Array.isArray(value)) return value;
+  if (value && typeof value === "object") return value;
   if (typeof value === "string") {
     try {
       const parsed = JSON.parse(value);
-      return Array.isArray(parsed) ? parsed : fallback;
+      return parsed != null ? parsed : fallback;
     } catch (_) {
       return fallback;
     }
@@ -127,34 +124,78 @@ function safeJsonParse(value, fallback = []) {
   return fallback;
 }
 
+function normalizeShifts(payload, bufferTime, punchIn, punchOut) {
+  const raw = payload.shifts || payload.shift_config;
+  if (Array.isArray(raw) && raw.length) {
+    return raw.map((s, i) => ({
+      name: String(s.name || `Shift ${i + 1}`).trim() || `Shift ${i + 1}`,
+      punchInTime: s.punchInTime || s.punch_in_time || punchIn || "09:00",
+      bufferTime: Number(s.bufferTime ?? s.buffer_time ?? bufferTime) || 0,
+      punchOutTime: s.punchOutTime || s.punch_out_time || punchOut || "18:00",
+    }));
+  }
+  return [
+    {
+      name: "General",
+      punchInTime: punchIn || "09:00",
+      bufferTime: Number(bufferTime) || 0,
+      punchOutTime: punchOut || "18:00",
+    },
+  ];
+}
+
 function mapPolicyRow(row) {
   if (!row) return null;
+
+  let policyType = row.policy_type;
+  if (policyType === "missed_punch_in") policyType = "miss_punch_out";
+  if (policyType === "both") policyType = "late_login";
+
+  let deductionBasis = row.deduction_basis || "percentage";
+  if (deductionBasis === "hours") deductionBasis = "percentage";
+
+  let deductionType = row.deduction_type || "half_day";
+  if (deductionType === "hour" || deductionType === "per_hour")
+    deductionType = "half_day";
+  if (deductionType === "per_day") deductionType = "full_day";
+
+  const minDuration = String(row.min_duration ?? row.buffer_time ?? "15");
+  const bufferTime = String(row.buffer_time ?? row.min_duration ?? "15");
+
   return {
     id: String(row.id),
     orgId: row.org_id,
     policyName: row.policy_name,
     description: row.description || "",
-    policyType: row.policy_type,
+    policyType,
     appliesTo: row.applies_to,
-    deductionBasis: row.deduction_basis,
-    deductionType: row.deduction_type,
+    deductionBasis,
+    deductionType,
     deductionValue: String(row.deduction_value ?? "0"),
-    rounding: row.rounding,
-    applyGraceTime: !!Number(row.apply_grace_time),
-    graceMinutes: String(row.grace_minutes ?? "0"),
-    minDuration: String(row.min_duration ?? "15"),
-    markAsHalfDay: !!Number(row.mark_as_half_day),
-    halfDayAfter: row.half_day_after || "03:00",
-    halfDayOperator: row.half_day_operator || "greater",
-    markAsFullDay: !!Number(row.mark_as_full_day),
-    fullDayAfter: row.full_day_after || "06:00",
-    fullDayOperator: row.full_day_operator || "greater",
+    minDuration,
+    limitWeekly: String(row.limit_weekly ?? "2"),
+    limitMonthly: String(row.limit_monthly ?? "4"),
+    halfDayBelowHours: String(row.half_day_below_hours ?? "3"),
+    fullDayBelowHours: String(row.full_day_below_hours ?? "1"),
+    enableFullDayThreshold:
+      row.enable_full_day_threshold == null
+        ? true
+        : !!Number(row.enable_full_day_threshold),
+    lateCountLimit: String(row.late_count_limit ?? "22"),
+    lateWithinDays: String(row.late_within_days ?? "15"),
+    shiftMode: row.shift_mode || "general",
+    punchInTime: row.punch_in_time || "09:00",
+    bufferTime,
+    punchOutTime: row.punch_out_time || "18:00",
+    shifts: safeJsonParse(row.shifts, []),
+    skipIfRegularised:
+      row.skip_if_regularised == null
+        ? true
+        : !!Number(row.skip_if_regularised),
     policyStatus: row.policy_status,
     effectiveFrom: row.effective_from,
     effectiveTill: row.effective_till || "",
     noExpiry: !row.effective_till,
-    rules: safeJsonParse(row.rules, []),
-    excuses: safeJsonParse(row.excuses, []),
     createdBy: row.created_by,
     updatedBy: row.updated_by,
     createdAt: row.created_at,
@@ -183,7 +224,11 @@ function validatePayload(payload) {
   const policyType = normalizePolicyType(
     payload.policyType || payload.policy_type,
   );
-  if (!policyType) errors.push("Invalid policy type.");
+  if (!policyType) {
+    errors.push(
+      "Invalid policy type. Use late_login, miss_punch_out, or less_login_hours.",
+    );
+  }
 
   const appliesTo = normalizeAppliesTo(
     payload.appliesTo || payload.applies_to || "specific",
@@ -191,14 +236,11 @@ function validatePayload(payload) {
   if (!appliesTo) errors.push("Invalid appliesTo value.");
 
   const deductionBasis = normalizeDeductionBasis(
-    payload.deductionBasis || payload.deduction_basis || "hours",
+    payload.deductionBasis || payload.deduction_basis || "percentage",
   );
-  if (!deductionBasis) errors.push("Invalid deduction basis.");
-
   const deductionType = normalizeDeductionType(
-    payload.deductionType || payload.deduction_type || "hour",
+    payload.deductionType || payload.deduction_type || "half_day",
   );
-  if (!deductionType) errors.push("Invalid deduction type.");
 
   const deductionValue = Number(
     payload.deductionValue ?? payload.deduction_value ?? 0,
@@ -215,7 +257,7 @@ function validatePayload(payload) {
   const noExpiry =
     payload.noExpiry === true ||
     payload.no_expiry === true ||
-    !payload.effectiveTill;
+    !(payload.effectiveTill || payload.effective_till);
   const effectiveTill = noExpiry
     ? null
     : payload.effectiveTill || payload.effective_till || null;
@@ -243,8 +285,43 @@ function validatePayload(payload) {
   const exclusions = Array.isArray(payload.exclusions)
     ? payload.exclusions
     : [];
-  const rules = Array.isArray(payload.rules) ? payload.rules : [];
-  const excuses = Array.isArray(payload.excuses) ? payload.excuses : [];
+
+  const minDuration = Math.max(
+    0,
+    parseInt(
+      payload.minDuration ??
+        payload.min_duration ??
+        payload.bufferTime ??
+        payload.buffer_time ??
+        15,
+      10,
+    ) || 0,
+  );
+  const bufferTime = Math.max(
+    0,
+    parseInt(
+      payload.bufferTime ??
+        payload.buffer_time ??
+        payload.minDuration ??
+        payload.min_duration ??
+        minDuration,
+      10,
+    ) || 0,
+  );
+  const sharedBuffer = minDuration || bufferTime;
+
+  const punchInTime =
+    toTimeString(payload.punchInTime || payload.punch_in_time) || "09:00:00";
+  const punchOutTime =
+    toTimeString(payload.punchOutTime || payload.punch_out_time) || "18:00:00";
+
+  const shiftMode = normalizeShiftMode(payload.shiftMode || payload.shift_mode);
+  const shifts = normalizeShifts(
+    payload,
+    sharedBuffer,
+    (payload.punchInTime || payload.punch_in_time || "09:00").slice(0, 5),
+    (payload.punchOutTime || payload.punch_out_time || "18:00").slice(0, 5),
+  ).map((s) => ({ ...s, bufferTime: sharedBuffer }));
 
   return {
     valid: true,
@@ -256,38 +333,47 @@ function validatePayload(payload) {
       deductionBasis,
       deductionType,
       deductionValue,
-      rounding: normalizeRounding(payload.rounding),
-      applyGraceTime: toBoolInt(
-        payload.applyGraceTime ?? payload.apply_grace_time,
-        1,
-      ),
-      graceMinutes: Math.max(
+      minDuration: sharedBuffer,
+      limitWeekly: Math.max(
         0,
-        parseInt(payload.graceMinutes ?? payload.grace_minutes ?? 15, 10) || 0,
+        parseInt(payload.limitWeekly ?? payload.limit_weekly ?? 2, 10) || 0,
       ),
-      minDuration: Math.max(
+      limitMonthly: Math.max(
         0,
-        parseInt(payload.minDuration ?? payload.min_duration ?? 15, 10) || 0,
+        parseInt(payload.limitMonthly ?? payload.limit_monthly ?? 4, 10) || 0,
       ),
-      markAsHalfDay: toBoolInt(
-        payload.markAsHalfDay ?? payload.mark_as_half_day,
+      halfDayBelowHours: Number(
+        payload.halfDayBelowHours ?? payload.half_day_below_hours ?? 3,
+      ),
+      fullDayBelowHours: Number(
+        payload.fullDayBelowHours ?? payload.full_day_below_hours ?? 1,
+      ),
+      enableFullDayThreshold: toBoolInt(
+        payload.enableFullDayThreshold ?? payload.enable_full_day_threshold,
         1,
       ),
-      halfDayAfter:
-        toTimeString(payload.halfDayAfter || payload.half_day_after) ||
-        "03:00:00",
-      halfDayOperator: normalizeOperator(
-        payload.halfDayOperator || payload.half_day_operator,
+      lateCountLimit: Math.max(
+        0,
+        parseInt(
+          payload.lateCountLimit ?? payload.late_count_limit ?? 22,
+          10,
+        ) || 0,
       ),
-      markAsFullDay: toBoolInt(
-        payload.markAsFullDay ?? payload.mark_as_full_day,
+      lateWithinDays: Math.max(
+        0,
+        parseInt(
+          payload.lateWithinDays ?? payload.late_within_days ?? 15,
+          10,
+        ) || 0,
+      ),
+      shiftMode,
+      punchInTime,
+      bufferTime: sharedBuffer,
+      punchOutTime,
+      shifts,
+      skipIfRegularised: toBoolInt(
+        payload.skipIfRegularised ?? payload.skip_if_regularised,
         1,
-      ),
-      fullDayAfter:
-        toTimeString(payload.fullDayAfter || payload.full_day_after) ||
-        "06:00:00",
-      fullDayOperator: normalizeOperator(
-        payload.fullDayOperator || payload.full_day_operator,
       ),
       policyStatus: normalizeStatus(
         payload.policyStatus || payload.policy_status,
@@ -297,13 +383,106 @@ function validatePayload(payload) {
       selectedGroups,
       selectedEmployees,
       exclusions,
-      rules,
-      excuses,
     },
   };
 }
 
-/* ───────────── Public API ───────────── */
+async function assertEmployeesNotOnOtherPolicy({
+  orgId,
+  employees,
+  excludePolicyId = null,
+}) {
+  if (!Array.isArray(employees) || employees.length === 0) return null;
+
+  for (const emp of employees) {
+    const empId = String(emp.id || emp.employee_id || emp).trim();
+    if (!empId) continue;
+
+    const [rows] = await queryTenant(
+      orgId,
+      PUNCH_POLICY_QUERIES.FIND_EMPLOYEE_OTHER_POLICY,
+      [orgId, empId, excludePolicyId, excludePolicyId],
+    );
+
+    if (rows && rows.length > 0) {
+      const r = rows[0];
+      return {
+        success: false,
+        status: 409,
+        message: `${r.employee_name || empId} is already assigned to policy “${r.policy_name}”. An employee can only be in one policy.`,
+        data: {
+          employeeId: r.employee_id,
+          policyId: String(r.policy_id),
+          policyName: r.policy_name,
+        },
+      };
+    }
+  }
+  return null;
+}
+
+function policyInsertParams(orgId, d, employeeId) {
+  return [
+    orgId,
+    d.policyName,
+    d.description || null,
+    d.policyType,
+    d.appliesTo,
+    d.deductionBasis,
+    d.deductionType,
+    d.deductionValue,
+    d.minDuration,
+    d.limitWeekly,
+    d.limitMonthly,
+    d.halfDayBelowHours,
+    d.fullDayBelowHours,
+    d.enableFullDayThreshold,
+    d.lateCountLimit,
+    d.lateWithinDays,
+    d.shiftMode,
+    d.punchInTime,
+    d.bufferTime,
+    d.punchOutTime,
+    JSON.stringify(d.shifts || []),
+    d.skipIfRegularised,
+    d.policyStatus,
+    d.effectiveFrom,
+    d.effectiveTill,
+    employeeId || null,
+  ];
+}
+
+function policyUpdateParams(d, employeeId, id, orgId) {
+  return [
+    d.policyName,
+    d.description || null,
+    d.policyType,
+    d.appliesTo,
+    d.deductionBasis,
+    d.deductionType,
+    d.deductionValue,
+    d.minDuration,
+    d.limitWeekly,
+    d.limitMonthly,
+    d.halfDayBelowHours,
+    d.fullDayBelowHours,
+    d.enableFullDayThreshold,
+    d.lateCountLimit,
+    d.lateWithinDays,
+    d.shiftMode,
+    d.punchInTime,
+    d.bufferTime,
+    d.punchOutTime,
+    JSON.stringify(d.shifts || []),
+    d.skipIfRegularised,
+    d.policyStatus,
+    d.effectiveFrom,
+    d.effectiveTill,
+    employeeId || null,
+    id,
+    orgId,
+  ];
+}
 
 async function listPolicies({ orgId, search = "" }) {
   if (!orgId) {
@@ -337,7 +516,11 @@ async function listPolicies({ orgId, search = "" }) {
           [policy.id, orgId],
         );
         policy.selectedGroups = (assignRows || [])
-          .filter((a) => a.assignment_type === "group")
+          .filter(
+            (a) =>
+              a.assignment_type === "group" ||
+              a.assignment_type === "department",
+          )
           .map((a) => a.reference_name || a.reference_id);
         policy.selectedEmployees = (assignRows || [])
           .filter((a) => a.assignment_type === "employee")
@@ -397,7 +580,10 @@ async function getPolicyById({ orgId, id }) {
       [id, orgId],
     );
     policy.selectedGroups = (assignRows || [])
-      .filter((a) => a.assignment_type === "group")
+      .filter(
+        (a) =>
+          a.assignment_type === "group" || a.assignment_type === "department",
+      )
       .map((a) => a.reference_name || a.reference_id);
     policy.selectedEmployees = (assignRows || [])
       .filter((a) => a.assignment_type === "employee")
@@ -407,17 +593,21 @@ async function getPolicyById({ orgId, id }) {
       }));
     policy.assignments = (assignRows || []).map(mapAssignmentRow);
 
-    const [exclRows] = await queryTenant(
-      orgId,
-      PUNCH_POLICY_QUERIES.GET_EXCLUSIONS_BY_POLICY,
-      [id, orgId],
-    );
-    policy.exclusions = (exclRows || []).map((r) => ({
-      id: String(r.id),
-      exclusionType: r.exclusion_type,
-      referenceId: r.reference_id,
-      referenceName: r.reference_name || r.reference_id,
-    }));
+    try {
+      const [exclRows] = await queryTenant(
+        orgId,
+        PUNCH_POLICY_QUERIES.GET_EXCLUSIONS_BY_POLICY,
+        [id, orgId],
+      );
+      policy.exclusions = (exclRows || []).map((r) => ({
+        id: String(r.id),
+        exclusionType: r.exclusion_type,
+        referenceId: r.reference_id,
+        referenceName: r.reference_name || r.reference_id,
+      }));
+    } catch (_) {
+      policy.exclusions = [];
+    }
 
     return {
       success: true,
@@ -448,6 +638,13 @@ async function createPolicy({ orgId, employeeId, payload }) {
   const d = validation.data;
 
   try {
+    const conflict = await assertEmployeesNotOnOtherPolicy({
+      orgId,
+      employees: d.selectedEmployees,
+      excludePolicyId: null,
+    });
+    if (conflict) return conflict;
+
     const [existing] = await queryTenant(
       orgId,
       PUNCH_POLICY_QUERIES.CHECK_POLICY_NAME_EXISTS,
@@ -469,37 +666,11 @@ async function createPolicy({ orgId, employeeId, payload }) {
 
       const [insertResult] = await conn.execute(
         PUNCH_POLICY_QUERIES.INSERT_POLICY,
-        [
-          orgId,
-          d.policyName,
-          d.description || null,
-          d.policyType,
-          d.appliesTo,
-          d.deductionBasis,
-          d.deductionType,
-          d.deductionValue,
-          d.rounding,
-          d.applyGraceTime,
-          d.graceMinutes,
-          d.minDuration,
-          d.markAsHalfDay,
-          d.halfDayAfter,
-          d.halfDayOperator,
-          d.markAsFullDay,
-          d.fullDayAfter,
-          d.fullDayOperator,
-          d.policyStatus,
-          d.effectiveFrom,
-          d.effectiveTill,
-          JSON.stringify(d.rules || []),
-          JSON.stringify(d.excuses || []),
-          employeeId || null,
-        ],
+        policyInsertParams(orgId, d, employeeId),
       );
 
       const policyId = insertResult.insertId;
 
-      // Groups
       if (d.appliesTo === "specific" && Array.isArray(d.selectedGroups)) {
         for (const group of d.selectedGroups) {
           const name = String(group).trim();
@@ -514,7 +685,6 @@ async function createPolicy({ orgId, employeeId, payload }) {
         }
       }
 
-      // Employees
       if (d.appliesTo === "specific" && Array.isArray(d.selectedEmployees)) {
         for (const emp of d.selectedEmployees) {
           const empId = String(emp.id || emp.employee_id || emp).trim();
@@ -530,7 +700,6 @@ async function createPolicy({ orgId, employeeId, payload }) {
         }
       }
 
-      // Exclusions
       if (Array.isArray(d.exclusions)) {
         for (const ex of d.exclusions) {
           const refId = String(
@@ -589,6 +758,13 @@ async function updatePolicy({ orgId, employeeId, id, payload }) {
     const existing = await getPolicyById({ orgId, id });
     if (!existing.success) return existing;
 
+    const conflict = await assertEmployeesNotOnOtherPolicy({
+      orgId,
+      employees: d.selectedEmployees,
+      excludePolicyId: id,
+    });
+    if (conflict) return conflict;
+
     const [dup] = await queryTenant(
       orgId,
       PUNCH_POLICY_QUERIES.CHECK_POLICY_NAME_EXISTS,
@@ -608,40 +784,16 @@ async function updatePolicy({ orgId, employeeId, id, payload }) {
     try {
       await conn.beginTransaction();
 
-      const [upd] = await conn.execute(PUNCH_POLICY_QUERIES.UPDATE_POLICY, [
-        d.policyName,
-        d.description || null,
-        d.policyType,
-        d.appliesTo,
-        d.deductionBasis,
-        d.deductionType,
-        d.deductionValue,
-        d.rounding,
-        d.applyGraceTime,
-        d.graceMinutes,
-        d.minDuration,
-        d.markAsHalfDay,
-        d.halfDayAfter,
-        d.halfDayOperator,
-        d.markAsFullDay,
-        d.fullDayAfter,
-        d.fullDayOperator,
-        d.policyStatus,
-        d.effectiveFrom,
-        d.effectiveTill,
-        JSON.stringify(d.rules || []),
-        JSON.stringify(d.excuses || []),
-        employeeId || null,
-        id,
-        orgId,
-      ]);
+      const [upd] = await conn.execute(
+        PUNCH_POLICY_QUERIES.UPDATE_POLICY,
+        policyUpdateParams(d, employeeId, id, orgId),
+      );
 
       if (!upd || upd.affectedRows === 0) {
         await conn.rollback();
         return { success: false, status: 404, message: "Policy not found." };
       }
 
-      // Replace assignments
       await conn.execute(PUNCH_POLICY_QUERIES.DELETE_ASSIGNMENTS_BY_POLICY, [
         id,
         orgId,
@@ -676,7 +828,6 @@ async function updatePolicy({ orgId, employeeId, id, payload }) {
         }
       }
 
-      // Replace exclusions
       await conn.execute(PUNCH_POLICY_QUERIES.DELETE_EXCLUSIONS_BY_POLICY, [
         id,
         orgId,

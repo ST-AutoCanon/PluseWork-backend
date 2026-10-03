@@ -1,16 +1,11 @@
 const express = require("express");
 const router = express.Router();
-
 const PunchPolicyHandler = require("../handlers/punchPolicyHandler");
 
 /**
- * Punch Policy routes
- * Mount at: app.use("/api/punch-policy", punchPolicyRoutes);
- *
- * Headers required:
- *   x-api-key, x-employee-id, x-org-id, x-role
- *
- * IMPORTANT: static routes must be registered BEFORE /:id
+ * Mount: app.use("/api/punch-policy", punchPolicyRoutes);
+ * Headers: x-api-key, x-employee-id, x-org-id, x-role
+ * Static routes BEFORE /:id
  */
 
 router.get("/departments", PunchPolicyHandler.getDepartmentsHandler);
