@@ -1,8 +1,4 @@
 module.exports = {
-  // =========================================================
-  // EMPLOYEE / HIERARCHY QUERIES
-  // =========================================================
-
   GET_EMPLOYEE_INFO: `
     SELECT
       e.employee_id,
@@ -114,10 +110,6 @@ module.exports = {
     ORDER BY e.employee_id
     LIMIT 1
   `,
-
-  // =========================================================
-  // THREAD / CHAT QUERIES
-  // =========================================================
 
   CREATE_THREAD: `
     INSERT INTO threads
@@ -241,10 +233,6 @@ module.exports = {
 
     ORDER BY q.created_at ASC
   `,
-
-  // =========================================================
-  // EMPLOYEE REQUEST QUERIES
-  // =========================================================
 
   CREATE_EMPLOYEE_REQUEST: `
     INSERT INTO employee_requests
@@ -544,10 +532,6 @@ module.exports = {
     WHERE db_name IS NOT NULL AND db_name <> ''
   `,
 
-  // =========================================================
-  // REQUEST EVENTS
-  // =========================================================
-
   ADD_REQUEST_EVENT: `
     INSERT INTO employee_request_events
     (
@@ -590,10 +574,6 @@ module.exports = {
 
     ORDER BY ev.created_at ASC
   `,
-
-  // =========================================================
-  // REQUEST ATTACHMENTS
-  // =========================================================
 
   CREATE_REQUEST_ATTACHMENT: `
     INSERT INTO employee_request_attachments
@@ -655,10 +635,6 @@ module.exports = {
     )
     VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
   `,
-
-  // =========================================================
-  // EMPLOYEE SERVICES NOTIFICATIONS
-  // =========================================================
 
   ADD_SERVICE_NOTIFICATION: `
   INSERT INTO employee_service_notifications
@@ -821,5 +797,46 @@ module.exports = {
 
   FROM employee_requests
   WHERE org_id = ?
+`,
+
+  GET_SALARY_ADVANCE_PROFILE: `
+  SELECT
+    ep.salary AS ctc,
+    ac.compensation_plan_name,
+    cp.plan_data
+  FROM employee_professional ep
+
+  LEFT JOIN assigned_compensations ac
+    ON ac.org_id = ?
+    AND JSON_SEARCH(
+      ac.assigned_data,
+      'one',
+      ep.employee_id,
+      NULL,
+      '$[*].employee_id'
+    ) IS NOT NULL
+
+  LEFT JOIN compensation_plans cp
+    ON cp.org_id = ?
+    AND cp.compensation_plan_name = ac.compensation_plan_name
+
+  WHERE ep.employee_id = ?
+
+  ORDER BY ac.assigned_date DESC
+
+  LIMIT 1
+`,
+
+  GET_TOTAL_APPROVED_ADVANCE: `
+  SELECT
+    COALESCE(SUM(advance_amount), 0) AS total_approved_advance
+  FROM employee_advance_details
+  WHERE employee_id = ?
+`,
+
+  UPDATE_REQUEST_DETAILS_JSON: `
+  UPDATE employee_requests
+  SET details_json = ?
+  WHERE id = ?
 `,
 };

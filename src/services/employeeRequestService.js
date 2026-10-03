@@ -1,6 +1,7 @@
 const queries = require("../constants/employeeRequestQueries");
 const { getTenantPool, sanitizeDbName } = require("../db/tenantPoolManager");
 const assetService = require("./assetsService");
+const { calculateBaseNetSalary } = require("../utils/salaryAdvanceCalculator");
 
 async function getTenantPoolForOrgId(orgId) {
   if (!orgId) {
@@ -99,21 +100,287 @@ async function getEmployeeById(conn, employeeId) {
   return rows?.[0] || null;
 }
 
+function parseJsonObject(value) {
+  if (!value) return {};
+
+  if (typeof value === "object") {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return {};
+    }
+  }
+
+  return {};
+}
+
+function getISTYearMonth(offset = 0) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(new Date());
+
+  const year = Number(parts.find((item) => item.type === "year")?.value);
+
+  const month = Number(parts.find((item) => item.type === "month")?.value);
+
+  const date = new Date(Date.UTC(year, month - 1 + offset, 1));
+
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(
+    2,
+    "0",
+  )}`;
+}
+
+function getAllowedRecoveryStartMonths() {
+  return [getISTYearMonth(0), getISTYearMonth(1)];
+}
+
+function getMinimumRecoveryMonths(requestedAmount, baseNetSalary) {
+  const amount = Number(requestedAmount);
+  const salary = Number(baseNetSalary);
+
+  if (
+    !Number.isFinite(amount) ||
+    amount <= 0 ||
+    !Number.isFinite(salary) ||
+    salary <= 0
+  ) {
+    return 1;
+  }
+
+  return Math.max(1, Math.ceil(amount / salary));
+}
+
+async function getActualAdvancePaidFromPayroll(conn, orgId, employeeId) {
+  const dbName = sanitizeDbName(`tenant_${orgId}`);
+
+  const [tableRows] = await conn.execute(
+    `
+      SELECT TABLE_NAME AS table_name
+      FROM information_schema.tables
+      WHERE TABLE_SCHEMA = ?
+    `,
+    [dbName],
+  );
+
+  const currentYearMonth = getISTYearMonth(0);
+
+  const tablePattern = new RegExp(
+    `^${String(orgId).replace(
+      /[.*+?^${}()|[\]\\]/g,
+      "\\$&",
+    )}_(0[1-9]|1[0-2])_(\\d{4})$`,
+  );
+
+  let totalPaid = 0;
+
+  for (const row of tableRows || []) {
+    const tableName = row.table_name;
+
+    if (!tableName) continue;
+
+    const match = String(tableName).match(tablePattern);
+
+    if (!match) continue;
+
+    const month = match[1];
+    const year = match[2];
+
+    const tableYearMonth = `${year}-${month}`;
+
+    /*
+     * Do not count future payroll months.
+     */
+    if (tableYearMonth > currentYearMonth) {
+      continue;
+    }
+
+    try {
+      const [rows] = await conn.execute(
+        `
+          SELECT
+            COALESCE(SUM(advance_recovery), 0) AS paid_amount
+          FROM \`${tableName}\`
+          WHERE employee_id = ?
+        `,
+        [employeeId],
+      );
+
+      totalPaid += Number(rows?.[0]?.paid_amount || 0);
+    } catch (error) {
+      /*
+       * Only the known monthly salary tables should match the
+       * pattern. If an old/incomplete table does not contain
+       * advance_recovery, skip it instead of breaking the request.
+       */
+      console.warn(
+        `[SALARY_ADVANCE] Unable to read advance_recovery from ${tableName}:`,
+        error.message,
+      );
+    }
+  }
+
+  return Math.max(0, totalPaid);
+}
+
+async function buildSalaryAdvanceContext(
+  conn,
+  orgId,
+  employeeId,
+  requestedAmount = 0,
+  recoveryMonths = null,
+  recoveryStartMonth = null,
+) {
+  const [profileRows] = await conn.execute(queries.GET_SALARY_ADVANCE_PROFILE, [
+    orgId,
+    orgId,
+    employeeId,
+  ]);
+
+  const profile = profileRows?.[0];
+
+  if (!profile) {
+    throw new Error(
+      "Compensation details could not be found for this employee.",
+    );
+  }
+
+  const ctc = Number(profile.ctc || 0);
+
+  if (!ctc || ctc <= 0) {
+    throw new Error("Employee CTC is missing or invalid.");
+  }
+
+  const planData = parseJsonObject(profile.plan_data);
+
+  const baseNetSalary = calculateBaseNetSalary(ctc, planData, employeeId);
+
+  if (!baseNetSalary || baseNetSalary <= 0) {
+    throw new Error("Employee in-hand salary could not be calculated.");
+  }
+
+  const standardMaximum = baseNetSalary * 3;
+
+  const [[advanceTotals]] = await conn.query(
+    queries.GET_TOTAL_APPROVED_ADVANCE,
+    [employeeId],
+  );
+
+  const totalApprovedAdvance = Number(
+    advanceTotals?.total_approved_advance || 0,
+  );
+
+  /*
+   * Actual payroll deductions already made.
+   */
+  const paidAdvance = await getActualAdvancePaidFromPayroll(
+    conn,
+    orgId,
+    employeeId,
+  );
+
+  /*
+   * Outstanding principal across all approved
+   * salary advances.
+   */
+  const outstandingAdvance = Math.max(0, totalApprovedAdvance - paidAdvance);
+
+  /*
+   * Remaining standard eligibility.
+   */
+  const remainingStandardAmount = Math.max(
+    0,
+    standardMaximum - outstandingAdvance,
+  );
+
+  const amount = Number(requestedAmount || 0);
+
+  const excessAmount =
+    amount > 0 ? Math.max(0, amount - remainingStandardAmount) : 0;
+
+  const isException = amount > 0 && amount > remainingStandardAmount;
+
+  const minimumRecoveryMonths =
+    amount > 0 ? getMinimumRecoveryMonths(amount, baseNetSalary) : 1;
+
+  const repaymentMonthsNumber =
+    recoveryMonths == null ? null : Number(recoveryMonths);
+
+  const estimatedMonthlyRecovery =
+    repaymentMonthsNumber &&
+    Number.isFinite(repaymentMonthsNumber) &&
+    repaymentMonthsNumber > 0 &&
+    amount > 0
+      ? Number((amount / repaymentMonthsNumber).toFixed(2))
+      : 0;
+
+  const allowedRecoveryStartMonths = getAllowedRecoveryStartMonths();
+
+  let recoveryStartValid = true;
+
+  if (recoveryStartMonth != null) {
+    recoveryStartValid = allowedRecoveryStartMonths.includes(
+      String(recoveryStartMonth),
+    );
+  }
+
+  return {
+    ctc,
+    compensationPlanName: profile.compensation_plan_name || null,
+
+    baseNetSalary,
+
+    standardMaximum,
+    maximumAdvance: standardMaximum,
+
+    totalApprovedAdvance,
+
+    paidAdvance,
+
+    outstandingAdvance,
+
+    remainingStandardAmount,
+    remainingAdvance: remainingStandardAmount,
+
+    requestedAmount: amount,
+
+    excessAmount,
+
+    isException,
+
+    minimumRecoveryMonths,
+
+    recoveryMonths: repaymentMonthsNumber,
+
+    estimatedMonthlyRecovery,
+
+    recoveryStartMonth: recoveryStartMonth ? String(recoveryStartMonth) : null,
+
+    allowedRecoveryStartMonths,
+
+    recoveryStartValid,
+
+    limitSource: "calculateBaseNetSalary",
+  };
+}
+
 async function getSalaryAdvanceContext(orgId, employeeId) {
   const tenantPool = await getTenantPoolForOrgId(orgId);
+
   const conn = await tenantPool.getConnection();
 
   try {
-    const employee = await getEmployeeInfo(conn, employeeId);
-    if (!employee) throw new Error("Employee not found");
+    if (!employeeId) {
+      throw new Error("Employee ID is required.");
+    }
 
-    const annualCtc = Number(employee.salary) || 0;
-    const monthlyGrossSalary = annualCtc / 12;
-
-    return {
-      monthlyGrossSalary,
-      maximumAdvance: monthlyGrossSalary * 3,
-    };
+    return await buildSalaryAdvanceContext(conn, orgId, employeeId);
   } finally {
     conn.release();
   }
@@ -284,6 +551,83 @@ async function createRequest({
 
     if (employee.status !== "Active") {
       throw new Error("Employee is inactive");
+    }
+
+    const normalizedRequestType = String(requestType || "").toUpperCase();
+
+    if (normalizedRequestType === "SALARY_ADVANCE") {
+      const amount = Number(details?.amount);
+      const repaymentMonths = Number(details?.repaymentMonths);
+      const recoveryStartMonth = String(details?.recoveryStartMonth || "");
+
+      if (!Number.isFinite(amount) || amount <= 0) {
+        throw new Error("A valid salary advance amount is required.");
+      }
+
+      if (!Number.isInteger(repaymentMonths) || repaymentMonths < 1) {
+        throw new Error("Recovery period must be a whole number of months.");
+      }
+
+      const salaryAdvanceContext = await buildSalaryAdvanceContext(
+        conn,
+        orgId,
+        employeeId,
+        amount,
+        repaymentMonths,
+        recoveryStartMonth,
+      );
+
+      if (!salaryAdvanceContext.recoveryStartValid) {
+        throw new Error(
+          "Recovery can start only in the current month or next month.",
+        );
+      }
+
+      if (repaymentMonths < salaryAdvanceContext.minimumRecoveryMonths) {
+        throw new Error(
+          `Recovery must be at least ${salaryAdvanceContext.minimumRecoveryMonths} months for the requested amount.`,
+        );
+      }
+
+      /*
+       * IMPORTANT:
+       * Do NOT reject an amount above remainingStandardAmount.
+       *
+       * It is allowed as an exceptional/emergency request.
+       */
+      details = {
+        ...details,
+
+        baseNetSalary: salaryAdvanceContext.baseNetSalary,
+
+        standardMaximum: salaryAdvanceContext.standardMaximum,
+
+        maximumAdvance: salaryAdvanceContext.standardMaximum,
+
+        totalApprovedAdvance: salaryAdvanceContext.totalApprovedAdvance,
+
+        paidAdvance: salaryAdvanceContext.paidAdvance,
+
+        outstandingAdvance: salaryAdvanceContext.outstandingAdvance,
+
+        remainingStandardAmount: salaryAdvanceContext.remainingStandardAmount,
+
+        remainingAdvance: salaryAdvanceContext.remainingStandardAmount,
+
+        requestedAmount: amount,
+
+        excessAmount: salaryAdvanceContext.excessAmount,
+
+        isException: salaryAdvanceContext.isException,
+
+        minimumRecoveryMonths: salaryAdvanceContext.minimumRecoveryMonths,
+
+        estimatedMonthlyRecovery: Number((amount / repaymentMonths).toFixed(2)),
+
+        recoveryStartMonth,
+
+        limitSource: "calculateBaseNetSalary",
+      };
     }
 
     if (String(requestType).toUpperCase() === "TRAVEL_BOOKING") {
@@ -634,31 +978,242 @@ async function approveRequest(
       );
     }
 
+    const details =
+      typeof request.details_json === "string"
+        ? JSON.parse(request.details_json || "{}")
+        : request.details_json || {};
+
+    // =========================================================
+    // FINAL ADMIN APPROVAL
+    // =========================================================
     if (isAdminApproval) {
+      if (request.request_type === "SALARY_ADVANCE") {
+        const advanceAmount = Number(details.amount);
+
+        const recoveryMonths = Number(details.repaymentMonths);
+
+        const recoveryStartMonth = String(details.recoveryStartMonth || "");
+
+        if (!Number.isFinite(advanceAmount) || advanceAmount <= 0) {
+          throw new Error("Invalid salary advance amount.");
+        }
+
+        if (!Number.isInteger(recoveryMonths) || recoveryMonths < 1) {
+          throw new Error("Recovery period must be a whole number of months.");
+        }
+
+        const allowedMonths = getAllowedRecoveryStartMonths();
+
+        if (!allowedMonths.includes(recoveryStartMonth)) {
+          throw new Error(
+            "Recovery can start only in the current month or next month.",
+          );
+        }
+
+        /*
+         * Recalculate everything from backend data.
+         * Never trust frontend salary snapshots.
+         */
+        const beforeApproval = await buildSalaryAdvanceContext(
+          conn,
+          orgId,
+          request.employee_id,
+          advanceAmount,
+          recoveryMonths,
+          recoveryStartMonth,
+        );
+
+        if (recoveryMonths < beforeApproval.minimumRecoveryMonths) {
+          throw new Error(
+            `Recovery must be at least ${beforeApproval.minimumRecoveryMonths} months for the requested amount.`,
+          );
+        }
+
+        /*
+         * DO NOT BLOCK EXCEPTIONS.
+         *
+         * An amount above remaining standard eligibility
+         * is still allowed, but isException remains true.
+         */
+
+        /*
+         * IMPORTANT:
+         * Store ONLY the recovery start month here.
+         *
+         * Example:
+         * applicable_months = "2026-10"
+         *
+         * Do NOT store:
+         * "2026-10,2026-11,2026-12"
+         *
+         * because the existing salary calculator reads this
+         * field as the recovery start month and uses
+         * recovery_months to calculate the end of the window.
+         */
+        await conn.execute(queries.ADD_EMPLOYEE_ADVANCE, [
+          request.employee_id,
+          advanceAmount,
+          recoveryMonths,
+          recoveryStartMonth,
+        ]);
+
+        /*
+         * After approval, the newly approved amount becomes
+         * part of outstanding principal immediately.
+         *
+         * Actual paidAdvance remains unchanged until payroll
+         * actually deducts money.
+         */
+        const finalOutstandingAdvance =
+          beforeApproval.outstandingAdvance + advanceAmount;
+
+        const finalTotalApprovedAdvance =
+          beforeApproval.totalApprovedAdvance + advanceAmount;
+
+        const finalRemainingStandardAmount = Math.max(
+          0,
+          beforeApproval.standardMaximum - finalOutstandingAdvance,
+        );
+
+        const monthlyRecovery = Number(
+          (advanceAmount / recoveryMonths).toFixed(2),
+        );
+
+        const finalDetails = {
+          ...details,
+
+          amount: advanceAmount,
+
+          baseNetSalary: beforeApproval.baseNetSalary,
+
+          standardMaximum: beforeApproval.standardMaximum,
+
+          maximumAdvance: beforeApproval.standardMaximum,
+
+          totalApprovedAdvance: finalTotalApprovedAdvance,
+
+          paidAdvance: beforeApproval.paidAdvance,
+
+          /*
+           * This now includes the newly approved
+           * request amount.
+           */
+          outstandingAdvance: finalOutstandingAdvance,
+
+          remainingStandardAmount: finalRemainingStandardAmount,
+
+          remainingAdvance: finalRemainingStandardAmount,
+
+          requestedAmount: advanceAmount,
+
+          excessAmount: beforeApproval.excessAmount,
+
+          isException: beforeApproval.isException,
+
+          minimumRecoveryMonths: beforeApproval.minimumRecoveryMonths,
+
+          recoveryMonths,
+
+          recoveryStartMonth,
+
+          estimatedMonthlyRecovery: monthlyRecovery,
+
+          monthlyRecoveryAmount: monthlyRecovery,
+
+          allowedRecoveryStartMonths: beforeApproval.allowedRecoveryStartMonths,
+
+          payrollDeductionActivated: true,
+
+          payrollDeductionStartsFrom: recoveryStartMonth,
+
+          limitSource: "calculateBaseNetSalary",
+
+          approvedBy: actor.employee_id,
+
+          approvedByRole: actor.role,
+
+          approvedAt: new Date().toISOString(),
+        };
+
+        /*
+         * Update the request snapshot BEFORE completing
+         * the request. Since this is inside the same
+         * transaction, a failure rolls everything back.
+         */
+        await conn.execute(queries.UPDATE_REQUEST_DETAILS_JSON, [
+          JSON.stringify(finalDetails),
+          requestId,
+        ]);
+
+        await addEvent(
+          conn,
+          requestId,
+          "ADMIN_APPROVED",
+          "COMPLETED",
+          actorId,
+          actor.role,
+          comment ||
+            "Salary advance approved by Admin. Payroll recovery activated.",
+          {
+            salaryAdvance: finalDetails,
+          },
+        );
+
+        await addServiceNotification(conn, {
+          userId: request.employee_id,
+          requestId,
+          type: "NOTIFICATION",
+          title: "Salary Advance Approved",
+          message:
+            `${request.request_code} was approved by Admin. ` +
+            `₹${advanceAmount.toLocaleString(
+              "en-IN",
+            )} will be recovered over ${recoveryMonths} months ` +
+            `starting ${recoveryStartMonth}.`,
+          metadata: {
+            requestCode: request.request_code,
+            amount: advanceAmount,
+            recoveryMonths,
+            recoveryStartMonth,
+            monthlyRecovery,
+            isException: beforeApproval.isException,
+            excessAmount: beforeApproval.excessAmount,
+          },
+        });
+      } else {
+        /*
+         * Existing Admin handling for all non-salary
+         * requests remains unchanged.
+         */
+        await addEvent(
+          conn,
+          requestId,
+          "ADMIN_APPROVED",
+          "COMPLETED",
+          actorId,
+          actor.role,
+          comment || "Request approved by Admin.",
+        );
+
+        await addServiceNotification(conn, {
+          userId: request.employee_id,
+          requestId,
+          type: "NOTIFICATION",
+          title: "Request Approved",
+          message: `${request.request_code} was approved by Admin.`,
+        });
+      }
+
+      /*
+       * Complete the request only after salary advance
+       * insertion/details update have succeeded.
+       */
       await conn.execute(queries.UPDATE_REQUEST_TO_COMPLETED, [requestId]);
 
       await conn.execute(queries.CLOSE_THREAD_AFTER_COMPLETION, [
         actorId,
         request.thread_id,
       ]);
-
-      await addEvent(
-        conn,
-        requestId,
-        "ADMIN_APPROVED",
-        "COMPLETED",
-        actorId,
-        actor.role,
-        comment || "Request approved by Admin.",
-      );
-
-      await addServiceNotification(conn, {
-        userId: request.employee_id,
-        requestId,
-        type: "NOTIFICATION",
-        title: "Request Approved",
-        message: `${request.request_code} was approved by Admin.`,
-      });
 
       await conn.commit();
 
@@ -671,66 +1226,102 @@ async function approveRequest(
       return getRequestDetail(orgId, requestId, actorId);
     }
 
+    // =========================================================
+    // SUPERVISOR APPROVAL
+    // =========================================================
+
     if (request.current_status !== "PENDING_APPROVAL") {
       throw new Error("This request is no longer waiting for approval.");
     }
 
-    const details =
-      typeof request.details_json === "string"
-        ? JSON.parse(request.details_json || "{}")
-        : request.details_json || {};
-
+    /*
+     * Recalculate salary context again at supervisor
+     * approval so the snapshot shown to Admin is fresh.
+     */
     if (request.request_type === "SALARY_ADVANCE") {
-      const employee = await getEmployeeInfo(conn, request.employee_id);
-
-      const monthlyGrossSalary = (Number(employee?.salary) || 0) / 12;
-
-      const maximumAdvance = monthlyGrossSalary * 3;
-
       const advanceAmount = Number(details.amount);
 
       const recoveryMonths = Number(details.repaymentMonths);
 
       const recoveryStartMonth = String(details.recoveryStartMonth || "");
 
-      if (!monthlyGrossSalary || advanceAmount <= 0) {
-        throw new Error("Employee salary or advance amount is invalid.");
-      }
-
-      if (advanceAmount > maximumAdvance) {
-        throw new Error(
-          `Salary advance cannot exceed ₹${maximumAdvance.toLocaleString(
-            "en-IN",
-          )}.`,
-        );
+      if (!Number.isFinite(advanceAmount) || advanceAmount <= 0) {
+        throw new Error("Invalid salary advance amount.");
       }
 
       if (!Number.isInteger(recoveryMonths) || recoveryMonths < 1) {
-        throw new Error("Recovery period must be at least one month.");
+        throw new Error("Recovery period must be a whole number of months.");
       }
 
-      if (!/^\d{4}-\d{2}$/.test(recoveryStartMonth)) {
-        throw new Error("A valid recovery start month is required.");
+      const allowedMonths = getAllowedRecoveryStartMonths();
+
+      if (!allowedMonths.includes(recoveryStartMonth)) {
+        throw new Error(
+          "Recovery can start only in the current month or next month.",
+        );
       }
 
-      const [startYear, startMonth] = recoveryStartMonth.split("-").map(Number);
-
-      const applicableMonths = Array.from(
-        { length: recoveryMonths },
-        (_, index) => {
-          const month = new Date(startYear, startMonth - 1 + index, 1);
-
-          return `${month.getFullYear()}-${String(
-            month.getMonth() + 1,
-          ).padStart(2, "0")}`;
-        },
-      ).join(",");
-
-      await conn.execute(queries.ADD_EMPLOYEE_ADVANCE, [
+      const context = await buildSalaryAdvanceContext(
+        conn,
+        orgId,
         request.employee_id,
         advanceAmount,
         recoveryMonths,
-        applicableMonths,
+        recoveryStartMonth,
+      );
+
+      if (recoveryMonths < context.minimumRecoveryMonths) {
+        throw new Error(
+          `Recovery must be at least ${context.minimumRecoveryMonths} months for the requested amount.`,
+        );
+      }
+
+      /*
+       * No employee_advance_details insert here.
+       *
+       * Payroll deduction starts only after Admin final approval.
+       */
+      const supervisorSnapshot = {
+        ...details,
+
+        amount: advanceAmount,
+
+        baseNetSalary: context.baseNetSalary,
+
+        standardMaximum: context.standardMaximum,
+
+        maximumAdvance: context.standardMaximum,
+
+        totalApprovedAdvance: context.totalApprovedAdvance,
+
+        paidAdvance: context.paidAdvance,
+
+        outstandingAdvance: context.outstandingAdvance,
+
+        remainingStandardAmount: context.remainingStandardAmount,
+
+        remainingAdvance: context.remainingAdvance,
+
+        requestedAmount: advanceAmount,
+
+        excessAmount: context.excessAmount,
+
+        isException: context.isException,
+
+        minimumRecoveryMonths: context.minimumRecoveryMonths,
+
+        estimatedMonthlyRecovery: Number(
+          (advanceAmount / recoveryMonths).toFixed(2),
+        ),
+
+        recoveryStartMonth,
+
+        limitSource: "calculateBaseNetSalary",
+      };
+
+      await conn.execute(queries.UPDATE_REQUEST_DETAILS_JSON, [
+        JSON.stringify(supervisorSnapshot),
+        requestId,
       ]);
     }
 
@@ -747,7 +1338,7 @@ async function approveRequest(
 
     await conn.execute(queries.UPDATE_THREAD_RECIPIENT, [
       admin.employee_id,
-      "Request approved by supervisor. Waiting for admin action.",
+      "Request approved by supervisor. Waiting for Admin final action.",
       request.thread_id,
     ]);
 
@@ -766,15 +1357,15 @@ async function approveRequest(
       requestId,
       type: "NOTIFICATION",
       title: "Admin Action Required",
-      message: `${request.request_code} requires admin action.`,
+      message: `${request.request_code} requires final Admin action.`,
     });
 
     await addServiceNotification(conn, {
       userId: request.employee_id,
       requestId,
       type: "NOTIFICATION",
-      title: "Request Approved",
-      message: `${request.request_code} has been approved by your supervisor.`,
+      title: "Supervisor Approved",
+      message: `${request.request_code} has been approved by your supervisor and is awaiting final Admin approval.`,
     });
 
     await conn.commit();
