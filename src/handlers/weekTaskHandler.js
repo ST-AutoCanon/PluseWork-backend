@@ -107,6 +107,7 @@ exports.getWeekTasksByEmployee = async (req, res) => {
   try {
     const orgId = getOrgIdFromHeaders(req);
     const { employee_id } = req.params;
+    const { week_id } = req.query;
 
     if (!orgId) {
       return res.status(400).json({ error: "org_id is required" });
@@ -114,7 +115,8 @@ exports.getWeekTasksByEmployee = async (req, res) => {
 
     const tasks = await weekTaskService.getWeekTasksByEmployee(
       orgId,
-      employee_id
+      employee_id,
+      week_id
     );
     res.json(tasks);
   } catch (err) {

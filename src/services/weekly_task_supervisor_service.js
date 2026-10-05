@@ -1,4 +1,5 @@
 const { getTenantPool, sanitizeDbName } = require("../db/tenantPoolManager");
+const { ensureLongTaskTextColumns } = require("./weekTaskService");
 const {
   GET_EMPLOYEES_BY_SUPERVISOR,
   GET_ALL_EMPLOYEES,
@@ -69,6 +70,7 @@ const updateTaskById = async (taskId, updateData, orgId) => {
   } = updateData;
 
   const tenantPool = await getTenantPoolForOrgId(orgId);
+  await ensureLongTaskTextColumns(orgId, tenantPool);
   const conn = await tenantPool.getConnection();
 
   try {
@@ -118,6 +120,7 @@ const insertNewTask = async (taskData, orgId) => {
   } = taskData;
 
   const tenantPool = await getTenantPoolForOrgId(orgId);
+  await ensureLongTaskTextColumns(orgId, tenantPool);
   const conn = await tenantPool.getConnection();
 
   try {
