@@ -13,20 +13,15 @@ const {
 } = require("../handlers/employeePoliciesHandler");
 
 const router = express.Router();
-
-const uploadDir = path.join(
-  __dirname,
-  "..",
-  "..",
-  "..",
-  "PolicyUploads"
-);
+const POLICY_UPLOAD_BASE = path.join(__dirname, "..", "..", "..", "PolicyUploads");
 
 function sanitizeOrgId(raw) {
   if (!raw) return "unknown";
   const s = String(raw).trim();
   return s.replace(/[^a-zA-Z0-9-_]/g, "_") || "unknown";
 }
+
+
 
 /* ==========================================================
    Employee Policies

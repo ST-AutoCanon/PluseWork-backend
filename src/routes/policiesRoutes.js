@@ -19,8 +19,12 @@ const router = express.Router();
 // make sure path is required at the top
 
 // Use environment variable, fallback to a relative folder
-const UPLOAD_BASE_FOLDER = process.env.POLICY_UPLOAD_PATH
-  || path.join(process.cwd(), "uploads", "policies");
+// ====================== MULTER CONFIG ======================
+const POLICY_UPLOAD_BASE = path.join(__dirname, "..", "..", "..", "PolicyUploads");
+
+// Optional: still allow override by env
+// const POLICY_UPLOAD_BASE = process.env.POLICY_UPLOAD_PATH 
+//   || path.join(__dirname, "..", "..", "..", "PolicyUploads");
 
 function sanitizeOrgId(orgId) {
   return String(orgId || "unknown")
@@ -32,28 +36,33 @@ const storage = multer.diskStorage({
   destination(req, file, cb) {
     try {
       console.log("========== MULTER DESTINATION ==========");
-
-      const rawOrgId = req.headers["x-org-id"] || req.headers["org-id"] || req.headers["org_id"] || "unknown";
+      const rawOrgId =
+        req.headers["x-org-id"] ||
+        req.headers["org-id"] ||
+        req.headers["org_id"] ||
+        "unknown";
       const orgId = sanitizeOrgId(rawOrgId);
       const policyId = req.params.policyId;
 
-      const folder = path.join(UPLOAD_BASE_FOLDER, orgId, `policy_${policyId}`);
+      // Final path: PolicyUploads/{orgId}/policy_{policyId}/
+      const folder = path.join(POLICY_UPLOAD_BASE, orgId, `policy_${policyId}`);
 
       if (!fs.existsSync(folder)) {
         fs.mkdirSync(folder, { recursive: true });
         console.log("✅ Folder Created:", folder);
       }
-
       cb(null, folder);
     } catch (err) {
       console.error("Destination Error:", err);
       cb(err);
     }
   },
-
   filename(req, file, cb) {
     const uniqueName = Date.now() + "_" + Math.round(Math.random() * 1e9);
-    const fileName = uniqueName + "_" + file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const fileName =
+      uniqueName +
+      "_" +
+      file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_");
     console.log("Saved As:", fileName);
     cb(null, fileName);
   },
