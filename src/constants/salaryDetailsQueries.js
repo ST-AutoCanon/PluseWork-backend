@@ -49,14 +49,29 @@ const SALARY_COLUMNS = [
 
 
 const MONETARY_COLUMNS = [
-  'annual_ctc', 'basic_salary', 'hra', 'lta', 'other_allowances', 'incentives',
-  'overtime', 'statutory_bonus', 'bonus', 'advance_recovery', 'employee_pf',
-  'employer_pf', 'esic', 'gratuity', 'professional_tax', 'tds', 'insurance',
-  'lop_deduction', 'gross_salary', 'net_salary','insurance_employer',
-'esic_employer',
-'insurance_employee',
-'esic_employee',
-'final_ctc'
+  'annual_ctc',
+  'basic_salary',
+  'hra',
+  'lta',
+  'other_allowances',
+  'incentives',
+  'overtime',
+  'statutory_bonus',
+  'bonus',
+  'advance_recovery',
+  'employee_pf',
+  'employer_pf',
+  'gratuity',
+  'professional_tax',
+  'tds',
+  'lop_deduction',
+  'gross_salary',
+  'net_salary',
+  'insurance_employer',
+  'esic_employer',
+  'insurance_employee',
+  'esic_employee',
+  'final_ctc'
 ];
 
 const createTableQuery = (tableName) => {

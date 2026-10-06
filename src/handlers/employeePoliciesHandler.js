@@ -140,28 +140,14 @@ const viewEmployeePolicyFileHandler = async (req, res) => {
       });
     }
 
-  // MUST match the same path used by multer + policiesService
-const UPLOAD_BASE_FOLDER = process.env.POLICY_UPLOAD_PATH
-  || path.join(process.cwd(), "uploads", "policies");
+   const POLICY_UPLOAD_BASE = path.join(__dirname, "..", "..", "..", "PolicyUploads");
 
-// Make sure the path is absolute
 const filePath = path.resolve(
-  UPLOAD_BASE_FOLDER,
-  String(orgId),
+  POLICY_UPLOAD_BASE,
+  String(orgId).replace(/[^a-zA-Z0-9-_]/g, "_"),
   `policy_${file.policy_id}`,
-  file.file_name
+  path.basename(file.file_name)
 );
-
-console.log("Looking for file at:", filePath);
-console.log("Exists?", fs.existsSync(filePath));
-
-if (!fs.existsSync(filePath)) {
-  return res.status(404).json({
-    success: false,
-    message: "Physical file not found",
-    debug: { expectedPath: filePath },
-  });
-}
     console.log("Looking for file at:", filePath);
     console.log("Exists?", fs.existsSync(filePath));
 
@@ -173,7 +159,7 @@ if (!fs.existsSync(filePath)) {
       });
     }
 
-    // Detect content type (optional but useful)
+    // Detect content type
     const ext = path.extname(file.file_name).toLowerCase();
     const contentTypeMap = {
       ".pdf": "application/pdf",
@@ -182,6 +168,11 @@ if (!fs.existsSync(filePath)) {
       ".jpeg": "image/jpeg",
       ".gif": "image/gif",
       ".webp": "image/webp",
+      ".mp4": "video/mp4",
+      ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      ".ppt": "application/vnd.ms-powerpoint",
+      ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      ".doc": "application/msword",
     };
     const contentType = contentTypeMap[ext] || "application/octet-stream";
 
