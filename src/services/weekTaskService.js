@@ -173,8 +173,51 @@
 const queries = require("../constants/weekTaskQueries");
 const { getTenantPoolByOrgId } = require("../db/tenantPoolManager");
 
+const taskTextColumnMigrations = new Map();
+
+async function ensureLongTaskTextColumns(orgId, db) {
+  const migrationKey = String(orgId);
+  if (!taskTextColumnMigrations.has(migrationKey)) {
+    const migration = (async () => {
+      const [columns] = await db.query(
+        `SHOW COLUMNS FROM weekly_tasks WHERE Field IN ('task_name', 'replacement_task')`
+      );
+      const columnTypes = new Map(
+        columns.map((column) => [
+          column.Field,
+          String(column.Type).toLowerCase(),
+        ])
+      );
+      const alterations = [];
+
+      if (!columnTypes.has("task_name") || !columnTypes.has("replacement_task")) {
+        throw new Error("weekly_tasks is missing task text columns");
+      }
+
+      if (!/^(tiny|medium|long)?text/.test(columnTypes.get("task_name"))) {
+        alterations.push("MODIFY COLUMN task_name TEXT NOT NULL");
+      }
+      if (!/^(tiny|medium|long)?text/.test(columnTypes.get("replacement_task"))) {
+        alterations.push("MODIFY COLUMN replacement_task TEXT NULL");
+      }
+
+      if (alterations.length > 0) {
+        await db.query(`ALTER TABLE weekly_tasks ${alterations.join(", ")}`);
+      }
+    })();
+
+    taskTextColumnMigrations.set(migrationKey, migration);
+    migration.catch(() => taskTextColumnMigrations.delete(migrationKey));
+  }
+
+  await taskTextColumnMigrations.get(migrationKey);
+}
+
+exports.ensureLongTaskTextColumns = ensureLongTaskTextColumns;
+
 exports.createWeekTask = async (orgId, taskData) => {
   const db = await getTenantPoolByOrgId(orgId);
+  await ensureLongTaskTextColumns(orgId, db);
 
   let supervisorId = taskData.supervisor_id;
   if (!supervisorId && taskData.employee_id) {
@@ -214,6 +257,7 @@ exports.createWeekTask = async (orgId, taskData) => {
 exports.updateWeekTask = async (orgId, task_id, taskData) => {
   try {
     const db = await getTenantPoolByOrgId(orgId);
+    await ensureLongTaskTextColumns(orgId, db);
 
     const fields = [];
     const values = [];
@@ -272,9 +316,13 @@ exports.getWeekTasksByWeek = async (orgId, week_id) => {
   return rows;
 };
 
-exports.getWeekTasksByEmployee = async (orgId, employee_id) => {
+exports.getWeekTasksByEmployee = async (orgId, employee_id, week_id) => {
   const db = await getTenantPoolByOrgId(orgId);
-  const [rows] = await db.query(queries.GET_WEEK_TASKS_BY_EMPLOYEE, [employee_id]);
+  const query = week_id
+    ? queries.GET_WEEK_TASKS_BY_EMPLOYEE_AND_WEEK
+    : queries.GET_WEEK_TASKS_BY_EMPLOYEE;
+  const values = week_id ? [employee_id, week_id] : [employee_id];
+  const [rows] = await db.query(query, values);
   return rows;
 };
 
