@@ -23,13 +23,41 @@ function getMimeType(filename) {
     ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg",
     ".png": "image/png",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
     ".doc": "application/msword",
     ".docx":
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xls": "application/vnd.ms-excel",
+    ".xlsx":
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".ppt": "application/vnd.ms-powerpoint",
+    ".pptx":
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".csv": "text/csv",
     ".txt": "text/plain",
+    ".rtf": "application/rtf",
   };
   return mimeTypes[ext] || "application/octet-stream";
 }
+
+const allowedFileExtensions = new Set([
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".gif",
+  ".webp",
+  ".pdf",
+  ".doc",
+  ".docx",
+  ".xls",
+  ".xlsx",
+  ".ppt",
+  ".pptx",
+  ".csv",
+  ".txt",
+  ".rtf",
+]);
 
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
@@ -59,11 +87,14 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
-  fileFilter: (req, file, cb) => {
-    const allowed = /jpeg|jpg|png|pdf|doc|docx/;
-    const extname = allowed.test(path.extname(file.originalname).toLowerCase());
-    if (extname) return cb(null, true);
-    cb(new Error("Only JPG, PNG, PDF, DOC, DOCX files are allowed"));
+  fileFilter: (_req, file, cb) => {
+    const extension = path.extname(file.originalname).toLowerCase();
+    if (allowedFileExtensions.has(extension)) return cb(null, true);
+    cb(
+      new Error(
+        "Allowed files: PDF, Word, Excel, PowerPoint, CSV, TXT, RTF, JPG, PNG, GIF, and WEBP"
+      )
+    );
   },
 });
 
@@ -101,10 +132,12 @@ router.get("/forms/download/:orgId/:filename", (req, res) => {
     // Serve the file with the correct MIME type so preview works correctly
     const mimeType = getMimeType(sanitizedFilename);
     res.type(mimeType);
-    res.setHeader(
-      "Content-Disposition",
-      `inline; filename="${sanitizedFilename}"`,
-    );
+   res.setHeader(
+  "Content-Disposition",
+  `inline; filename="${sanitizedFilename}"`
+);
+
+res.setHeader("Cache-Control", "private, max-age=3600");
     res.sendFile(realPath, (err) => {
       if (err) {
         console.error("File download error:", err);
