@@ -1,11 +1,32 @@
 const reportService = require("../services/reportIndex");
+const LeavePolicyService = require("../services/leavePolicyService");
 const { coerceToString, fetchRows } = require("../services/reportUtils");
 const {
   parseDates,
-  ensureTwoMonthWindow,
   isPreviewRequest,
   sendPreviewResponse,
 } = require("../services/reportFilters");
+const { getOrgId } = require("../utils/requestContext");
+
+function resolveLeaveReportPolicyRange(
+  selectedRange,
+  policies = [],
+  today = null,
+) {
+  const requestedStart = selectedRange?.startDate;
+  const requestedEnd = selectedRange?.endDate;
+  const currentDate = today || new Date().toISOString().slice(0, 10);
+  const sortedPolicies = [...policies]
+    .filter((policy) => policy?.year_start)
+    .sort((a, b) => String(b.year_start).localeCompare(String(a.year_start)));
+  const latestPolicy = sortedPolicies[0];
+  const policyStart = latestPolicy?.year_start || requestedStart;
+
+  return {
+    startDate: policyStart,
+    endDate: currentDate,
+  };
+}
 
 function tryParseCandidate(raw) {
   if (raw === null || typeof raw === "undefined") return null;
@@ -414,10 +435,12 @@ async function downloadLeavesReport(req, res) {
       }
     }
 
-    const ensured = ensureTwoMonthWindow(startDate, endDate);
-    if (!ensured.ok) return res.status(400).json({ message: ensured.message });
-    startDate = ensured.startDate;
-    endDate = ensured.endDate;
+    const policyRange = resolveLeaveReportPolicyRange(
+      { startDate, endDate },
+      await LeavePolicyService.getAllPolicies(getOrgId()),
+    );
+    startDate = policyRange.startDate;
+    endDate = policyRange.endDate;
 
     let rows = [];
 
@@ -580,4 +603,5 @@ async function downloadLeavesReport(req, res) {
 
 module.exports = {
   downloadLeavesReport,
+  resolveLeaveReportPolicyRange,
 };

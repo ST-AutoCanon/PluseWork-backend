@@ -81,9 +81,9 @@ async function renderExcelBuffer(rows, headers) {
       };
     });
   } else if (safeRows.length > 0) {
-    cols = Object.keys(safeRows[0]).map((k) => ({
-      header: k,
-      key: k,
+    cols = Object.keys(safeRows[0]).map((key) => ({
+      header: key,
+      key,
       width: 20,
     }));
   } else {

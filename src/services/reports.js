@@ -1,8 +1,98 @@
 const utils = require("./reportUtils");
 const filters = require("./reportFilters");
 const queries = require("../constants/reportQueries");
+const LeavePolicyService = require("./leavePolicyService");
+const { getOrgId } = require("../utils/requestContext");
 
 const fetchRows = utils.fetchRows;
+
+function normalizeLeaveTypeKey(value) {
+  if (value == null || value === "") return "";
+
+  return String(value)
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_")
+    .replace(/[^a-z0-9_]/g, "")
+    .replace(/^_+|_+$/g, "")
+    .replace(/_leave$/, "");
+}
+
+function numberOrZero(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function formatLeaveBalanceSummary(balances = []) {
+  if (!Array.isArray(balances) || balances.length === 0) {
+    return "No balance available";
+  }
+
+  return balances
+    .map((balance) => {
+      const type = String(balance?.type || "leave_type")
+        .trim()
+        .toLowerCase();
+      const labelByType = {
+        casual: "Casual Leave",
+        casual_leave: "Casual Leave",
+        vacation: "Vacation Leave",
+        vacation_leave: "Vacation Leave",
+        sick: "Sick Leave",
+        sick_leave: "Sick Leave",
+        earned: "Earned Leave",
+        earned_leave: "Earned Leave",
+        maternity: "Maternity Leave",
+        maternity_leave: "Maternity Leave",
+        paternity: "Paternity Leave",
+        paternity_leave: "Paternity Leave",
+        other: "Other Leave",
+        other_leave: "Other Leave",
+      };
+      const label = balance?.label?.trim() || labelByType[type] || type;
+      const credited = numberOrZero(balance.allowance);
+      const used = numberOrZero(balance.used);
+      const remaining = numberOrZero(balance.remaining);
+      return `${label} — Credited ${credited} | Used ${used} | Remaining ${remaining}`;
+    })
+    .join("; ");
+}
+
+async function attachLeaveBalanceSummary(rows, getBalancesForEmployee) {
+  if (!Array.isArray(rows)) return [];
+  if (typeof getBalancesForEmployee !== "function") return rows;
+
+  const balanceCache = new Map();
+  const getBalances = async (employeeId) => {
+    const key = String(employeeId).trim();
+    if (!key || balanceCache.has(key)) return balanceCache.get(key);
+
+    const balances = await getBalancesForEmployee(key);
+    balanceCache.set(key, Array.isArray(balances) ? balances : []);
+    return balanceCache.get(key);
+  };
+
+  return Promise.all(
+    rows.map(async (row) => {
+      const employeeId =
+        row && row.employee_id != null ? String(row.employee_id).trim() : null;
+      const balances = employeeId ? await getBalances(employeeId) : [];
+      const rowLeaveType = normalizeLeaveTypeKey(row?.leave_type);
+      const filteredBalances = rowLeaveType
+        ? balances.filter(
+            (balance) =>
+              normalizeLeaveTypeKey(balance?.type) === rowLeaveType ||
+              normalizeLeaveTypeKey(balance?.label).replace(/_leave$/, "") ===
+                rowLeaveType,
+          )
+        : balances;
+      const copiedRow = { ...row };
+      copiedRow.leave_balance_summary =
+        formatLeaveBalanceSummary(filteredBalances);
+      return copiedRow;
+    }),
+  );
+}
 
 const LABEL_OVERRIDES = {
   replacement_task: "Replacement Task",
@@ -19,6 +109,7 @@ const LABEL_OVERRIDES = {
   employee_id: "Employee ID",
   employee_name: "Employee Name",
   department_name: "Department",
+  leave_balance_summary: "Leave Balance (Credited | Used | Remaining)",
   claim_type: "Claim Type",
   transport_type: "Transport Type",
   accommodation_fees: "Accommodation Fees",
@@ -293,6 +384,7 @@ function getFieldDisplayNames(component = "default") {
       "department_name",
       "leave_type",
       "H_F_day",
+      "leave_balance_summary",
       "compensated_days",
       "deducted_days",
       "loss_of_pay_days",
@@ -709,6 +801,7 @@ async function getLeaveRows(
     "department_name",
     "leave_type",
     "H_F_day",
+    "leave_balance_summary",
     "start_date",
     "end_date",
     "status",
@@ -723,12 +816,27 @@ async function getLeaveRows(
     "preserved_leave_days",
   ];
 
-  const filteredRows = filters.keepOnlyFields(rows, fields, defaultOrder);
+  const balanceRows = await attachLeaveBalanceSummary(
+    rows,
+    async (employeeId) => {
+      try {
+        return await LeavePolicyService.getLeaveBalance(employeeId, getOrgId());
+      } catch (error) {
+        console.warn(
+          `[getLeaveRows] Unable to calculate leave balances for ${employeeId}:`,
+          error && error.message,
+        );
+        return [];
+      }
+    },
+  );
+  const projectedRows = filters.keepOnlyFields(
+    balanceRows,
+    fields,
+    defaultOrder,
+  );
 
-  if (filteredRows.length > 0) {
-  }
-
-  return filteredRows;
+  return projectedRows;
 }
 
 async function getReimbursementRows(

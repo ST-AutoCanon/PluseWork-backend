@@ -1292,19 +1292,21 @@ const getUsedLeavesInPeriod = async (
   }
 };
 
-function computeEarnedLeavesFromWorked(
-  workedDays,
+function computeEarnedLeavesFromCalendarDays(
+  calendarDays,
   workingDaysRequired,
   earnedLeavesGrant,
 ) {
   if (!workingDaysRequired || Number(workingDaysRequired) <= 0) return 0;
   if (!earnedLeavesGrant || Number(earnedLeavesGrant) <= 0) return 0;
-  const ratio = Number(workedDays) / Number(workingDaysRequired);
-  if (!isFinite(ratio) || ratio <= 0) return 0;
-  return Number((ratio * Number(earnedLeavesGrant)).toFixed(1));
+  const completedCycles = Math.floor(
+    Number(calendarDays) / Number(workingDaysRequired),
+  );
+  if (!Number.isFinite(completedCycles) || completedCycles <= 0) return 0;
+  return Number((completedCycles * Number(earnedLeavesGrant)).toFixed(2));
 }
 
-function countDaysExcludingSundays(startDate, endDate) {
+function countCalendarDays(startDate, endDate) {
   if (!startDate || !endDate) return 0;
   const start = new Date(startDate);
   const end = new Date(endDate);
@@ -1314,7 +1316,7 @@ function countDaysExcludingSundays(startDate, endDate) {
   let count = 0;
   let current = new Date(start);
   while (current <= end) {
-    if (current.getDay() !== 0) count += 1;
+    count += 1;
     current.setDate(current.getDate() + 1);
   }
   return count;
@@ -1383,12 +1385,6 @@ async function computeAndStoreMonthlyLOP(employeeId, month, year, orgId) {
     periodEnd,
     orgId,
   ).catch(() => ({}));
-  const workedUntilMonthEnd = await getWorkedDays(
-    employeeId,
-    active.year_start,
-    periodEnd,
-    orgId,
-  ).catch(() => 0);
   const policyYear = new Date(active.year_start).getFullYear();
   const employeeCFMap = await getEmployeeCarryForwards(
     employeeId,
@@ -1420,15 +1416,8 @@ async function computeAndStoreMonthlyLOP(employeeId, month, year, orgId) {
 
       let earnedUntilMonthEnd = 0;
       if (isEarned) {
-        const method = String(
-          setting.earned_credit_method || "attendance",
-        ).toLowerCase();
-        const daysForEarned =
-          method === "policy"
-            ? countDaysExcludingSundays(active.year_start, periodEnd)
-            : workedUntilMonthEnd;
-        earnedUntilMonthEnd = computeEarnedLeavesFromWorked(
-          daysForEarned,
+        earnedUntilMonthEnd = computeEarnedLeavesFromCalendarDays(
+          countCalendarDays(active.year_start, periodEnd),
           Number(setting.working_days || 0),
           Number(setting.earned_leaves || 0),
         );
@@ -1647,12 +1636,6 @@ const getLeaveBalance = async (employeeId, orgId) => {
     now > new Date(active.year_end)
       ? active.year_end
       : now.toISOString().split("T")[0];
-  const workedDays = await getWorkedDays(
-    employeeId,
-    policyStartForCalculation,
-    upToDate,
-    orgId,
-  );
   const usedMap = await getUsedLeavesInPeriod(
     employeeId,
     active.year_start,
@@ -1694,28 +1677,16 @@ const getLeaveBalance = async (employeeId, orgId) => {
             active.year_end,
             employeeJoiningDate,
           );
-      const earnedFromAttendance =
+      const earnedFromCalendarDays =
         typeKey === "earned"
-          ? (() => {
-              const method = String(
-                setting.earned_credit_method || "attendance",
-              ).toLowerCase();
-              const daysForEarned =
-                method === "policy"
-                  ? countDaysExcludingSundays(
-                      policyStartForCalculation,
-                      upToDate,
-                    )
-                  : workedDays;
-              return computeEarnedLeavesFromWorked(
-                daysForEarned,
-                Number(setting.working_days || 0),
-                Number(setting.earned_leaves || 0),
-              );
-            })()
+          ? computeEarnedLeavesFromCalendarDays(
+              countCalendarDays(policyStartForCalculation, upToDate),
+              Number(setting.working_days || 0),
+              Number(setting.earned_leaves || 0),
+            )
           : 0;
       const allowance =
-        (typeKey === "earned" ? earnedFromAttendance : proratedAnnual) +
+        (typeKey === "earned" ? earnedFromCalendarDays : proratedAnnual) +
         carryForward;
       const remaining = Math.max(allowance - used, 0);
       const loss_of_pay = Math.max(used - allowance, 0);
@@ -1723,7 +1694,7 @@ const getLeaveBalance = async (employeeId, orgId) => {
         type: setting.type,
         enabled: !!setting.enabled,
         annual_allowance: proratedAnnual,
-        earned: earnedFromAttendance,
+        earned: earnedFromCalendarDays,
         carry_forward: carryForward,
         allowance,
         used,
@@ -1857,7 +1828,7 @@ module.exports = {
   computeAndStoreMonthlyLOP,
   getWorkedDays,
   getUsedLeavesInPeriod,
-  computeEarnedLeavesFromWorked,
+  computeEarnedLeavesFromCalendarDays,
   getEmployeeCarryForwards,
   autoExtendRecentPolicies,
   parseLocalDate,
