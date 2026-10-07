@@ -152,7 +152,7 @@ const sendRegistrationInvite = async ({ vendorName, recipientEmail, subject, bod
     await sendVendorRegistrationEmail({
       recipientEmail,
       vendorName,
-      subject,
+      subject: "Vendor Registration Request-Sukalpa Tech Solutions",
       body,
       link,
       username: invite.username,
