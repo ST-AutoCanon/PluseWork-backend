@@ -263,6 +263,53 @@ CREATE TABLE IF NOT EXISTS chat_rooms (
   is_group TINYINT(1)
 );
 
+
+CREATE TABLE `punch_policies` (
+  id bigint unsigned NOT NULL AUTO_INCREMENT,
+  org_id bigint unsigned NOT NULL,
+  policy_name varchar(150) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
+  description varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
+  policy_type enum('late_login','miss_punch_out','less_login_hours') COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'late_login',
+  applies_to enum('all','specific') CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'specific',
+  deduction_basis enum('percentage','amount') COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'percentage',
+  deduction_type enum('half_day','full_day') COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'half_day',
+  deduction_value decimal(10,2) NOT NULL DEFAULT '0.00',
+  min_duration int DEFAULT '15',
+  limit_weekly int NOT NULL DEFAULT '2',
+  limit_monthly int NOT NULL DEFAULT '4',
+  half_day_below_hours decimal(5,2) NOT NULL DEFAULT '3.00',
+  full_day_below_hours decimal(5,2) NOT NULL DEFAULT '1.00',
+  enable_full_day_threshold tinyint(1) NOT NULL DEFAULT '1',
+  late_count_limit int NOT NULL DEFAULT '22',
+  late_within_days int NOT NULL DEFAULT '15',
+  shift_mode varchar(20) COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'general',
+  punch_in_time time DEFAULT NULL,
+buffer_time int NOT NULL DEFAULT '15',
+  punch_out_time time DEFAULT NULL,
+  shift json DEFAULT NULL,
+  skip_if_regularised tinyint(1) NOT NULL DEFAULT '1',
+  policy_status enum('active','inactive') CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'active',
+effective_from date NOT NULL,
+  effective_till date DEFAULT NULL,
+  created_b varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
+  updated_b varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
+  created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted_at timestamp NULL DEFAULT NULL,
+  ;
+
+CREATE TABLE `punch_policy_assignments` (
+  id bigint unsigned NOT NULL AUTO_INCREMENT,
+  policy_id bigint unsigned NOT NULL,
+  org_id bigint unsigned NOT NULL,
+  assignment_type enum('group','department','employee') CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'group',
+  reference_id varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
+  reference_name varchar(150) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
+  created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  
+) ;
+
+
 CREATE TABLE IF NOT EXISTS download_details (
   id INT AUTO_INCREMENT PRIMARY KEY,
   org_id INT UNSIGNED,
