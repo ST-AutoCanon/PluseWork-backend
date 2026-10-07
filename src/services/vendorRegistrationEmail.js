@@ -51,11 +51,9 @@ async function sendVendorApprovalEmail({ recipientEmail, vendorName }) {
 
     to: [{ email: recipientEmail, name: vendorName }],
 
-    subject: "Vendor Registration Successfully Completed",
+    subject: "Vendor Registration Approved",
 
-    textContent: `Vendor Registration Successfully Completed
-
-Dear Team,
+    textContent: `Dear Team,
 
 We have successfully completed the vendor registration process.
 
@@ -66,10 +64,6 @@ Sukalpa Finance`,
 
     htmlContent: `
       <div style="font-family:Arial,sans-serif;color:#202124;line-height:1.6">
-        <h2 style="color:#198754;">
-          Vendor Registration Successfully Completed
-        </h2>
-
         <p>Dear Team,</p>
 
         <p>
@@ -88,5 +82,4 @@ Sukalpa Finance`,
     `,
   });
 }
-
 module.exports = { sendVendorRegistrationEmail, sendVendorApprovalEmail };
