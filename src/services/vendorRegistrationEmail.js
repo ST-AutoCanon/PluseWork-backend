@@ -43,13 +43,43 @@ async function sendVendorApprovalEmail({ recipientEmail, vendorName }) {
   await sendWithRetries({
     sender: {
       email: process.env.BREVO_SENDER_EMAIL,
-      name: process.env.SMTP_SENDER_NAME || process.env.PLATFORM_NAME || "PULSEWORK",
+      name:
+        process.env.SMTP_SENDER_NAME ||
+        process.env.PLATFORM_NAME ||
+        "PULSEWORK",
     },
+
     to: [{ email: recipientEmail, name: vendorName }],
-    subject: "Vendor registration approved",
-    textContent: `  Vendor Registration Successfully Completed\n Dear team,\n\n We have successfully completed the vendor registration process.\n  Thank you for your support and assistance throughout the process.\n\n Best regards,\n  Sukalpa Finance`,
-    htmlContent: `<div style="font-family:Arial,sans-serif;color:#202124;line-height:1.6"><p>Dear ${escapeHtml(vendorName)},</p><p>Your vendor registration has been <strong>approved successfully</strong>.</p><p>Thank you for completing the registration.</p><p>Regards,<br />PulseWork Team</p></div>`,
+
+    subject: "Vendor Registration Approved",
+
+    textContent: `Dear Team,
+
+We have successfully completed the vendor registration process.
+
+Thank you for your support and assistance throughout the process.
+
+Best regards,
+Sukalpa Finance`,
+
+    htmlContent: `
+      <div style="font-family:Arial,sans-serif;color:#202124;line-height:1.6">
+        <p>Dear Team,</p>
+
+        <p>
+          We have successfully completed the vendor registration process.
+        </p>
+
+        <p>
+          Thank you for your support and assistance throughout the process.
+        </p>
+
+        <p>
+          Best regards,<br />
+          Sukalpa Finance
+        </p>
+      </div>
+    `,
   });
 }
-
 module.exports = { sendVendorRegistrationEmail, sendVendorApprovalEmail };
