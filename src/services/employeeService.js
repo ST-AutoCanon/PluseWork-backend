@@ -140,6 +140,38 @@ function normalizeOrgId(data) {
 
 const PAD_DIGITS = 6;
 
+async function resolveWorkLocation(conn, orgId, workLocationId, detail) {
+  if (!workLocationId) {
+    return {
+      id: null,
+      detail: null,
+    };
+  }
+
+  const [rows] = await conn.execute(queries.GET_WORK_LOCATION_BY_ID, [
+    workLocationId,
+    orgId,
+  ]);
+
+  if (!rows.length) {
+    throw new Error("Invalid work location selected.");
+  }
+
+  const location = rows[0];
+  const cleanedDetail = detail != null ? String(detail).trim() : "";
+
+  if (Number(location.requires_where) === 1 && !cleanedDetail) {
+    throw new Error(
+      `Please specify where for work location "${location.name}".`,
+    );
+  }
+
+  return {
+    id: location.id,
+    detail: Number(location.requires_where) === 1 ? cleanedDetail : null,
+  };
+}
+
 async function addFullEmployeeUsingConnection(conn, data, options = {}) {
   const resolvedOrg = data.org_id || data.orgId || data.organization_id || null;
   if (!resolvedOrg) throw new Error("org_id required for employee creation");
@@ -321,6 +353,13 @@ async function addFullEmployeeUsingConnection(conn, data, options = {}) {
     }
   }
 
+  const workLocation = await resolveWorkLocation(
+    conn,
+    resolvedOrg,
+    data.work_location_id,
+    data.work_location_detail,
+  );
+
   await conn.execute(queries.ADD_EMPLOYEE_PRO, [
     eid,
     data.employee_type || null,
@@ -329,6 +368,8 @@ async function addFullEmployeeUsingConnection(conn, data, options = {}) {
     data.department_id || null,
     data.sub_org_id || null,
     data.position || null,
+    workLocation.id,
+    workLocation.detail,
     data.supervisor_id || null,
     data.salary || null,
     data.total_experience_months || null,
@@ -842,6 +883,13 @@ exports.editFullEmployee = async (data) => {
 
     const normalizedResume = normalizeToSingleUrl(chosenResume);
 
+    const workLocation = await resolveWorkLocation(
+      conn,
+      orgId,
+      pick("work_location_id"),
+      pick("work_location_detail"),
+    );
+
     await conn.execute(queries.UPDATE_EMPLOYEE_PRO, [
       pick("employee_type") || null,
       pick("joining_date") || null,
@@ -849,6 +897,8 @@ exports.editFullEmployee = async (data) => {
       pick("department_id") || null,
       pick("sub_org_id") || null,
       pick("position") || null,
+      workLocation.id,
+      workLocation.detail,
       pick("supervisor_id") || null,
       pick("salary") || null,
       pick("total_experience_months") || null,
@@ -1274,5 +1324,17 @@ async function sendResetEmailAndSave(email, name, opts = {}, saveConn = null) {
     throw err;
   }
 }
+
+exports.getWorkLocations = async (orgId) => {
+  if (!orgId) {
+    throw new Error("orgId required");
+  }
+
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+
+  const [rows] = await tenantPool.execute(queries.GET_WORK_LOCATIONS, [orgId]);
+
+  return rows;
+};
 
 exports.sendResetEmailAndSave = sendResetEmailAndSave;
