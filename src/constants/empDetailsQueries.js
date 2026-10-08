@@ -138,22 +138,35 @@ module.exports = {
 
   ADD_EMPLOYEE_PRO: `
   INSERT INTO employee_professional (
-    employee_id, employee_type, joining_date, role, department_id,
-    sub_org_id, position, supervisor_id, salary, total_experience_months,
-    total_experience_text, resume_url
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    employee_id,
+    employee_type,
+    joining_date,
+    role,
+    department_id,
+    sub_org_id,
+    position,
+    work_location_id,
+    work_location_detail,
+    supervisor_id,
+    salary,
+    total_experience_months,
+    total_experience_text,
+    resume_url
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `,
 
   UPDATE_EMPLOYEE_PRO: `
   UPDATE employee_professional
      SET employee_type = ?,
-         joining_date  = ?,
-         role          = ?,
+         joining_date = ?,
+         role = ?,
          department_id = ?,
-         sub_org_id    = ?,
-         position      = ?,
+         sub_org_id = ?,
+         position = ?,
+         work_location_id = ?,
+         work_location_detail = ?,
          supervisor_id = ?,
-         salary        = ?,
+         salary = ?,
          total_experience_months = ?,
          total_experience_text = ?,
          resume_url = ?
@@ -254,6 +267,9 @@ SELECT
   DATE_FORMAT(pr.joining_date,'%Y-%m-%d') AS joining_date,
   pr.role, pr.department_id, d.name AS department,
   pr.position, pr.supervisor_id,
+  pr.work_location_id,
+  wl.name AS work_location,
+  pr.work_location_detail,
   CONCAT(sup.first_name,' ',sup.last_name) AS supervisor_name,
   pr.salary, pr.total_experience_months, pr.total_experience_text, pr.resume_url,
 
@@ -297,6 +313,7 @@ LEFT JOIN employee_education     ed  ON e.employee_id = ed.employee_id
 LEFT JOIN employee_professional  pr  ON e.employee_id = pr.employee_id
 LEFT JOIN employee_bank_details  bd  ON e.employee_id = bd.employee_id
 LEFT JOIN departments            d   ON pr.department_id = d.id
+LEFT JOIN work_locations         wl  ON pr.work_location_id = wl.id
 LEFT JOIN employees              sup ON pr.supervisor_id = sup.employee_id
 
 WHERE e.employee_id = ?
@@ -427,6 +444,9 @@ SELECT employee_id
     pr.position,
     pr.supervisor_id,
     CONCAT(sup.first_name,' ',sup.last_name) AS supervisor_name,
+    pr.work_location_id,
+    wl.name AS work_location,
+    pr.work_location_detail,
     pr.salary,
     pr.total_experience_months, 
     pr.total_experience_text,
@@ -456,6 +476,8 @@ SELECT employee_id
     ON e.employee_id = bd.employee_id
   LEFT JOIN employees sup 
     ON pr.supervisor_id = sup.employee_id
+  LEFT JOIN work_locations wl
+    ON pr.work_location_id = wl.id
 
   LEFT JOIN (
     SELECT employee_id,
@@ -583,6 +605,9 @@ SELECT employee_id
     pr.position,
     pr.supervisor_id,
     CONCAT(sup.first_name,' ',sup.last_name) AS supervisor_name,
+    pr.work_location_id,
+    wl.name AS work_location,
+    pr.work_location_detail,
     pr.salary,
     pr.total_experience_months, 
     pr.total_experience_text,
@@ -605,6 +630,7 @@ SELECT employee_id
   LEFT JOIN departments           d  ON pr.department_id = d.id
   LEFT JOIN employee_bank_details bd ON e.employee_id = bd.employee_id
   LEFT JOIN employees             sup ON pr.supervisor_id = sup.employee_id
+  LEFT JOIN work_locations        wl  ON pr.work_location_id = wl.id
 
   LEFT JOIN (
   SELECT employee_id,
@@ -880,5 +906,28 @@ WHERE employee_id = ?
 UPDATE employee_personal
 SET form16_part_b_doc = ?
 WHERE employee_id = ?
+`,
+
+  GET_WORK_LOCATIONS: `
+  SELECT
+    id,
+    name,
+    requires_where
+  FROM work_locations
+  WHERE org_id = ?
+    AND status = 'Active'
+  ORDER BY name ASC
+`,
+
+  GET_WORK_LOCATION_BY_ID: `
+  SELECT
+    id,
+    name,
+    requires_where
+  FROM work_locations
+  WHERE id = ?
+    AND org_id = ?
+    AND status = 'Active'
+  LIMIT 1
 `,
 };
