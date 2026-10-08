@@ -16,6 +16,10 @@ const {
   getOrganizationById,
   getCandidateByOfferResponseTokenService,
   submitCandidateOfferResponseService,
+  getRecruitmentLettersService,
+  createRecruitmentLetterService,
+  updateRecruitmentLetterService,
+  sendRecruitmentLetterService,
 } = require("../services/recruitmentService");
 
 const resolveOrgIdFromReq = (req) => {
@@ -393,6 +397,146 @@ const submitPublicOfferResponseHandler = async (req, res) => {
   }
 };
 
+const getRecruitmentLettersHandler = async (req, res) => {
+  try {
+    const orgId = resolveOrgIdFromReq(req);
+
+    if (!orgId) {
+      return res.status(400).json({
+        message: "orgId is required",
+      });
+    }
+
+    const data = await getRecruitmentLettersService(orgId);
+
+    return res.status(200).json({ data });
+  } catch (error) {
+    console.error("getRecruitmentLettersHandler error:", error);
+
+    return res.status(500).json({
+      message: error.message || "Failed to fetch recruitment letters",
+    });
+  }
+};
+
+const createRecruitmentLetterHandler = async (req, res) => {
+  try {
+    const orgId = resolveOrgIdFromReq(req);
+
+    const { id } = req.params;
+
+    if (!orgId) {
+      return res.status(400).json({
+        message: "orgId is required",
+      });
+    }
+
+    const createdBy = req.headers["x-employee-id"] || null;
+
+    const data = await createRecruitmentLetterService(
+      id,
+      req.body,
+      orgId,
+      createdBy,
+    );
+
+    return res.status(201).json({
+      message: "Recruitment letter draft created successfully",
+      data,
+    });
+  } catch (error) {
+    console.error("createRecruitmentLetterHandler error:", error);
+
+    if (
+      [
+        "NOT_FOUND",
+        "INVALID_DOCUMENT_TYPE",
+        "LETTERHEAD_REQUIRED",
+        "LETTERHEAD_NOT_FOUND",
+      ].includes(error.code)
+    ) {
+      return res.status(400).json({
+        message: error.message,
+      });
+    }
+
+    return res.status(500).json({
+      message: error.message || "Failed to create recruitment letter",
+    });
+  }
+};
+
+const updateRecruitmentLetterHandler = async (req, res) => {
+  try {
+    const orgId = resolveOrgIdFromReq(req);
+
+    const { id, letterId } = req.params;
+
+    if (!orgId) {
+      return res.status(400).json({
+        message: "orgId is required",
+      });
+    }
+
+    const data = await updateRecruitmentLetterService(
+      id,
+      letterId,
+      req.body,
+      orgId,
+    );
+
+    return res.status(200).json({
+      message: "Recruitment letter link updated successfully",
+      data,
+    });
+  } catch (error) {
+    console.error("updateRecruitmentLetterHandler error:", error);
+
+    if (error.code === "NOT_FOUND") {
+      return res.status(404).json({
+        message: error.message,
+      });
+    }
+
+    return res.status(500).json({
+      message: error.message || "Failed to update recruitment letter",
+    });
+  }
+};
+
+const sendRecruitmentLetterHandler = async (req, res) => {
+  try {
+    const orgId = resolveOrgIdFromReq(req);
+
+    const { id, letterId } = req.params;
+
+    if (!orgId) {
+      return res.status(400).json({
+        message: "orgId is required",
+      });
+    }
+
+    const data = await sendRecruitmentLetterService(id, letterId, orgId);
+
+    return res.status(200).json({
+      message: "Recruitment letter sent successfully",
+      data,
+    });
+  } catch (error) {
+    console.error("sendRecruitmentLetterHandler error:", error);
+
+    if (error.code === "NOT_FOUND") {
+      return res.status(404).json({
+        message: error.message,
+      });
+    }
+
+    return res.status(400).json({
+      message: error.message || "Failed to send recruitment letter",
+    });
+  }
+};
+
 module.exports = {
   addRecruitmentHandler,
   getRecruitmentHandler,
@@ -411,4 +555,8 @@ module.exports = {
   getOrganizationHandler,
   getPublicOfferResponseHandler,
   submitPublicOfferResponseHandler,
+  getRecruitmentLettersHandler,
+  createRecruitmentLetterHandler,
+  updateRecruitmentLetterHandler,
+  sendRecruitmentLetterHandler,
 };
