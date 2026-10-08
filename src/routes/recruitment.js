@@ -21,6 +21,10 @@ const {
   getOrganizationHandler,
   getPublicOfferResponseHandler,
   submitPublicOfferResponseHandler,
+  getRecruitmentLettersHandler,
+  createRecruitmentLetterHandler,
+  updateRecruitmentLetterHandler,
+  sendRecruitmentLetterHandler,
 } = require("../handlers/recruitmentHandler");
 
 const router = express.Router();
@@ -102,6 +106,26 @@ router.post(
 router.get("/recruitment/interviewers", getRecruitmentInterviewersHandler);
 
 router.get("/recruitment/:id/assessments", getRecruitmentAssessmentsHandler);
+
+router.get("/recruitment/letters", getRecruitmentLettersHandler);
+
+router.post(
+  "/recruitment/:id/letters",
+  express.json(),
+  createRecruitmentLetterHandler,
+);
+
+router.put(
+  "/recruitment/:id/letters/:letterId",
+  express.json(),
+  updateRecruitmentLetterHandler,
+);
+
+router.post(
+  "/recruitment/:id/letters/:letterId/send",
+  express.json(),
+  sendRecruitmentLetterHandler,
+);
 router.get("/recruitment/:id", getRecruitmentByIdHandler);
 
 router.put(
