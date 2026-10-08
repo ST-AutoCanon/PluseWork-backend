@@ -192,6 +192,7 @@ class LoginHandler {
             employeeId: user.employee_id,
             department_id: user.department_id || null,
             department: user.department || null,
+            joining_date: user.joining_date || null,
           },
         });
       });
