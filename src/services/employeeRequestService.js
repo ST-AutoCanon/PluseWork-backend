@@ -171,12 +171,27 @@ async function getActualAdvancePaidFromPayroll(conn, orgId, employeeId) {
 
   const currentYearMonth = getISTYearMonth(0);
 
+  const escapedOrgId = String(orgId).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
   const tablePattern = new RegExp(
-    `^${String(orgId).replace(
-      /[.*+?^${}()|[\]\\]/g,
-      "\\$&",
-    )}_(0[1-9]|1[0-2])_(\\d{4})$`,
+    `^${escapedOrgId}_(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)_(\\d{4})$`,
+    "i",
   );
+
+  const monthNumberMap = {
+    jan: "01",
+    feb: "02",
+    mar: "03",
+    apr: "04",
+    may: "05",
+    jun: "06",
+    jul: "07",
+    aug: "08",
+    sep: "09",
+    oct: "10",
+    nov: "11",
+    dec: "12",
+  };
 
   let totalPaid = 0;
 
@@ -189,10 +204,25 @@ async function getActualAdvancePaidFromPayroll(conn, orgId, employeeId) {
 
     if (!match) continue;
 
-    const month = match[1];
+    const monthName = String(match[1]).toLowerCase();
     const year = match[2];
 
-    const tableYearMonth = `${year}-${month}`;
+    const monthNumber = monthNumberMap[monthName];
+
+    if (!monthNumber) {
+      console.warn(
+        "[SALARY_ADVANCE][paidAdvance] Unable to determine numeric month:",
+        {
+          tableName,
+          monthName,
+          year,
+        },
+      );
+
+      continue;
+    }
+
+    const tableYearMonth = `${year}-${monthNumber}`;
 
     /*
      * Do not count future payroll months.
