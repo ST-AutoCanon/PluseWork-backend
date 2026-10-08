@@ -79,4 +79,6 @@ router.get(
   employeeHandler.getSupervisorHistory,
 );
 
+router.get("/work-locations", employeeHandler.listWorkLocations);
+
 module.exports = router;

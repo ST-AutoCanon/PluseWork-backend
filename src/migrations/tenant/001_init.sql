@@ -84,7 +84,9 @@ CREATE TABLE IF NOT EXISTS employee_professional (
   total_experience_months INT DEFAULT 0,
   total_experience_text VARCHAR(50) NULL,
   resume_url VARCHAR(500),
-  joining_date DATE
+  joining_date DATE,
+  work_location_id INT NULL AFTER sub_org_id,
+  work_location_detail VARCHAR(255) NULL
 );
 
 CREATE TABLE IF NOT EXISTS employee_education (
@@ -1573,4 +1575,19 @@ CREATE TABLE IF NOT EXISTS employee_service_notifications (
     INDEX idx_esn_type (
         notification_type
     )
+);
+
+CREATE TABLE work_locations (
+    id INT NOT NULL AUTO_INCREMENT,
+    org_id INT NOT NULL,
+    name VARCHAR(150) NOT NULL,
+    requires_where TINYINT(1) NOT NULL DEFAULT 0,
+    status ENUM('Active', 'Inactive') NOT NULL DEFAULT 'Active',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_work_location_org_name (org_id, name),
+    INDEX idx_work_location_org_status (org_id, status)
 );

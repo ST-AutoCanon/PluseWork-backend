@@ -324,4 +324,109 @@ AND interviewer_id = ?
     AND offer_response_token_expires_at IS NOT NULL
     AND offer_response_token_expires_at >= NOW()
 `,
+
+  GET_RECRUITMENT_LETTERS: `
+  SELECT
+    rcl.id,
+    rcl.org_id,
+    rcl.candidate_id,
+    rcl.letterhead_id,
+    rcl.document_type,
+    rcl.status,
+    rcl.sent_to,
+    rcl.sent_at,
+    rcl.created_by,
+    rcl.created_at,
+    rcl.updated_at,
+
+    lh.id AS letter_id,
+    lh.letterhead_code,
+    lh.template_name,
+    lh.letter_type,
+    lh.subject,
+    lh.body,
+    lh.attachment
+
+  FROM recruitment_candidate_letters rcl
+
+  INNER JOIN letterhead_data lh
+    ON lh.id = rcl.letterhead_id
+   AND lh.org_id = rcl.org_id
+
+  WHERE rcl.org_id = ?
+
+  ORDER BY rcl.updated_at DESC, rcl.id DESC
+`,
+
+  GET_RECRUITMENT_LETTER_BY_ID: `
+  SELECT
+    rcl.id,
+    rcl.org_id,
+    rcl.candidate_id,
+    rcl.letterhead_id,
+    rcl.document_type,
+    rcl.status,
+    rcl.sent_to,
+    rcl.sent_at,
+    rcl.created_by,
+    rcl.created_at,
+    rcl.updated_at,
+
+    lh.id AS letter_id,
+    lh.letterhead_code,
+    lh.template_name,
+    lh.letter_type,
+    lh.subject,
+    lh.body,
+    lh.attachment
+
+  FROM recruitment_candidate_letters rcl
+
+  INNER JOIN letterhead_data lh
+    ON lh.id = rcl.letterhead_id
+   AND lh.org_id = rcl.org_id
+
+  WHERE rcl.id = ?
+    AND rcl.candidate_id = ?
+    AND rcl.org_id = ?
+
+  LIMIT 1
+`,
+
+  INSERT_RECRUITMENT_LETTER: `
+  INSERT INTO recruitment_candidate_letters (
+    org_id,
+    candidate_id,
+    letterhead_id,
+    document_type,
+    status,
+    created_by,
+    created_at,
+    updated_at
+  )
+  VALUES (?, ?, ?, ?, 'DRAFT', ?, NOW(), NOW())
+`,
+
+  UPDATE_RECRUITMENT_LETTER: `
+  UPDATE recruitment_candidate_letters
+  SET
+    letterhead_id = ?,
+    document_type = ?,
+    updated_at = NOW()
+  WHERE id = ?
+    AND candidate_id = ?
+    AND org_id = ?
+`,
+
+  MARK_RECRUITMENT_LETTER_SENT: `
+  UPDATE recruitment_candidate_letters
+  SET
+    status = 'SENT',
+    sent_to = ?,
+    sent_at = NOW(),
+    updated_at = NOW()
+  WHERE id = ?
+    AND candidate_id = ?
+    AND org_id = ?
+`,
 };
