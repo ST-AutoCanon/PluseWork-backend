@@ -25,6 +25,7 @@ module.exports = {
       e.password,
       pr.position,
       pr.department_id,
+      pr.joining_date,
       e.status,
       d.name AS department
     FROM employees e
