@@ -900,3 +900,44 @@ exports.uploadInsuranceFolder = async (req, res) => {
     });
   }
 };
+
+exports.listWorkLocations = async (req, res) => {
+  try {
+    const orgId =
+      req.headers["x-org-id"] ||
+      req.query.org_id ||
+      req.query.orgId ||
+      req.body?.org_id ||
+      req.body?.orgId ||
+      null;
+
+    if (!orgId) {
+      return res
+        .status(400)
+        .json(ErrorHandler.generateErrorResponse(400, "org_id is required."));
+    }
+
+    const locations = await employeeService.getWorkLocations(orgId);
+
+    return res
+      .status(200)
+      .json(
+        ErrorHandler.generateSuccessResponse(
+          200,
+          "Work locations fetched.",
+          locations,
+        ),
+      );
+  } catch (err) {
+    console.error("[listWorkLocations] error:", err);
+
+    return res
+      .status(500)
+      .json(
+        ErrorHandler.generateErrorResponse(
+          500,
+          err.message || "Failed to fetch work locations.",
+        ),
+      );
+  }
+};
