@@ -33,6 +33,11 @@ const {
   SET_OFFER_ACCEPTANCE_RESPONSE_TOKEN,
   GET_CANDIDATE_BY_OFFER_RESPONSE_TOKEN,
   SUBMIT_CANDIDATE_OFFER_RESPONSE,
+  GET_RECRUITMENT_LETTERS,
+  GET_RECRUITMENT_LETTER_BY_ID,
+  INSERT_RECRUITMENT_LETTER,
+  UPDATE_RECRUITMENT_LETTER,
+  MARK_RECRUITMENT_LETTER_SENT,
 } = require("../constants/recruitmentQueries");
 
 function emptyToNull(v) {
@@ -121,6 +126,378 @@ Please join on time.
 
 Regards,
 ${organizationName || "HR Team"}`;
+}
+
+function mapRecruitmentLetterRow(row) {
+  return {
+    id: row.id,
+    org_id: row.org_id,
+    candidate_id: row.candidate_id,
+    letterhead_id: row.letterhead_id,
+    document_type: row.document_type,
+    status: row.status,
+    sent_to: row.sent_to,
+    sent_at: row.sent_at,
+    created_by: row.created_by,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+
+    letter: {
+      id: row.letter_id,
+      letterhead_code: row.letterhead_code,
+      template_name: row.template_name,
+      letter_type: row.letter_type,
+      subject: row.subject,
+      body: row.body,
+      attachment: row.attachment,
+    },
+  };
+}
+
+async function getRecruitmentLettersService(orgId) {
+  const pool = await getTenantPoolForOrgId(orgId);
+
+  const [rows] = await pool.query(GET_RECRUITMENT_LETTERS, [orgId]);
+
+  return rows.map(mapRecruitmentLetterRow);
+}
+
+async function createRecruitmentLetterService(
+  candidateId,
+  payload,
+  orgId,
+  createdBy,
+) {
+  const pool = await getTenantPoolForOrgId(orgId);
+  const connection = await pool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    const [candidateRows] = await connection.query(
+      GET_RECRUITMENT_CANDIDATE_BY_ID,
+      [candidateId, orgId],
+    );
+
+    const candidate = candidateRows?.[0];
+
+    if (!candidate) {
+      const err = new Error("Candidate not found");
+      err.code = "NOT_FOUND";
+      throw err;
+    }
+
+    const documentType = String(payload.document_type || "").trim();
+
+    if (!["OFFER_LETTER", "APPOINTMENT_LETTER"].includes(documentType)) {
+      const err = new Error("Invalid recruitment document type");
+      err.code = "INVALID_DOCUMENT_TYPE";
+      throw err;
+    }
+
+    const letterheadId = Number(payload.letterhead_id);
+
+    if (!letterheadId) {
+      const err = new Error("letterhead_id is required");
+      err.code = "LETTERHEAD_REQUIRED";
+      throw err;
+    }
+
+    const [letterRows] = await connection.query(
+      `
+        SELECT id
+        FROM letterhead_data
+        WHERE id = ?
+          AND org_id = ?
+        LIMIT 1
+      `,
+      [letterheadId, orgId],
+    );
+
+    if (!letterRows.length) {
+      const err = new Error("Letterhead not found");
+      err.code = "LETTERHEAD_NOT_FOUND";
+      throw err;
+    }
+
+    const [result] = await connection.query(INSERT_RECRUITMENT_LETTER, [
+      orgId,
+      candidateId,
+      letterheadId,
+      documentType,
+      createdBy || null,
+    ]);
+
+    if (documentType === "OFFER_LETTER") {
+      await connection.query(UPDATE_RECRUITMENT_STATUS, [
+        "Offer Released",
+        candidateId,
+        orgId,
+      ]);
+    }
+
+    await connection.commit();
+
+    const [rows] = await pool.query(GET_RECRUITMENT_LETTER_BY_ID, [
+      result.insertId,
+      candidateId,
+      orgId,
+    ]);
+
+    return rows[0] ? mapRecruitmentLetterRow(rows[0]) : null;
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+async function updateRecruitmentLetterService(
+  candidateId,
+  recruitmentLetterId,
+  payload,
+  orgId,
+) {
+  const pool = await getTenantPoolForOrgId(orgId);
+
+  const letterheadId = Number(payload.letterhead_id);
+
+  if (!letterheadId) {
+    throw new Error("letterhead_id is required");
+  }
+
+  const documentType = String(payload.document_type || "").trim();
+
+  const [result] = await pool.query(UPDATE_RECRUITMENT_LETTER, [
+    letterheadId,
+    documentType,
+    recruitmentLetterId,
+    candidateId,
+    orgId,
+  ]);
+
+  if (!result.affectedRows) {
+    const err = new Error("Recruitment letter not found");
+    err.code = "NOT_FOUND";
+    throw err;
+  }
+
+  const [rows] = await pool.query(GET_RECRUITMENT_LETTER_BY_ID, [
+    recruitmentLetterId,
+    candidateId,
+    orgId,
+  ]);
+
+  return rows[0] ? mapRecruitmentLetterRow(rows[0]) : null;
+}
+
+async function sendRecruitmentLetterService(
+  candidateId,
+  recruitmentLetterId,
+  orgId,
+) {
+  const pool = await getTenantPoolForOrgId(orgId);
+
+  const [rows] = await pool.query(GET_RECRUITMENT_LETTER_BY_ID, [
+    recruitmentLetterId,
+    candidateId,
+    orgId,
+  ]);
+
+  const document = rows?.[0];
+
+  if (!document) {
+    const err = new Error("Recruitment letter not found");
+    err.code = "NOT_FOUND";
+    throw err;
+  }
+
+  const [candidateRows] = await pool.query(GET_RECRUITMENT_CANDIDATE_BY_ID, [
+    candidateId,
+    orgId,
+  ]);
+
+  const candidate = candidateRows?.[0];
+
+  if (!candidate) {
+    const err = new Error("Candidate not found");
+    err.code = "NOT_FOUND";
+    throw err;
+  }
+
+  if (!candidate.email) {
+    throw new Error("Candidate does not have an email address");
+  }
+
+  if (
+    document.document_type === "OFFER_LETTER" &&
+    candidate.offer_decision === "Accepted"
+  ) {
+    throw new Error("The candidate has already accepted the offer.");
+  }
+
+  if (
+    document.document_type === "OFFER_LETTER" &&
+    candidate.status === "Rejected"
+  ) {
+    throw new Error("Rejected candidates cannot receive an offer letter.");
+  }
+
+  if (!document.attachment) {
+    throw new Error("The letter does not have a PDF attachment.");
+  }
+
+  const letterheadBaseDir = path.join(
+    __dirname,
+    "..",
+    "..",
+    "..",
+    "letterheadfiles",
+  );
+
+  const attachmentName = path.basename(document.attachment);
+
+  const attachmentPath = path.join(
+    letterheadBaseDir,
+    `org_${String(orgId)}`,
+    attachmentName,
+  );
+
+  const attachmentBuffer = await fs.readFile(attachmentPath);
+
+  const organization = await getOrganizationById(orgId);
+
+  let subject;
+  let htmlBody;
+  let textBody;
+
+  let rawOfferToken = null;
+  let offerTokenHash = null;
+  let offerTokenExpiresAt = null;
+
+  if (document.document_type === "OFFER_LETTER") {
+    rawOfferToken = generateOfferResponseToken();
+    offerTokenHash = hashOfferResponseToken(rawOfferToken);
+    offerTokenExpiresAt = getOfferResponseTokenExpiry();
+
+    const responseLink = buildOfferResponseLink(orgId, rawOfferToken);
+
+    subject = `Offer Letter - ${candidate.name}`;
+
+    textBody = `Hi ${candidate.name || "Candidate"},
+
+Please find your offer letter attached.
+
+Please review the offer and submit your response using the secure link below:
+
+${responseLink}
+
+Regards,
+${organization?.name || "HR Team"}`;
+
+    htmlBody = `
+      <p>Hi ${candidate.name || "Candidate"},</p>
+
+      <p>Please find your offer letter attached.</p>
+
+      <p>
+        Please review the offer and submit your response using the secure link below:
+      </p>
+
+      <p style="margin:24px 0;text-align:center;">
+        <a
+          href="${responseLink}"
+          style="
+            display:inline-block;
+            padding:13px 24px;
+            background:#2563eb;
+            color:#ffffff;
+            text-decoration:none;
+            border-radius:7px;
+            font-weight:600;
+            font-family:Arial,Helvetica,sans-serif;
+          "
+        >
+          Respond to Offer
+        </a>
+      </p>
+
+      <p>Regards,<br/>
+      ${organization?.name || "HR Team"}</p>
+    `;
+  } else {
+    subject = `Appointment Letter - ${candidate.name}`;
+
+    textBody = `Hi ${candidate.name || "Candidate"},
+
+Please find your appointment letter attached.
+
+Regards,
+${organization?.name || "HR Team"}`;
+
+    htmlBody = `
+      <p>Hi ${candidate.name || "Candidate"},</p>
+
+      <p>Please find your appointment letter attached.</p>
+
+      <p>
+        Regards,<br/>
+        ${organization?.name || "HR Team"}
+      </p>
+    `;
+  }
+
+  await sendWithRetries({
+    sender: {
+      email: process.env.BREVO_SENDER_EMAIL,
+      name: organization?.name || process.env.PLATFORM_NAME || "PULSEWORK",
+    },
+    to: [
+      {
+        email: candidate.email,
+        name: candidate.name,
+      },
+    ],
+    subject,
+    htmlContent: htmlBody,
+    textContent: textBody,
+    attachment: [
+      {
+        name:
+          document.document_type === "OFFER_LETTER"
+            ? "Offer-Letter.pdf"
+            : "Appointment-Letter.pdf",
+        content: attachmentBuffer.toString("base64"),
+      },
+    ],
+  });
+
+  await pool.query(MARK_RECRUITMENT_LETTER_SENT, [
+    candidate.email,
+    recruitmentLetterId,
+    candidateId,
+    orgId,
+  ]);
+
+  if (document.document_type === "OFFER_LETTER") {
+    await pool.query(SET_OFFER_ACCEPTANCE_RESPONSE_TOKEN, [
+      offerTokenHash,
+      offerTokenExpiresAt,
+      candidateId,
+      orgId,
+    ]);
+  }
+
+  const [updatedRows] = await pool.query(GET_RECRUITMENT_LETTER_BY_ID, [
+    recruitmentLetterId,
+    candidateId,
+    orgId,
+  ]);
+
+  return {
+    letter: updatedRows[0] ? mapRecruitmentLetterRow(updatedRows[0]) : null,
+  };
 }
 
 async function getOrganizationById(orgId) {
@@ -1684,4 +2061,8 @@ module.exports = {
   issueOfferResponseToken,
   getCandidateByOfferResponseTokenService,
   submitCandidateOfferResponseService,
+  getRecruitmentLettersService,
+  createRecruitmentLetterService,
+  updateRecruitmentLetterService,
+  sendRecruitmentLetterService,
 };
