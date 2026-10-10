@@ -38,7 +38,187 @@ const {
   INSERT_RECRUITMENT_LETTER,
   UPDATE_RECRUITMENT_LETTER,
   MARK_RECRUITMENT_LETTER_SENT,
+  SET_ONBOARDING_DOCUMENT_TOKEN,
+  GET_CANDIDATE_BY_ONBOARDING_TOKEN,
+  MARK_ONBOARDING_DOCUMENTS_SUBMITTED,
+  INSERT_RECRUITMENT_ONBOARDING_DOCUMENT,
+  GET_RECRUITMENT_ONBOARDING_DOCUMENTS,
+  GET_RECRUITMENT_ONBOARDING_DOCUMENT_BY_ID,
 } = require("../constants/recruitmentQueries");
+
+const REQUIRED_ONBOARDING_DOCUMENTS = [
+  "PROFILE_PHOTO",
+  "PAN_CARD",
+  "ADDRESS_PROOF",
+  "BANK_PROOF",
+  "EDUCATION_CERTIFICATE",
+];
+
+const ALLOWED_ONBOARDING_DOCUMENTS = [
+  ...REQUIRED_ONBOARDING_DOCUMENTS,
+  "PREVIOUS_EMPLOYMENT_PROOF",
+  "SALARY_SLIPS",
+  "OTHER",
+];
+
+async function getPublicOnboardingFormService(orgId, rawToken) {
+  const pool = await getTenantPoolForOrgId(orgId);
+  const tokenHash = hashOnboardingToken(rawToken);
+
+  const [rows] = await pool.query(GET_CANDIDATE_BY_ONBOARDING_TOKEN, [
+    tokenHash,
+    orgId,
+  ]);
+
+  const candidate = rows?.[0];
+
+  if (!candidate) {
+    const error = new Error(
+      "This onboarding link is invalid, expired, or has already been submitted.",
+    );
+    error.code = "INVALID_ONBOARDING_TOKEN";
+    throw error;
+  }
+
+  return {
+    name: candidate.name,
+    email: candidate.email,
+    applied_position: candidate.applied_position,
+  };
+}
+
+async function submitOnboardingDocumentsService(
+  orgId,
+  rawToken,
+  documentTypes,
+  files,
+) {
+  if (!Array.isArray(files) || files.length === 0) {
+    throw new Error("Please upload the required onboarding documents.");
+  }
+
+  if (!Array.isArray(documentTypes) || documentTypes.length !== files.length) {
+    throw new Error("Document information does not match the uploaded files.");
+  }
+
+  const normalizedTypes = documentTypes.map((type) =>
+    String(type || "")
+      .trim()
+      .toUpperCase(),
+  );
+
+  if (
+    normalizedTypes.some((type) => !ALLOWED_ONBOARDING_DOCUMENTS.includes(type))
+  ) {
+    throw new Error("An unsupported document category was submitted.");
+  }
+
+  const missingRequired = REQUIRED_ONBOARDING_DOCUMENTS.filter(
+    (type) => !normalizedTypes.includes(type),
+  );
+
+  if (missingRequired.length > 0) {
+    throw new Error(
+      `Please upload all required documents. Missing: ${missingRequired.join(", ")}`,
+    );
+  }
+
+  const pool = await getTenantPoolForOrgId(orgId);
+  const connection = await pool.getConnection();
+  const tokenHash = hashOnboardingToken(rawToken);
+
+  try {
+    await connection.beginTransaction();
+
+    // Lock the candidate row to prevent two submissions racing on one token.
+    const [candidateRows] = await connection.query(
+      `${GET_CANDIDATE_BY_ONBOARDING_TOKEN} FOR UPDATE`,
+      [tokenHash, orgId],
+    );
+
+    const candidate = candidateRows?.[0];
+
+    if (!candidate) {
+      const error = new Error(
+        "This onboarding link is invalid, expired, or has already been submitted.",
+      );
+      error.code = "INVALID_ONBOARDING_TOKEN";
+      throw error;
+    }
+
+    for (let index = 0; index < files.length; index += 1) {
+      const file = files[index];
+
+      await connection.query(INSERT_RECRUITMENT_ONBOARDING_DOCUMENT, [
+        orgId,
+        candidate.id,
+        normalizedTypes[index],
+        path.basename(file.originalname),
+        path.basename(file.filename),
+        file.mimetype,
+        file.size,
+      ]);
+    }
+
+    const [updateResult] = await connection.query(
+      MARK_ONBOARDING_DOCUMENTS_SUBMITTED,
+      [candidate.id, orgId, tokenHash],
+    );
+
+    if (!updateResult.affectedRows) {
+      const error = new Error(
+        "The onboarding submission could not be completed. Please reopen the link or contact HR.",
+      );
+      error.code = "ONBOARDING_SUBMISSION_FAILED";
+      throw error;
+    }
+
+    await connection.commit();
+
+    return {
+      candidateId: candidate.id,
+      submittedCount: files.length,
+    };
+  } catch (error) {
+    await connection.rollback();
+
+    // Remove uploaded files if the database transaction failed.
+    await Promise.all(
+      files.map((file) => fs.unlink(file.path).catch(() => {})),
+    );
+
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+async function getRecruitmentOnboardingDocumentsService(candidateId, orgId) {
+  const pool = await getTenantPoolForOrgId(orgId);
+
+  const [rows] = await pool.query(GET_RECRUITMENT_ONBOARDING_DOCUMENTS, [
+    candidateId,
+    orgId,
+  ]);
+
+  return rows;
+}
+
+async function getRecruitmentOnboardingDocumentByIdService(
+  candidateId,
+  documentId,
+  orgId,
+) {
+  const pool = await getTenantPoolForOrgId(orgId);
+
+  const [rows] = await pool.query(GET_RECRUITMENT_ONBOARDING_DOCUMENT_BY_ID, [
+    documentId,
+    candidateId,
+    orgId,
+  ]);
+
+  return rows?.[0] || null;
+}
 
 function emptyToNull(v) {
   if (v === "" || v === undefined) return null;
@@ -90,8 +270,204 @@ function buildResumeUrl(orgId, file) {
   return `/recruitment/files/${orgId}/${file.filename}`;
 }
 
-function buildEmailHtml(emailBody = "") {
-  return String(emailBody || "").replace(/\n/g, "<br/>");
+function escapeEmailHtml(value = "") {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function buildEmailHtml(emailBody = "", options = {}) {
+  const {
+    organizationName = process.env.PLATFORM_NAME || "People & Culture",
+    title = "Recruitment Update",
+    preheader = "An update from our recruitment team.",
+    ctaLabel = null,
+    ctaUrl = null,
+  } = options;
+
+  const safeOrganization = escapeEmailHtml(organizationName);
+  const safeTitle = escapeEmailHtml(title);
+  const safePreheader = escapeEmailHtml(preheader);
+
+  // Email bodies are plain text. Escape user-entered text before rendering HTML.
+  const cleanBody = String(emailBody || "")
+    .replace(/\{\{OFFER_RESPONSE_LINK\}\}/g, "")
+    .replace(/\{\{ONBOARDING_FORM_LINK\}\}/g, "")
+    .trim();
+
+  const bodyHtml = cleanBody
+    .split(/\n\s*\n/)
+    .filter(Boolean)
+    .map(
+      (paragraph) => `
+        <p style="
+          margin:0 0 18px;
+          color:#334155;
+          font-family:Arial,Helvetica,sans-serif;
+          font-size:15px;
+          line-height:1.75;
+        ">
+          ${escapeEmailHtml(paragraph).replace(/\n/g, "<br>")}
+        </p>
+      `,
+    )
+    .join("");
+
+  const buttonHtml =
+    ctaLabel && ctaUrl
+      ? `
+        <tr>
+          <td align="center" style="padding:12px 0 26px;">
+            <a
+              href="${escapeEmailHtml(ctaUrl)}"
+              target="_blank"
+              style="
+                display:inline-block;
+                padding:15px 27px;
+                background:#1d4ed8;
+                color:#ffffff;
+                font-family:Arial,Helvetica,sans-serif;
+                font-size:14px;
+                font-weight:700;
+                text-decoration:none;
+                border-radius:7px;
+              "
+            >${escapeEmailHtml(ctaLabel)}</a>
+          </td>
+        </tr>
+      `
+      : "";
+
+  return `
+    <!doctype html>
+    <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>${safeTitle}</title>
+      </head>
+      <body style="
+        margin:0;
+        padding:0;
+        background:#f1f5f9;
+        -webkit-text-size-adjust:100%;
+      ">
+        <div style="
+          display:none;
+          max-height:0;
+          overflow:hidden;
+          opacity:0;
+          color:transparent;
+        ">${safePreheader}</div>
+
+        <table
+          role="presentation"
+          width="100%"
+          cellpadding="0"
+          cellspacing="0"
+          border="0"
+          style="background:#f1f5f9;width:100%;"
+        >
+          <tr>
+            <td align="center" style="padding:32px 12px;">
+
+              <table
+                role="presentation"
+                width="600"
+                cellpadding="0"
+                cellspacing="0"
+                border="0"
+                style="
+                  width:100%;
+                  max-width:600px;
+                  background:#ffffff;
+                  border-radius:12px;
+                  overflow:hidden;
+                  border:1px solid #e2e8f0;
+                "
+              >
+                <tr>
+                  <td style="
+                    padding:27px 32px;
+                    background:#172554;
+                    border-bottom:4px solid #3b82f6;
+                  ">
+                    <div style="
+                      color:#bfdbfe;
+                      font-family:Arial,Helvetica,sans-serif;
+                      font-size:11px;
+                      font-weight:700;
+                      letter-spacing:1.6px;
+                      text-transform:uppercase;
+                      margin-bottom:9px;
+                    ">PEOPLE &amp; CULTURE</div>
+
+                    <div style="
+                      color:#ffffff;
+                      font-family:Arial,Helvetica,sans-serif;
+                      font-size:22px;
+                      font-weight:700;
+                      line-height:1.35;
+                    ">${safeOrganization}</div>
+                  </td>
+                </tr>
+
+                <tr>
+                  <td style="padding:32px 32px 12px;">
+                    <h1 style="
+                      margin:0 0 24px;
+                      color:#0f172a;
+                      font-family:Arial,Helvetica,sans-serif;
+                      font-size:23px;
+                      line-height:1.35;
+                    ">${safeTitle}</h1>
+
+                    ${bodyHtml}
+                  </td>
+                </tr>
+
+                ${buttonHtml}
+
+                <tr>
+                  <td style="
+                    padding:22px 32px;
+                    background:#f8fafc;
+                    border-top:1px solid #e2e8f0;
+                  ">
+                    <p style="
+                      margin:0 0 8px;
+                      color:#475569;
+                      font-family:Arial,Helvetica,sans-serif;
+                      font-size:12px;
+                      line-height:1.6;
+                    ">
+                      This is an official communication from
+                      ${safeOrganization}.
+                    </p>
+
+                    <p style="
+                      margin:0;
+                      color:#64748b;
+                      font-family:Arial,Helvetica,sans-serif;
+                      font-size:12px;
+                      line-height:1.6;
+                    ">
+                      Please contact your HR team if you need assistance.
+                      If a secure link has expired, request a new one from HR.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+
+            </td>
+          </tr>
+        </table>
+      </body>
+    </html>
+  `;
 }
 
 function buildDefaultAssessmentEmail({
@@ -129,28 +505,31 @@ ${organizationName || "HR Team"}`;
 }
 
 function mapRecruitmentLetterRow(row) {
-  return {
-    id: row.id,
-    org_id: row.org_id,
-    candidate_id: row.candidate_id,
-    letterhead_id: row.letterhead_id,
-    document_type: row.document_type,
-    status: row.status,
-    sent_to: row.sent_to,
-    sent_at: row.sent_at,
-    created_by: row.created_by,
-    created_at: row.created_at,
-    updated_at: row.updated_at,
+  const letter = { ...row };
 
-    letter: {
-      id: row.letter_id,
-      letterhead_code: row.letterhead_code,
-      template_name: row.template_name,
-      letter_type: row.letter_type,
-      subject: row.subject,
-      body: row.body,
-      attachment: row.attachment,
-    },
+  // Remove the recruitment-link fields from the nested Letterhead object.
+  Object.keys(letter).forEach((key) => {
+    if (key.startsWith("recruitment_")) {
+      delete letter[key];
+    }
+  });
+
+  return {
+    id: row.recruitment_letter_id,
+    org_id: row.recruitment_org_id,
+    candidate_id: row.recruitment_candidate_id,
+    letterhead_id: row.recruitment_letterhead_id,
+    document_type: row.recruitment_document_type,
+    status: row.recruitment_status,
+    sent_to: row.recruitment_sent_to,
+    sent_at: row.recruitment_sent_at,
+    created_by: row.recruitment_created_by,
+    created_at: row.recruitment_created_at,
+    updated_at: row.recruitment_updated_at,
+
+    // This is the actual letterhead_data row, including raw_content
+    // and its saved dynamic field values.
+    letter,
   };
 }
 
@@ -383,69 +762,47 @@ async function sendRecruitmentLetterService(
 
     const responseLink = buildOfferResponseLink(orgId, rawOfferToken);
 
-    subject = `Offer Letter - ${candidate.name}`;
+    subject = `${organization?.name || "People & Culture"} | Your Offer Letter | ${candidate.name}`;
 
-    textBody = `Hi ${candidate.name || "Candidate"},
+    textBody = `Dear ${candidate.name || "Candidate"},
 
-Please find your offer letter attached.
+Please find your offer letter attached for your review.
 
-Please review the offer and submit your response using the secure link below:
+When you are ready, use the secure button in this email to submit your decision. You can accept the offer, raise a concern, or decline it.
 
-${responseLink}
+If you have questions about the offer, please contact our HR team.
 
-Regards,
-${organization?.name || "HR Team"}`;
+Warm regards,
+People & Culture Team
+${organization?.name || "People & Culture"}`;
 
-    htmlBody = `
-      <p>Hi ${candidate.name || "Candidate"},</p>
-
-      <p>Please find your offer letter attached.</p>
-
-      <p>
-        Please review the offer and submit your response using the secure link below:
-      </p>
-
-      <p style="margin:24px 0;text-align:center;">
-        <a
-          href="${responseLink}"
-          style="
-            display:inline-block;
-            padding:13px 24px;
-            background:#2563eb;
-            color:#ffffff;
-            text-decoration:none;
-            border-radius:7px;
-            font-weight:600;
-            font-family:Arial,Helvetica,sans-serif;
-          "
-        >
-          Respond to Offer
-        </a>
-      </p>
-
-      <p>Regards,<br/>
-      ${organization?.name || "HR Team"}</p>
-    `;
+    htmlBody = buildEmailHtml(textBody, {
+      organizationName: organization?.name || "People & Culture",
+      title: "Your Offer Letter",
+      preheader: "Your offer letter is attached and ready for review.",
+      ctaLabel: "Review & Respond to Offer",
+      ctaUrl: responseLink,
+    });
   } else {
-    subject = `Appointment Letter - ${candidate.name}`;
+    subject = `${organization?.name || "People & Culture"} | Your Appointment Letter | ${candidate.name}`;
 
-    textBody = `Hi ${candidate.name || "Candidate"},
+    textBody = `Dear ${candidate.name || "Candidate"},
 
-Please find your appointment letter attached.
+Congratulations on your appointment with ${organization?.name || "our organisation"}.
 
-Regards,
-${organization?.name || "HR Team"}`;
+Please find your appointment letter attached. Kindly review the document and retain a copy for your records.
 
-    htmlBody = `
-      <p>Hi ${candidate.name || "Candidate"},</p>
+If you have questions or need clarification, please contact our HR team.
 
-      <p>Please find your appointment letter attached.</p>
+Warm regards,
+People & Culture Team
+${organization?.name || "People & Culture"}`;
 
-      <p>
-        Regards,<br/>
-        ${organization?.name || "HR Team"}
-      </p>
-    `;
+    htmlBody = buildEmailHtml(textBody, {
+      organizationName: organization?.name || "People & Culture",
+      title: "Your Appointment Letter",
+      preheader: "Your appointment letter is attached for your records.",
+    });
   }
 
   await sendWithRetries({
@@ -1251,72 +1608,112 @@ function getRecruitmentStatusEmailContent({
   previousStatus,
   offerDecision,
 }) {
-  const organizationName = organization?.name || "HR Team";
+  const organizationName = organization?.name || "People & Culture";
   const candidateName = candidate?.name || "Candidate";
+  const position = candidate?.applied_position || "the position discussed";
 
   if (newStatus === "Offer Acceptance") {
     return {
-      subject: `Offer Acceptance Request - ${candidateName}`,
-      body: `Hi ${candidateName},
+      subject: `${organizationName} | Offer Review Requested | ${candidateName}`,
+      title: "Your Offer Is Ready for Review",
+      preheader:
+        "Please review your offer letter and submit your decision securely.",
+      body: `Dear ${candidateName},
 
-Congratulations! You have progressed to the offer acceptance stage.
+We are pleased to invite you to review the offer for ${position}.
 
-Please review your offer and submit your response using the secure link below.
+Please review the offer details carefully and use the secure link below to submit your decision. You can accept the offer, raise a concern for our HR team to review, or decline it.
 
-Your response options are:
-• Accept
-• Concern
-• Reject
+For your security, the response link is personal and time-limited. If the link has expired, please contact our HR team for assistance.
 
-{{OFFER_RESPONSE_LINK}}
+We appreciate your time and look forward to hearing from you.
 
-If you choose Concern, please explain your concern so our HR team can review it and re-initiate the offer where applicable.
-
-Regards,
-
-${organizationName}`,
-    };
-  }
-
-  if (newStatus === "Offer Released") {
-    return {
-      subject: `Offer Letter Released - ${candidateName}`,
-      body: `Hi ${candidateName},
-
-Your offer letter has been released. Please review it carefully and share your decision.
-
-Regards,
-${organizationName}`,
-    };
-  }
-
-  if (newStatus === "Offer Status") {
-    const decisionLabel = normalizeOfferDecision(offerDecision) || "Pending";
-    return {
-      subject: `Offer Status Update - ${candidateName}`,
-      body: `Hi ${candidateName},
-
-Your offer status has been updated to ${decisionLabel}.
-Please reach out to our team if you need any assistance.
-
-Regards,
+Warm regards,
+People & Culture Team
 ${organizationName}`,
     };
   }
 
   if (newStatus === "Onboarding") {
     return {
-      subject: `Onboarding Documents Request - ${candidateName}`,
-      body: `Hi ${candidateName},
+      subject: `${organizationName} | Onboarding Document Submission | ${candidateName}`,
+      title: "Welcome to Onboarding",
+      preheader:
+        "Your next step is to securely submit your onboarding documents.",
+      body: `Dear ${candidateName},
 
-Welcome to the onboarding stage. Please attach your original documents as requested so we can complete your onboarding.
+Congratulations on progressing to the onboarding stage for ${position}. We look forward to welcoming you to ${organizationName}.
 
-Regards,
+To help us complete your onboarding records, please use the secure button below to submit the requested documents.
+
+Documents to prepare:
+• Recent passport-size photograph
+• PAN card
+• Government-issued identity or address proof, as required by company policy
+• Bank proof, such as a cancelled cheque or bank passbook page
+• Education certificates and marksheets
+• Previous-employment documents, where applicable
+• Recent salary slips, where applicable
+• Any additional documents specifically requested by HR
+
+Please upload clear, readable copies through the secure form rather than replying to this email with personal documents attached. Our HR team will review your submission and contact you if anything further is required.
+
+Thank you for your cooperation.
+
+Warm regards,
+People & Culture Team
 ${organizationName}`,
     };
   }
 
-  return null;
+  if (newStatus === "Offer Released") {
+    return {
+      subject: `${organizationName} | Offer Letter Update | ${candidateName}`,
+      title: "Offer Letter Update",
+      preheader: "An update regarding your employment offer.",
+      body: `Dear ${candidateName},
+
+Your offer letter is ready. Please review the attached document and contact our HR team if you have any questions.
+
+Thank you for your interest in joining ${organizationName}.
+
+Warm regards,
+People & Culture Team
+${organizationName}`,
+    };
+  }
+
+  if (newStatus === "Offer Status") {
+    return {
+      subject: `${organizationName} | Offer Status Update | ${candidateName}`,
+      title: "Offer Status Update",
+      preheader: "An update regarding your offer.",
+      body: `Dear ${candidateName},
+
+Your offer status has been updated to ${normalizeOfferDecision(offerDecision) || "Pending"}.
+
+Please contact our HR team if you need clarification or assistance.
+
+Warm regards,
+People & Culture Team
+${organizationName}`,
+    };
+  }
+
+  return {
+    subject: `${organizationName} | Recruitment Update | ${candidateName}`,
+    title: "Recruitment Update",
+    preheader: "An update regarding your application.",
+    body: `Dear ${candidateName},
+
+We are contacting you with an update regarding your application for ${position}.
+
+If you have any questions, please contact our HR team.
+
+Warm regards,
+People & Culture Team
+${organizationName}`,
+  };
 }
 
 async function sendRecruitmentStatusEmail({
@@ -1329,12 +1726,13 @@ async function sendRecruitmentStatusEmail({
   emailSubject = null,
   emailBody = null,
   offerResponseLink = null,
+  onboardingFormLink = null,
 }) {
   if (!candidate?.email || !sendEmail) return;
 
   const organization = await getOrganizationById(orgId);
 
-  const defaultEmail = getRecruitmentStatusEmailContent({
+  const defaults = getRecruitmentStatusEmailContent({
     candidate,
     organization,
     newStatus,
@@ -1342,60 +1740,37 @@ async function sendRecruitmentStatusEmail({
     offerDecision,
   });
 
-  const statusEmail =
-    emailSubject || emailBody
-      ? {
-          subject: emailSubject || defaultEmail?.subject,
-          body: emailBody || defaultEmail?.body,
-        }
-      : defaultEmail;
+  if (!defaults) return;
 
-  if (!statusEmail || !statusEmail.subject || !statusEmail.body) return;
+  const subject = emailSubject || defaults.subject;
+  const body = emailBody || defaults.body;
 
-  let finalEmailBody = String(statusEmail?.body || "");
+  let ctaLabel = null;
+  let ctaUrl = null;
 
   if (newStatus === "Offer Acceptance" && offerResponseLink) {
-    if (finalEmailBody.includes("{{OFFER_RESPONSE_LINK}}")) {
-      finalEmailBody = finalEmailBody.replace(
-        "{{OFFER_RESPONSE_LINK}}",
-        offerResponseLink,
-      );
-    } else {
-      finalEmailBody += `\n\nOffer Response:\n${offerResponseLink}`;
-    }
+    ctaLabel = "Review & Respond to Offer";
+    ctaUrl = offerResponseLink;
+  } else if (newStatus === "Onboarding" && onboardingFormLink) {
+    ctaLabel = "Submit Onboarding Documents";
+    ctaUrl = onboardingFormLink;
   }
 
-  let htmlEmailBody = finalEmailBody.replace(/\n/g, "<br/>");
+  const cleanBody = String(body || "")
+    .replace(/\{\{OFFER_RESPONSE_LINK\}\}/g, "")
+    .replace(/\{\{ONBOARDING_FORM_LINK\}\}/g, "")
+    .trim();
 
-  if (newStatus === "Offer Acceptance" && offerResponseLink) {
-    const buttonHtml = `
-    <div style="margin:28px 0;text-align:center;">
-      <a
-        href="${offerResponseLink}"
-        style="
-          display:inline-block;
-          padding:13px 24px;
-          background:#2563eb;
-          color:#ffffff;
-          text-decoration:none;
-          border-radius:7px;
-          font-weight:600;
-          font-family:Arial,Helvetica,sans-serif;
-        "
-      >
-        Respond to Offer
-      </a>
-    </div>
-  `;
-
-    htmlEmailBody = htmlEmailBody.replace(offerResponseLink, buttonHtml);
-  }
+  const textContent = [cleanBody, ctaUrl ? `${ctaLabel}: ${ctaUrl}` : ""]
+    .filter(Boolean)
+    .join("\n\n");
 
   try {
     await sendWithRetries({
       sender: {
         email: process.env.BREVO_SENDER_EMAIL,
-        name: organization?.name || process.env.PLATFORM_NAME || "PULSEWORK",
+        name:
+          organization?.name || process.env.PLATFORM_NAME || "People & Culture",
       },
       to: [
         {
@@ -1403,15 +1778,22 @@ async function sendRecruitmentStatusEmail({
           name: candidate.name,
         },
       ],
-      subject: statusEmail.subject,
-      htmlContent: htmlEmailBody,
-      textContent: finalEmailBody,
+      subject,
+      htmlContent: buildEmailHtml(cleanBody, {
+        organizationName: organization?.name || "People & Culture",
+        title: defaults.title || "Recruitment Update",
+        preheader: defaults.preheader || subject,
+        ctaLabel,
+        ctaUrl,
+      }),
+      textContent,
     });
   } catch (mailErr) {
     console.error(
       "Recruitment status email send failed:",
       mailErr?.response?.body || mailErr,
     );
+    throw mailErr;
   }
 }
 
@@ -1471,19 +1853,39 @@ async function updateRecruitmentService(id, payload, resumeFile, orgId) {
   const [result] = await pool.query(UPDATE_RECRUITMENT_CANDIDATE, values);
 
   try {
-    const nextStatus = emptyToNull(payload.status) ?? mapped.status;
+    const requestedStatus = emptyToNull(payload.status);
+    const nextStatus = requestedStatus ?? mapped.status;
+
+    const shouldNotifyStatus =
+      requestedStatus !== null &&
+      (requestedStatus !== existing.status ||
+        Object.prototype.hasOwnProperty.call(payload, "send_status_email"));
+
+    const shouldSendStatusEmail =
+      shouldNotifyStatus &&
+      (Object.prototype.hasOwnProperty.call(payload, "send_status_email")
+        ? toBool(payload.send_status_email)
+        : true);
+
     let offerResponseLink = null;
+    let onboardingFormLink = null;
 
-    if (nextStatus === "Offer Acceptance") {
+    if (shouldNotifyStatus && nextStatus === "Offer Acceptance") {
       const offerToken = await issueOfferResponseToken(pool, id, orgId);
-
       offerResponseLink = offerToken.responseLink;
     }
-    if (nextStatus) {
-      const shouldSendStatusEmail = payload.hasOwnProperty("send_status_email")
-        ? toBool(payload.send_status_email)
-        : true;
 
+    if (shouldSendStatusEmail && nextStatus === "Onboarding") {
+      const onboardingToken = await issueOnboardingDocumentsToken(
+        pool,
+        id,
+        orgId,
+      );
+
+      onboardingFormLink = onboardingToken.responseLink;
+    }
+
+    if (shouldNotifyStatus) {
       await sendRecruitmentStatusEmail({
         candidate: {
           ...existing,
@@ -1499,6 +1901,7 @@ async function updateRecruitmentService(id, payload, resumeFile, orgId) {
         emailSubject: emptyToNull(payload.email_subject) || null,
         emailBody: emptyToNull(payload.email_body) || null,
         offerResponseLink,
+        onboardingFormLink,
       });
     }
   } catch (mailErr) {
@@ -1536,6 +1939,18 @@ async function advanceRecruitmentService(id, payload, orgId) {
   }
 
   try {
+    let onboardingFormLink = null;
+
+    if (nextStatus === "Onboarding") {
+      const onboardingToken = await issueOnboardingDocumentsToken(
+        pool,
+        id,
+        orgId,
+      );
+
+      onboardingFormLink = onboardingToken.responseLink;
+    }
+
     await sendRecruitmentStatusEmail({
       candidate: {
         ...existing,
@@ -1545,9 +1960,10 @@ async function advanceRecruitmentService(id, payload, orgId) {
       },
       orgId,
       newStatus: nextStatus || existing.status || "Applied",
-      previousStatus: existing?.status || "Applied",
+      previousStatus: existing.status || "Applied",
       offerDecision: payload.offer_decision,
       offerResponseLink,
+      onboardingFormLink,
     });
   } catch (mailErr) {
     console.error("Recruitment status email dispatch failed:", mailErr);
@@ -1680,7 +2096,13 @@ async function assignInterviewService(candidateId, payload, orgId) {
             },
           ],
           subject: emailSubject,
-          htmlContent: buildEmailHtml(emailBody),
+          htmlContent: buildEmailHtml(emailBody, {
+            organizationName: organization?.name || "People & Culture",
+            title: "Interview Scheduled",
+            preheader: `Your ${roundName || "interview"} details are ready.`,
+            ctaLabel: interviewLink ? "Join Interview" : null,
+            ctaUrl: interviewLink || null,
+          }),
           textContent: emailBody,
         });
       } catch (err) {
@@ -2041,6 +2463,43 @@ async function submitCandidateOfferResponseService(
   };
 }
 
+function hashOnboardingToken(token) {
+  return crypto.createHash("sha256").update(String(token)).digest("hex");
+}
+
+function buildOnboardingDocumentsLink(orgId, rawToken) {
+  const frontendBase = String(process.env.FRONTEND_URL || "").replace(
+    /\/$/,
+    "",
+  );
+
+  if (!frontendBase) {
+    throw new Error("FRONTEND_URL is not configured.");
+  }
+
+  return `${frontendBase}/OnboardingDocuments?orgId=${encodeURIComponent(
+    orgId,
+  )}&token=${encodeURIComponent(rawToken)}`;
+}
+
+async function issueOnboardingDocumentsToken(pool, candidateId, orgId) {
+  const rawToken = crypto.randomBytes(32).toString("hex");
+  const tokenHash = hashOnboardingToken(rawToken);
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+  await pool.query(SET_ONBOARDING_DOCUMENT_TOKEN, [
+    tokenHash,
+    expiresAt,
+    candidateId,
+    orgId,
+  ]);
+
+  return {
+    responseLink: buildOnboardingDocumentsLink(orgId, rawToken),
+    expiresAt,
+  };
+}
+
 module.exports = {
   parseResumeService,
   addRecruitmentService,
@@ -2065,4 +2524,7 @@ module.exports = {
   createRecruitmentLetterService,
   updateRecruitmentLetterService,
   sendRecruitmentLetterService,
+  issueOnboardingDocumentsToken,
+  getRecruitmentStatusEmailContent,
+  sendRecruitmentStatusEmail,
 };

@@ -2,6 +2,7 @@ const express = require("express");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
+const crypto = require("crypto");
 
 const {
   addRecruitmentHandler,
@@ -25,6 +26,10 @@ const {
   createRecruitmentLetterHandler,
   updateRecruitmentLetterHandler,
   sendRecruitmentLetterHandler,
+  getPublicOnboardingFormHandler,
+  submitPublicOnboardingFormHandler,
+  getRecruitmentOnboardingDocumentsHandler,
+  downloadRecruitmentOnboardingDocumentHandler,
 } = require("../handlers/recruitmentHandler");
 
 const router = express.Router();
@@ -94,6 +99,59 @@ const fileFilter = (req, file, cb) => {
 
 const upload = multer({ storage, fileFilter });
 
+const onboardingStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const rawOrgId = String(req.params.orgId || "");
+
+    if (!/^\d+$/.test(rawOrgId)) {
+      return cb(new Error("Invalid organisation ID."));
+    }
+
+    const safeOrgId = path.basename(rawOrgId);
+    const onboardingDir = path.join(uploadDir, safeOrgId, "onboarding");
+
+    try {
+      fs.mkdirSync(onboardingDir, { recursive: true });
+      cb(null, onboardingDir);
+    } catch (error) {
+      cb(error);
+    }
+  },
+
+  filename: (req, file, cb) => {
+    const allowedExtensions = [".pdf", ".png", ".jpg", ".jpeg", ".webp"];
+    const extension = path.extname(file.originalname).toLowerCase();
+
+    if (!allowedExtensions.includes(extension)) {
+      return cb(new Error("Upload PDF or image files only."));
+    }
+
+    cb(null, `${crypto.randomBytes(16).toString("hex")}${extension}`);
+  },
+});
+
+const onboardingUpload = multer({
+  storage: onboardingStorage,
+  limits: {
+    fileSize: 10 * 1024 * 1024,
+    files: 20,
+  },
+  fileFilter: (req, file, cb) => {
+    const validMimeTypes = [
+      "application/pdf",
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+    ];
+
+    if (!validMimeTypes.includes(file.mimetype)) {
+      return cb(new Error("Upload PDF or image files only."));
+    }
+
+    cb(null, true);
+  },
+});
+
 router.post("/recruitment", upload.single("resume"), addRecruitmentHandler);
 router.get("/recruitment", getRecruitmentHandler);
 
@@ -126,6 +184,28 @@ router.post(
   express.json(),
   sendRecruitmentLetterHandler,
 );
+
+router.get(
+  "/recruitment/public/onboarding/:orgId/:token",
+  getPublicOnboardingFormHandler,
+);
+
+router.post(
+  "/recruitment/public/onboarding/:orgId/:token",
+  onboardingUpload.array("documents", 20),
+  submitPublicOnboardingFormHandler,
+);
+
+router.get(
+  "/recruitment/:id/onboarding-documents",
+  getRecruitmentOnboardingDocumentsHandler,
+);
+
+router.get(
+  "/recruitment/:id/onboarding-documents/:documentId/download",
+  downloadRecruitmentOnboardingDocumentHandler,
+);
+
 router.get("/recruitment/:id", getRecruitmentByIdHandler);
 
 router.put(

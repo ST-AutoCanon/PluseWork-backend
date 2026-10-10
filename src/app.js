@@ -8,6 +8,7 @@ const session = require("express-session");
 const { Server } = require("socket.io");
 const webpush = require("web-push");
 const cron = require("node-cron");
+const crypto = require("crypto");
 const configRoutes = require("./routes/configRoutes");
 const visibilityRoutes = require("./routes/visibilityRoutes");
 const supervisorEmployeesRoutes = require("./routes/supervisorEmployeesRoutes");
@@ -128,6 +129,136 @@ const allowedOrigins = [
   "https://test.sts-test.online",
 ].filter(Boolean);
 
+const AUTH_DIAG_ENABLED = process.env.AUTH_DIAGNOSTICS === "true";
+
+function isAuthDiagnosticPath(pathname) {
+  const p = String(pathname || "").split("?")[0];
+
+  return (
+    ["/login", "/me", "/logout", "/orgs"].includes(p) ||
+    p.startsWith("/auto-login/")
+  );
+}
+
+// Never log cookie values. Only log their names.
+function getCookieNames(cookieHeader) {
+  return String(cookieHeader || "")
+    .split(";")
+    .map((part) => part.trim().split("=")[0])
+    .filter(Boolean);
+}
+
+// Log safe cookie metadata without exposing the cookie value.
+function summarizeSetCookies(header) {
+  const cookies = Array.isArray(header) ? header : header ? [header] : [];
+
+  return cookies.map((rawCookie) => {
+    const parts = String(rawCookie)
+      .split(";")
+      .map((part) => part.trim());
+
+    const cookieName = (parts.shift() || "").split("=")[0];
+
+    const attributes = {};
+
+    for (const part of parts) {
+      const separator = part.indexOf("=");
+
+      const key = (separator === -1 ? part : part.slice(0, separator))
+        .trim()
+        .toLowerCase();
+
+      const value = separator === -1 ? true : part.slice(separator + 1).trim();
+
+      attributes[key] = value;
+    }
+
+    return {
+      name: cookieName,
+      sameSite: attributes.samesite || null,
+      secure: Boolean(attributes.secure),
+      httpOnly: Boolean(attributes.httponly),
+      path: attributes.path || null,
+      domain: attributes.domain || null,
+      partitioned: Boolean(attributes.partitioned),
+    };
+  });
+}
+
+function safeAuthPath(pathname) {
+  const p = String(pathname || "").split("?")[0];
+
+  // Do not print tokens contained in auto-login URLs.
+  if (p.startsWith("/auto-login/")) {
+    return "/auto-login/:token";
+  }
+
+  return p;
+}
+
+app.use((req, res, next) => {
+  const pathname = req.path || "";
+
+  if (!AUTH_DIAG_ENABLED || !isAuthDiagnosticPath(pathname)) {
+    return next();
+  }
+
+  req.authTraceId = crypto.randomUUID();
+
+  const traceId = req.authTraceId;
+  const cookieNames = getCookieNames(req.headers.cookie);
+  const origin = req.headers.origin || null;
+
+  let refererOrigin = null;
+
+  try {
+    if (req.headers.referer) {
+      refererOrigin = new URL(req.headers.referer).origin;
+    }
+  } catch (_) {}
+
+  res.setHeader("X-Auth-Diag-Id", traceId);
+
+  console.info(
+    "[AUTH-DIAG][REQUEST-IN]",
+    JSON.stringify({
+      traceId,
+      method: req.method,
+      path: safeAuthPath(pathname),
+      host: req.headers.host || null,
+      origin,
+      originAllowed: origin === null ? null : allowedOrigins.includes(origin),
+      refererOrigin,
+      userAgent: req.headers["user-agent"] || null,
+      fetchSite: req.headers["sec-fetch-site"] || null,
+      fetchDest: req.headers["sec-fetch-dest"] || null,
+      forwardedProto: req.headers["x-forwarded-proto"] || null,
+      cookieHeaderPresent: Boolean(req.headers.cookie),
+      cookieNames,
+      sidCookieSent: cookieNames.includes("sid"),
+      apiKeyHeaderPresent: Boolean(req.headers["x-api-key"]),
+    }),
+  );
+
+  res.on("finish", () => {
+    console.info(
+      "[AUTH-DIAG][RESPONSE-OUT]",
+      JSON.stringify({
+        traceId,
+        method: req.method,
+        path: safeAuthPath(pathname),
+        status: res.statusCode,
+        allowOrigin: res.getHeader("Access-Control-Allow-Origin") || null,
+        allowCredentials:
+          res.getHeader("Access-Control-Allow-Credentials") || null,
+        setCookies: summarizeSetCookies(res.getHeader("Set-Cookie")),
+      }),
+    );
+  });
+
+  next();
+});
+
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   if (!origin) {
@@ -178,6 +309,60 @@ app.use((req, res, next) => {
     });
 
     app.use(sessionMiddleware);
+
+    if (AUTH_DIAG_ENABLED) {
+      console.info(
+        "[AUTH-DIAG][SESSION-CONFIG]",
+        JSON.stringify({
+          nodeEnv: process.env.NODE_ENV || "not-set",
+          sessionCookieName: "sid",
+          sessionCookieSecure: process.env.NODE_ENV === "production",
+          sessionCookieSameSite:
+            process.env.NODE_ENV === "production" ? "none" : "lax",
+          sessionCookieHttpOnly: true,
+          sessionStoreType: store?.constructor?.name || "unknown",
+          sessionSecretConfigured: Boolean(process.env.SESSION_SECRET),
+          trustProxy: app.get("trust proxy"),
+        }),
+      );
+    }
+
+    app.use((req, res, next) => {
+      if (!AUTH_DIAG_ENABLED || !isAuthDiagnosticPath(req.path)) {
+        return next();
+      }
+
+      const cookies = getCookieNames(req.headers.cookie);
+      const sessionUser = req.session?.user;
+
+      console.info(
+        "[AUTH-DIAG][SESSION-READ]",
+        JSON.stringify({
+          traceId: req.authTraceId || null,
+          method: req.method,
+          path: safeAuthPath(req.path),
+          sidCookieSent: cookies.includes("sid"),
+          sessionIDAvailable: Boolean(req.sessionID),
+          sessionObjectAvailable: Boolean(req.session),
+          sessionUserPresent: Boolean(sessionUser),
+          sessionHasEmployeeId: Boolean(
+            sessionUser?.employeeId || sessionUser?.id,
+          ),
+          sessionHasOrgId: Boolean(sessionUser?.orgId || sessionUser?.org_id),
+          sessionRole: sessionUser?.role || null,
+          cookieOptions: req.session?.cookie
+            ? {
+                secure: req.session.cookie.secure,
+                httpOnly: req.session.cookie.httpOnly,
+                sameSite: req.session.cookie.sameSite,
+                path: req.session.cookie.path,
+              }
+            : null,
+        }),
+      );
+
+      next();
+    });
 
     app.use(
       "/uploads",
