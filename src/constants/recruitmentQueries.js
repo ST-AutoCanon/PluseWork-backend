@@ -326,70 +326,50 @@ AND interviewer_id = ?
 `,
 
   GET_RECRUITMENT_LETTERS: `
-  SELECT
-    rcl.id,
-    rcl.org_id,
-    rcl.candidate_id,
-    rcl.letterhead_id,
-    rcl.document_type,
-    rcl.status,
-    rcl.sent_to,
-    rcl.sent_at,
-    rcl.created_by,
-    rcl.created_at,
-    rcl.updated_at,
-
-    lh.id AS letter_id,
-    lh.letterhead_code,
-    lh.template_name,
-    lh.letter_type,
-    lh.subject,
-    lh.body,
-    lh.attachment
-
-  FROM recruitment_candidate_letters rcl
-
-  INNER JOIN letterhead_data lh
-    ON lh.id = rcl.letterhead_id
-   AND lh.org_id = rcl.org_id
-
+ SELECT
+  rcl.id AS recruitment_letter_id,
+  rcl.org_id AS recruitment_org_id,
+  rcl.candidate_id AS recruitment_candidate_id,
+  rcl.letterhead_id AS recruitment_letterhead_id,
+  rcl.document_type AS recruitment_document_type,
+  rcl.status AS recruitment_status,
+  rcl.sent_to AS recruitment_sent_to,
+  rcl.sent_at AS recruitment_sent_at,
+  rcl.created_by AS recruitment_created_by,
+  rcl.created_at AS recruitment_created_at,
+  rcl.updated_at AS recruitment_updated_at,
+  lh.*
+FROM recruitment_candidate_letters rcl
+INNER JOIN letterhead_data lh
+  ON lh.id = rcl.letterhead_id
+ AND lh.org_id = rcl.org_id
   WHERE rcl.org_id = ?
 
   ORDER BY rcl.updated_at DESC, rcl.id DESC
 `,
 
   GET_RECRUITMENT_LETTER_BY_ID: `
-  SELECT
-    rcl.id,
-    rcl.org_id,
-    rcl.candidate_id,
-    rcl.letterhead_id,
-    rcl.document_type,
-    rcl.status,
-    rcl.sent_to,
-    rcl.sent_at,
-    rcl.created_by,
-    rcl.created_at,
-    rcl.updated_at,
-
-    lh.id AS letter_id,
-    lh.letterhead_code,
-    lh.template_name,
-    lh.letter_type,
-    lh.subject,
-    lh.body,
-    lh.attachment
-
+ SELECT
+  rcl.id AS recruitment_letter_id,
+  rcl.org_id AS recruitment_org_id,
+  rcl.candidate_id AS recruitment_candidate_id,
+  rcl.letterhead_id AS recruitment_letterhead_id,
+  rcl.document_type AS recruitment_document_type,
+  rcl.status AS recruitment_status,
+  rcl.sent_to AS recruitment_sent_to,
+  rcl.sent_at AS recruitment_sent_at,
+  rcl.created_by AS recruitment_created_by,
+  rcl.created_at AS recruitment_created_at,
+  rcl.updated_at AS recruitment_updated_at,
+  lh.*
   FROM recruitment_candidate_letters rcl
-
   INNER JOIN letterhead_data lh
-    ON lh.id = rcl.letterhead_id
-   AND lh.org_id = rcl.org_id
+  ON lh.id = rcl.letterhead_id
+  AND lh.org_id = rcl.org_id
 
   WHERE rcl.id = ?
-    AND rcl.candidate_id = ?
-    AND rcl.org_id = ?
-
+  AND rcl.candidate_id = ?
+  AND rcl.org_id = ?
   LIMIT 1
 `,
 
@@ -428,5 +408,85 @@ AND interviewer_id = ?
   WHERE id = ?
     AND candidate_id = ?
     AND org_id = ?
+`,
+
+  SET_ONBOARDING_DOCUMENT_TOKEN: `
+  UPDATE recruitment_candidates
+  SET
+    onboarding_response_token_hash = ?,
+    onboarding_response_token_expires_at = ?,
+    onboarding_submitted_at = NULL,
+    updated_at = NOW()
+  WHERE id = ? AND org_id = ?
+`,
+
+  GET_CANDIDATE_BY_ONBOARDING_TOKEN: `
+  SELECT
+    id,
+    org_id,
+    name,
+    email,
+    applied_position,
+    status,
+    onboarding_response_token_expires_at,
+    onboarding_submitted_at
+  FROM recruitment_candidates
+  WHERE onboarding_response_token_hash = ?
+    AND org_id = ?
+    AND onboarding_response_token_expires_at >= NOW()
+    AND onboarding_submitted_at IS NULL
+  LIMIT 1
+`,
+
+  MARK_ONBOARDING_DOCUMENTS_SUBMITTED: `
+  UPDATE recruitment_candidates
+  SET
+    onboarding_submitted_at = NOW(),
+    onboarding_response_token_hash = NULL,
+    onboarding_response_token_expires_at = NULL,
+    updated_at = NOW()
+  WHERE id = ?
+    AND org_id = ?
+    AND onboarding_response_token_hash = ?
+    AND onboarding_response_token_expires_at >= NOW()
+    AND onboarding_submitted_at IS NULL
+`,
+
+  INSERT_RECRUITMENT_ONBOARDING_DOCUMENT: `
+  INSERT INTO recruitment_onboarding_documents (
+    org_id,
+    candidate_id,
+    document_type,
+    original_filename,
+    stored_filename,
+    mime_type,
+    file_size_bytes,
+    submitted_at
+  )
+  VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
+`,
+
+  GET_RECRUITMENT_ONBOARDING_DOCUMENTS: `
+  SELECT
+    id,
+    org_id,
+    candidate_id,
+    document_type,
+    original_filename,
+    mime_type,
+    file_size_bytes,
+    submitted_at
+  FROM recruitment_onboarding_documents
+  WHERE candidate_id = ? AND org_id = ?
+  ORDER BY submitted_at DESC, id DESC
+`,
+
+  GET_RECRUITMENT_ONBOARDING_DOCUMENT_BY_ID: `
+  SELECT *
+  FROM recruitment_onboarding_documents
+  WHERE id = ?
+    AND candidate_id = ?
+    AND org_id = ?
+  LIMIT 1
 `,
 };

@@ -12,6 +12,17 @@ class LoginHandler {
     try {
       const { email, password, orgId, loginAsSuperAdmin } = req.body;
 
+      const traceId = req.authTraceId || null;
+
+      console.info("[AUTH-DIAG][LOGIN][START]", {
+        traceId,
+        emailProvided: Boolean(email),
+        passwordProvided: Boolean(password),
+        orgIdProvided: Boolean(orgId),
+        loginAsSuperAdmin: Boolean(loginAsSuperAdmin),
+        sessionObjectAvailable: Boolean(req.session),
+      });
+
       if (!email || !password) {
         return res
           .status(400)
@@ -39,6 +50,11 @@ class LoginHandler {
         user = await LoginService.fetchUserByEmail(email, {
           orgId: orgId || null,
           superAdmin: !!loginAsSuperAdmin,
+        });
+        console.info("[AUTH-DIAG][LOGIN][USER-LOOKUP]", {
+          traceId,
+          userFound: Boolean(user),
+          lookupMode: loginAsSuperAdmin ? "super-admin" : "tenant",
         });
       } catch (svcErr) {
         if (svcErr && svcErr.code === "ORG_REQUIRED") {
@@ -92,6 +108,9 @@ class LoginHandler {
       }
 
       if (user.status === "Inactive") {
+        console.warn("[AUTH-DIAG][LOGIN][ACCOUNT-INACTIVE]", {
+          traceId,
+        });
         return res
           .status(403)
           .json(
@@ -103,7 +122,14 @@ class LoginHandler {
       }
 
       const isPasswordValid = await bcrypt.compare(password, user.password);
+      console.info("[AUTH-DIAG][LOGIN][PASSWORD-CHECK]", {
+        traceId,
+        passwordMatched: isPasswordValid,
+      });
       if (!isPasswordValid) {
+        console.warn("[AUTH-DIAG][LOGIN][USER-NOT-FOUND]", {
+          traceId,
+        });
         return res
           .status(401)
           .json(ErrorHandler.generateErrorResponse(401, "Invalid credentials"));
@@ -174,10 +200,46 @@ class LoginHandler {
           .catch((err) => console.error("Redis publish error:", err));
       }
 
+      console.info("[AUTH-DIAG][LOGIN][SESSION-PREPARED]", {
+        traceId,
+        sessionObjectAvailable: Boolean(req.session),
+        sessionIDAvailable: Boolean(req.sessionID),
+        sessionUserPresent: Boolean(req.session?.user),
+        sessionHasEmployeeId: Boolean(
+          req.session?.user?.employeeId || req.session?.user?.id,
+        ),
+        sessionHasOrgId: Boolean(
+          req.session?.user?.orgId || req.session?.user?.org_id,
+        ),
+      });
+
       req.session.save((err) => {
-        if (err) console.error("Session save error:", err);
+        if (err) {
+          console.error("[AUTH-DIAG][LOGIN][SESSION-SAVE-FAILED]", {
+            traceId,
+            error: err.message || "Unknown session-save error",
+          });
+
+          return res.status(500).json({
+            status: "error",
+            code: 500,
+            message: "Unable to create login session. Please try again.",
+          });
+        }
+
+        console.info("[AUTH-DIAG][LOGIN][SESSION-SAVE-SUCCESS]", {
+          traceId,
+          sessionUserPresent: Boolean(req.session?.user),
+          sessionHasEmployeeId: Boolean(
+            req.session?.user?.employeeId || req.session?.user?.id,
+          ),
+          sessionHasOrgId: Boolean(
+            req.session?.user?.orgId || req.session?.user?.org_id,
+          ),
+        });
 
         return res.status(200).json({
+          // Keep your existing successful login response here.
           status: "success",
           code: 200,
           message: {

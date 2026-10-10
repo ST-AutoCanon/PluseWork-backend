@@ -20,7 +20,14 @@ const {
   createRecruitmentLetterService,
   updateRecruitmentLetterService,
   sendRecruitmentLetterService,
+  getPublicOnboardingFormService,
+  submitOnboardingDocumentsService,
+  getRecruitmentOnboardingDocumentsService,
+  getRecruitmentOnboardingDocumentByIdService,
 } = require("../services/recruitmentService");
+
+const fs = require("fs");
+const path = require("path");
 
 const resolveOrgIdFromReq = (req) => {
   const header =
@@ -537,6 +544,119 @@ const sendRecruitmentLetterHandler = async (req, res) => {
   }
 };
 
+const getPublicOnboardingFormHandler = async (req, res) => {
+  try {
+    const { orgId, token } = req.params;
+
+    const data = await getPublicOnboardingFormService(orgId, token);
+
+    return res.status(200).json({ data });
+  } catch (error) {
+    return res.status(400).json({
+      message: error.message || "Unable to open onboarding form.",
+    });
+  }
+};
+
+const submitPublicOnboardingFormHandler = async (req, res) => {
+  const files = req.files || [];
+
+  try {
+    const { orgId, token } = req.params;
+
+    let documentTypes;
+
+    try {
+      documentTypes = JSON.parse(req.body.documentTypes || "[]");
+    } catch {
+      return res.status(400).json({
+        message: "The submitted document information is invalid.",
+      });
+    }
+
+    const data = await submitOnboardingDocumentsService(
+      orgId,
+      token,
+      documentTypes,
+      files,
+    );
+
+    return res.status(201).json({
+      message: "Your onboarding documents were submitted successfully.",
+      data,
+    });
+  } catch (error) {
+    await Promise.all(
+      files.map((file) => fs.promises.unlink(file.path).catch(() => {})),
+    );
+
+    return res.status(400).json({
+      message: error.message || "Unable to submit onboarding documents.",
+    });
+  }
+};
+
+const getRecruitmentOnboardingDocumentsHandler = async (req, res) => {
+  try {
+    const orgId = resolveOrgIdFromReq(req);
+
+    if (!orgId) {
+      return res.status(400).json({ message: "orgId is required." });
+    }
+
+    const data = await getRecruitmentOnboardingDocumentsService(
+      req.params.id,
+      orgId,
+    );
+
+    return res.status(200).json({ data });
+  } catch (error) {
+    return res.status(500).json({
+      message: error.message || "Unable to fetch onboarding documents.",
+    });
+  }
+};
+
+const downloadRecruitmentOnboardingDocumentHandler = async (req, res) => {
+  try {
+    const orgId = resolveOrgIdFromReq(req);
+
+    if (!orgId) {
+      return res.status(400).json({ message: "orgId is required." });
+    }
+
+    const file = await getRecruitmentOnboardingDocumentByIdService(
+      req.params.id,
+      req.params.documentId,
+      orgId,
+    );
+
+    if (!file) {
+      return res.status(404).json({ message: "Document not found." });
+    }
+
+    const uploadRoot = path.join(__dirname, "../../../recruitment");
+    const safeOrgId = path.basename(String(orgId));
+    const safeFilename = path.basename(file.stored_filename);
+    const filePath = path.join(
+      uploadRoot,
+      safeOrgId,
+      "onboarding",
+      safeFilename,
+    );
+
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ message: "Document file not found." });
+    }
+
+    return res.download(filePath, path.basename(file.original_filename));
+  } catch (error) {
+    return res.status(500).json({
+      message: error.message || "Unable to download document.",
+    });
+  }
+};
+
 module.exports = {
   addRecruitmentHandler,
   getRecruitmentHandler,
@@ -559,4 +679,8 @@ module.exports = {
   createRecruitmentLetterHandler,
   updateRecruitmentLetterHandler,
   sendRecruitmentLetterHandler,
+  getPublicOnboardingFormHandler,
+  submitPublicOnboardingFormHandler,
+  getRecruitmentOnboardingDocumentsHandler,
+  downloadRecruitmentOnboardingDocumentHandler,
 };
