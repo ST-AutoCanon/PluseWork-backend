@@ -29,6 +29,7 @@ const lossofPayCalculationRoutes = require("./routes/lossofPayCalculationRoutes"
 const incentivesRoutes = require("./routes/incentivesRoutes");
 const salaryRoutes2 = require("./routes/salaryCalculationPeriodRoutes");
 const salaryDetailsRoutes = require("./routes/salaryDetailsRoutes");
+const salaryAttendanceDeductionRoutes = require("./routes/salaryAttendanceDeductionRoutes");
 const employeeBankReportRoutes = require("./routes/employeebankreportroute");
 const salaryStatementRouter = require("./routes/salaryRoutes");
 const salaryDetailsRouter = require("./routes/salaryDetailsRouter");
@@ -602,6 +603,7 @@ app.use((req, res, next) => {
     app.use("/api/compensation", assignCompensationRoutes);
     app.use("/api", employeeRoutesforsalarybreakup);
     app.use("/api/salary-details", salaryDetailsRoutes);
+    app.use("/api/salary-attendance-deductions", salaryAttendanceDeductionRoutes);
     app.use("/api/compensation", employeeBankReportRoutes);
     app.use("/api/lop", lossofPayCalculationRoutes);
     app.use("/api/salaryCalculationperiods", salaryCalculationPeriodRoutes);
