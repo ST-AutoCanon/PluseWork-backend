@@ -9,13 +9,22 @@ const fetchRows = utils.fetchRows;
 function normalizeLeaveTypeKey(value) {
   if (value == null || value === "") return "";
 
-  return String(value)
+  const normalized = String(value)
     .trim()
     .toLowerCase()
     .replace(/\s+/g, "_")
     .replace(/[^a-z0-9_]/g, "")
     .replace(/^_+|_+$/g, "")
     .replace(/_leave$/, "");
+
+  const aliases = {
+    annual: "vacation",
+    leave_casual: "casual",
+    leavecasual: "casual",
+    medical: "sick",
+    privilege: "earned",
+  };
+  return aliases[normalized] || normalized;
 }
 
 function numberOrZero(value) {

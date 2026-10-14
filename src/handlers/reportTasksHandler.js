@@ -642,7 +642,7 @@ async function downloadTasksEmployeeReport(req, res) {
 
     const employeeId = coerceToString(req.query.employee_id, null);
     const departmentId = coerceToString(req.query.department_id, null);
-    const effectiveDepartmentId = isAdminOrHr(req) ? null : departmentId;
+    const effectiveDepartmentId = departmentId;
 
     const ensured = ensureTwoMonthWindow(startDate, endDate);
     if (!ensured.ok) return res.status(400).json({ message: ensured.message });
@@ -859,7 +859,7 @@ async function downloadTasksEmployeeReport(req, res) {
     }
 
     const weeklyForExcel = pickFields(filtered, fields);
-    const weeklyForPdf = filtered;
+    const weeklyForPdf = pickFields(filtered, fields);
     const meta = await buildMetaFromReqQuery(req.query || {});
     if (normalizedEmpStatus) meta.status = normalizedEmpStatus;
     if (rawEmpStatus && !meta.statusLabel) meta.statusLabel = rawEmpStatus;
