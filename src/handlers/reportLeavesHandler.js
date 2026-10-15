@@ -23,8 +23,8 @@ function resolveLeaveReportPolicyRange(
   const policyStart = latestPolicy?.year_start || requestedStart;
 
   return {
-    startDate: policyStart,
-    endDate: currentDate,
+    startDate: requestedStart || policyStart,
+    endDate: requestedEnd || currentDate,
   };
 }
 
