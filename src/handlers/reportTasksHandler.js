@@ -760,74 +760,53 @@ async function downloadTasksEmployeeReport(req, res) {
     }
 
     if (effectiveDepartmentId && !typedEmployeeName) {
-      const hasDeptIdField = rows.some(
-        (r) =>
-          Object.prototype.hasOwnProperty.call(r, "department_id") ||
-          Object.prototype.hasOwnProperty.call(r, "departmentId") ||
-          Object.prototype.hasOwnProperty.call(r, "dept_id") ||
-          Object.prototype.hasOwnProperty.call(r, "department"),
+      const empIds = Array.from(
+        new Set(
+          rows
+            .map((r) =>
+              r && r.employee_id != null ? String(r.employee_id).trim() : null,
+            )
+            .filter(Boolean),
+        ),
       );
 
-      if (hasDeptIdField) {
-        rows = rows.filter((r) => {
-          const v =
-            r.department_id ?? r.departmentId ?? r.dept_id ?? r.department;
-          return (
-            v != null &&
-            String(v).trim() === String(effectiveDepartmentId).trim()
-          );
-        });
+      if (empIds.length === 0) {
+        rows = [];
       } else {
-        const empIds = Array.from(
-          new Set(
-            rows
-              .map((r) =>
-                r && r.employee_id ? String(r.employee_id).trim() : null,
-              )
-              .filter(Boolean),
-          ),
-        );
+        try {
+          const placeholders = empIds.map(() => "?").join(",");
+          const profRows = await reportUtils.fetchRows(
+            `SELECT employee_id, department_id FROM employee_professional WHERE employee_id IN (${placeholders})`,
+            empIds,
+          );
 
-        if (empIds.length > 0) {
-          try {
-            const placeholders = empIds.map(() => "?").join(",");
-            const profRows = await reportUtils.fetchRows(
-              `SELECT employee_id, department_id FROM employee_professional WHERE employee_id IN (${placeholders})`,
-              empIds,
+          const departmentByEmployee = new Map(
+            (Array.isArray(profRows) ? profRows : [])
+              .filter((row) => row && row.employee_id != null)
+              .map((row) => [
+                String(row.employee_id).trim(),
+                row.department_id != null
+                  ? String(row.department_id).trim()
+                  : null,
+              ]),
+          );
+          const selectedDepartment = String(effectiveDepartmentId).trim();
+
+          rows = rows.filter((row) => {
+            const employee =
+              row && row.employee_id != null
+                ? String(row.employee_id).trim()
+                : null;
+            return (
+              employee &&
+              departmentByEmployee.get(employee) === selectedDepartment
             );
-
-            const map = {};
-            if (Array.isArray(profRows)) {
-              for (const p of profRows) {
-                if (p && p.employee_id != null) {
-                  map[String(p.employee_id).trim()] =
-                    p.department_id != null
-                      ? String(p.department_id).trim()
-                      : null;
-                }
-              }
-            }
-
-            rows = rows.filter((r) => {
-              const eid =
-                r && r.employee_id != null
-                  ? String(r.employee_id).trim()
-                  : null;
-              if (!eid) return false;
-              const mapped = map[eid];
-              return (
-                mapped != null &&
-                String(mapped).trim() === String(effectiveDepartmentId).trim()
-              );
-            });
-          } catch (e) {
-            console.warn(
-              "[reportTasksHandler] department mapping failed:",
-              e && e.message,
-            );
-            rows = [];
-          }
-        } else {
+          });
+        } catch (e) {
+          console.warn(
+            "[reportTasksHandler] department mapping failed:",
+            e && e.message,
+          );
           rows = [];
         }
       }

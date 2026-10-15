@@ -882,6 +882,7 @@ async function sendPreviewResponse(req, res, rows, message) {
   }
   if (Object.keys(meta).length > 0) out.meta = meta;
 
+  res.setHeader("Cache-Control", "no-store");
   res.setHeader("Content-Type", "application/json");
   return res.status(200).json(out);
 }

@@ -23,8 +23,8 @@ module.exports = {
   JOIN employees e ON lq.employee_id = e.employee_id
   LEFT JOIN employee_professional pr ON e.employee_id = pr.employee_id
   LEFT JOIN departments d ON pr.department_id = d.id
-  WHERE ( ? IS NULL OR (COALESCE(lq.updated_at, lq.created_at) >= ? ) )
-    AND ( ? IS NULL OR (COALESCE(lq.updated_at, lq.created_at) < DATE_ADD(?, INTERVAL 1 DAY) ) )
+  WHERE ( ? IS NULL OR lq.end_date >= ? )
+    AND ( ? IS NULL OR lq.start_date <= ? )
     AND ( ? IS NULL OR LOWER(lq.status) = LOWER(?) )
   ORDER BY COALESCE(lq.updated_at, lq.created_at) DESC
 `,
