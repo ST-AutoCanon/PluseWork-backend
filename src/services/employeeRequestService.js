@@ -82,6 +82,18 @@ function validateTravelDetails(details = {}) {
   };
 }
 
+function isValidIsoDateOnly(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) {
+    return false;
+  }
+
+  const date = new Date(`${value}T00:00:00.000Z`);
+
+  return (
+    !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value
+  );
+}
+
 async function getEmployeeInfo(conn, employeeId) {
   const [rows] = await conn.execute(queries.GET_EMPLOYEE_INFO, [employeeId]);
 
@@ -416,18 +428,50 @@ async function getSalaryAdvanceContext(orgId, employeeId) {
   }
 }
 
-async function getTravelContext(orgId, employeeId) {
+async function getTravelContext(
+  orgId,
+  employeeId,
+  requestedByEmployeeId = employeeId,
+) {
   const tenantPool = await getTenantPoolForOrgId(orgId);
   const conn = await tenantPool.getConnection();
 
   try {
-    const employee = await getEmployeeInfo(conn, employeeId);
-    if (!employee) throw new Error("Employee not found");
+    const actor = await getEmployeeInfo(conn, requestedByEmployeeId);
+
+    const targetEmployee = await getEmployeeInfo(conn, employeeId);
+
+    if (!actor) {
+      throw new Error("Requesting employee not found.");
+    }
+
+    if (!targetEmployee) {
+      throw new Error("Selected employee not found.");
+    }
+
+    const actorRole = normalizedRole(actor.role);
+
+    const canRaiseForOthers = ["admin", "hr", "humanresources"].includes(
+      actorRole,
+    );
+
+    if (
+      String(requestedByEmployeeId) !== String(employeeId) &&
+      !canRaiseForOthers
+    ) {
+      throw new Error(
+        "Only HR or Admin can raise travel requests for another employee.",
+      );
+    }
+
+    if (targetEmployee.status !== "Active") {
+      throw new Error("Selected employee is inactive.");
+    }
 
     return {
-      cadreBand: travelBandForRole(employee.role),
-      governmentId: employee.aadhaar_number || "",
-      mobileNumber: employee.phone_number || "",
+      cadreBand: travelBandForRole(targetEmployee.role),
+      governmentId: targetEmployee.aadhaar_number || "",
+      mobileNumber: targetEmployee.phone_number || "",
     };
   } finally {
     conn.release();
@@ -522,6 +566,75 @@ async function addServiceNotification(
   );
 }
 
+async function getTravelAudience(conn, request) {
+  const employeeIds = new Set(
+    [request.employee_id, request.created_by_employee_id]
+      .filter(Boolean)
+      .map(String),
+  );
+
+  if (request.request_type === "TRAVEL_BOOKING") {
+    const [participants] = await conn.execute(queries.GET_TRAVEL_PARTICIPANTS, [
+      request.id,
+    ]);
+
+    for (const participant of participants || []) {
+      if (participant.employee_id) {
+        employeeIds.add(String(participant.employee_id));
+      }
+    }
+  }
+
+  return [...employeeIds];
+}
+
+async function notifyTravelAudience(conn, request, title, message, io = null) {
+  const employeeIds = await getTravelAudience(conn, request);
+
+  for (const userId of employeeIds) {
+    await addServiceNotification(conn, {
+      userId,
+      requestId: request.id,
+      type: "NOTIFICATION",
+      title,
+      message,
+    });
+  }
+
+  if (io) {
+    for (const userId of employeeIds) {
+      io.to(`user_${userId}`).emit("employeeRequestUpdated", {
+        requestId: request.id,
+      });
+    }
+  }
+
+  return employeeIds;
+}
+
+async function notifyTravelOperators(conn, orgId, request, title, message) {
+  const [operators] = await conn.execute(queries.GET_ACTIVE_TRAVEL_OPERATORS, [
+    orgId,
+  ]);
+
+  for (const operator of operators || []) {
+    if (
+      !operator.employee_id ||
+      String(operator.employee_id) === String(request.created_by_employee_id)
+    ) {
+      continue;
+    }
+
+    await addServiceNotification(conn, {
+      userId: operator.employee_id,
+      requestId: request.id,
+      type: "NOTIFICATION",
+      title,
+      message,
+    });
+  }
+}
+
 async function createThread(
   conn,
   orgId,
@@ -561,6 +674,7 @@ async function createThread(
 async function createRequest({
   orgId,
   employeeId,
+  createdByEmployeeId = employeeId,
   requestType,
   title,
   details,
@@ -584,6 +698,33 @@ async function createRequest({
     }
 
     const normalizedRequestType = String(requestType || "").toUpperCase();
+
+    const creatorId = String(createdByEmployeeId || employeeId);
+
+    const creator = await getEmployeeInfo(conn, creatorId);
+
+    if (!creator) {
+      throw new Error("Request creator not found.");
+    }
+
+    if (creator.status !== "Active") {
+      throw new Error("Request creator is inactive.");
+    }
+
+    const creatorRole = normalizedRole(creator.role);
+
+    const isRaisingForAnotherEmployee =
+      String(creatorId) !== String(employeeId);
+
+    if (
+      isRaisingForAnotherEmployee &&
+      (normalizedRequestType !== "TRAVEL_BOOKING" ||
+        !["admin", "hr", "humanresources"].includes(creatorRole))
+    ) {
+      throw new Error(
+        "Only HR or Admin can raise travel requests for another employee.",
+      );
+    }
 
     if (normalizedRequestType === "SALARY_ADVANCE") {
       const amount = Number(details?.amount);
@@ -660,7 +801,49 @@ async function createRequest({
       };
     }
 
-    if (String(requestType).toUpperCase() === "TRAVEL_BOOKING") {
+    let companionEmployeeIds = [];
+
+    if (normalizedRequestType === "TRAVEL_BOOKING") {
+      const rawTravelers = Array.isArray(details?.travelers)
+        ? details.travelers
+            .map((item) => String(item || "").trim())
+            .filter(Boolean)
+        : [];
+
+      // The main employee does not need a second participant row.
+      const candidateIds = [
+        ...new Set(
+          rawTravelers.filter((id) => String(id) !== String(employeeId)),
+        ),
+      ];
+
+      if (candidateIds.length > 0) {
+        const placeholders = candidateIds.map(() => "?").join(", ");
+
+        const [travelerRows] = await conn.execute(
+          `
+        SELECT employee_id
+        FROM employees
+        WHERE org_id = ?
+          AND status = 'Active'
+          AND employee_id IN (${placeholders})
+      `,
+          [orgId, ...candidateIds],
+        );
+
+        companionEmployeeIds = travelerRows.map((row) =>
+          String(row.employee_id),
+        );
+      }
+
+      // Keep the original travellers list, which can include
+      // external travellers entered by name.
+      details = {
+        ...details,
+        travelers: rawTravelers,
+        travelerEmployeeIds: companionEmployeeIds,
+      };
+
       details = validateTravelDetails({
         ...details,
         cadreBand: travelBandForRole(employee.role),
@@ -700,6 +883,7 @@ async function createRequest({
     const [result] = await conn.execute(queries.CREATE_EMPLOYEE_REQUEST, [
       orgId,
       employeeId,
+      creatorId,
       requestType,
       title,
       threadId,
@@ -711,6 +895,16 @@ async function createRequest({
     ]);
 
     const requestId = result.insertId;
+
+    if (normalizedRequestType === "TRAVEL_BOOKING") {
+      for (const travelerId of companionEmployeeIds) {
+        await conn.execute(queries.ADD_REQUEST_TRAVELER, [
+          requestId,
+          travelerId,
+          creatorId,
+        ]);
+      }
+    }
 
     if (attachment) {
       await conn.execute(queries.CREATE_REQUEST_ATTACHMENT, [
@@ -735,11 +929,15 @@ async function createRequest({
       requestId,
       submittedEvent,
       currentStage,
-      employeeId,
-      employee.role || "Employee",
-      "Request submitted successfully.",
+      creatorId,
+      creator.role || "Employee",
+      isRaisingForAnotherEmployee
+        ? `Travel request submitted by ${creatorId} on behalf of ${employeeId}.`
+        : "Request submitted successfully.",
       {
         requestCode,
+        createdByEmployeeId: creatorId,
+        employeeId,
       },
     );
 
@@ -754,6 +952,38 @@ async function createRequest({
         requestType,
       },
     });
+
+    if (
+      normalizedRequestType === "TRAVEL_BOOKING" &&
+      isRaisingForAnotherEmployee
+    ) {
+      await addServiceNotification(conn, {
+        userId: employeeId,
+        requestId,
+        type: "NOTIFICATION",
+        title: "Travel request raised for you",
+        message: `Travel request ${requestCode} has been submitted on your behalf.`,
+        metadata: {
+          requestCode,
+          requestType: normalizedRequestType,
+          createdByEmployeeId: creatorId,
+        },
+      });
+    }
+
+    for (const travelerId of companionEmployeeIds) {
+      await addServiceNotification(conn, {
+        userId: travelerId,
+        requestId,
+        type: "NOTIFICATION",
+        title: "Shared travel request",
+        message: `You have been added as a traveller to ${requestCode}.`,
+        metadata: {
+          requestCode,
+          requestType: normalizedRequestType,
+        },
+      });
+    }
 
     await conn.commit();
 
@@ -779,6 +1009,8 @@ async function getRequestsForEmployee(orgId, employeeId) {
 
   const [rows] = await tenantPool.query(queries.GET_REQUESTS_FOR_EMPLOYEE, [
     orgId,
+    employeeId,
+    employeeId,
     employeeId,
   ]);
 
@@ -814,9 +1046,24 @@ async function getTravelOperations(orgId, employeeId) {
 
   try {
     const employee = await getEmployeeInfo(conn, employeeId);
-    const role = String(employee?.role || "").toLowerCase();
 
-    if (!["admin", "travel desk", "finance"].includes(role)) {
+    if (!employee) {
+      throw new Error("Employee not found.");
+    }
+
+    const role = normalizedRole(employee.role);
+
+    const allowedRoles = [
+      "admin",
+      "ceo",
+      "hr",
+      "humanresources",
+      "traveldesk",
+      "finance",
+      "financeteam",
+    ];
+
+    if (!allowedRoles.includes(role)) {
       throw new Error("Travel operations access is restricted.");
     }
   } finally {
@@ -881,31 +1128,42 @@ async function getRequestDetail(orgId, requestId, actorId) {
     requesterConn.release();
   }
 
-  const operationalReader = ["traveldesk", "finance", "financeteam"].includes(
-    normalizedRole(actor?.role),
+  const [travelParticipants] = await tenantPool.query(
+    queries.GET_TRAVEL_PARTICIPANTS,
+    [requestId],
   );
+
+  const travelParticipantIds = (travelParticipants || []).map((participant) =>
+    String(participant.employee_id),
+  );
+
+  const actorRoleNormalized = normalizedRole(actor?.role);
+
+  const isTravelParticipant = travelParticipantIds.includes(String(actorId));
+
+  const canReadAllTravelRequests =
+    request.request_type === "TRAVEL_BOOKING" &&
+    [
+      "admin",
+      "ceo",
+      "hr",
+      "humanresources",
+      "traveldesk",
+      "finance",
+      "financeteam",
+    ].includes(actorRoleNormalized);
 
   const allowed =
     String(request.employee_id) === String(actorId) ||
+    String(request.created_by_employee_id) === String(actorId) ||
+    isTravelParticipant ||
     String(request.current_assignee_id) === String(actorId) ||
     String(requester?.supervisor_id) === String(actorId) ||
-    (admin && String(admin.employee_id) === String(actorId)) ||
-    (operationalReader && request.request_type === "TRAVEL_BOOKING");
+    canReadAllTravelRequests;
 
   if (!allowed) {
-    const conn = await tenantPool.getConnection();
-
-    try {
-      const actor = await getEmployeeInfo(conn, actorId);
-
-      if (!actor || String(actor.role || "").toLowerCase() !== "admin") {
-        throw new Error("You do not have access to this request.");
-      }
-    } finally {
-      conn.release();
-    }
+    throw new Error("You do not have access to this request.");
   }
-
   const [events] = await tenantPool.query(queries.GET_REQUEST_EVENTS, [
     requestId,
   ]);
@@ -959,6 +1217,8 @@ async function getRequestDetail(orgId, requestId, actorId) {
     attachments: publicAttachments,
     events,
     messages,
+    travelParticipants: travelParticipants || [],
+    isTravelParticipant,
   };
 }
 
@@ -2218,16 +2478,31 @@ async function bookTravel(
 
     const actorRole = normalizedRole(actor?.role);
 
-    if (
-      !["admin", "traveldesk", "finance", "financeteam"].includes(actorRole)
-    ) {
+    const canBookTravel = [
+      "admin",
+      "ceo",
+      "hr",
+      "humanresources",
+      "traveldesk",
+      "finance",
+      "financeteam",
+    ].includes(actorRole);
+
+    if (!canBookTravel) {
       throw new Error(
-        "Only Admin, Travel Desk, or Finance can update travel booking.",
+        "Only Admin, HR, Travel Desk, or Finance can update travel booking.",
       );
     }
 
+    const canOverrideAssignment = [
+      "admin",
+      "ceo",
+      "hr",
+      "humanresources",
+    ].includes(actorRole);
+
     if (
-      actorRole !== "admin" &&
+      !canOverrideAssignment &&
       String(request.current_assignee_id) !== String(actorId)
     ) {
       throw new Error("You can only update travel requests assigned to you.");
@@ -2297,20 +2572,25 @@ async function bookTravel(
       },
     );
 
-    await addServiceNotification(conn, {
-      userId: request.employee_id,
-      requestId,
-      type: "NOTIFICATION",
-      title: "Travel Booking Confirmed",
-      message: `Your travel request ${request.request_code} has been booked.`,
-    });
+    // Notify the main employee, the actual creator,
+    // and every internal employee travelling with them.
+    // Do not emit sockets until the transaction commits.
+    await notifyTravelAudience(
+      conn,
+      request,
+      "Travel Booking Confirmed",
+      `Travel tickets for ${request.request_code} have been booked and shared.`,
+      null,
+    );
 
     await conn.commit();
 
     if (io) {
-      io.to(`user_${request.employee_id}`).emit("employeeRequestUpdated", {
-        requestId,
-      });
+      const recipients = await getTravelAudience(conn, request);
+
+      for (const userId of recipients) {
+        io.to(`user_${userId}`).emit("employeeRequestUpdated", { requestId });
+      }
     }
 
     return getRequestDetail(orgId, requestId, actorId);
@@ -2354,9 +2634,26 @@ async function saveTravelBookingDraft(
 
     const actorRole = normalizedRole(actor?.role);
 
+    const canSaveDraft = [
+      "admin",
+      "ceo",
+      "hr",
+      "humanresources",
+      "traveldesk",
+      "finance",
+      "financeteam",
+    ].includes(actorRole);
+
+    const canOverrideAssignment = [
+      "admin",
+      "ceo",
+      "hr",
+      "humanresources",
+    ].includes(actorRole);
+
     if (
-      !["admin", "traveldesk", "finance", "financeteam"].includes(actorRole) ||
-      (actorRole !== "admin" &&
+      !canSaveDraft ||
+      (!canOverrideAssignment &&
         String(request.current_assignee_id) !== String(actorId))
     ) {
       throw new Error("You are not allowed to save this booking draft.");
@@ -2475,9 +2772,14 @@ async function completeRequest(
   }
 }
 
-async function cancelRequest(orgId, requestId, actorId, io = null) {
+async function cancelRequest(
+  orgId,
+  requestId,
+  actorId,
+  confirmConsequences = false,
+  io = null,
+) {
   const tenantPool = await getTenantPoolForOrgId(orgId);
-
   const conn = await tenantPool.getConnection();
 
   try {
@@ -2486,11 +2788,13 @@ async function cancelRequest(orgId, requestId, actorId, io = null) {
     const request = await getRequestForUpdate(conn, orgId, requestId);
 
     if (!request) {
-      throw new Error("Request not found");
+      throw new Error("Request not found.");
     }
 
-    if (String(request.employee_id) !== String(actorId)) {
-      throw new Error("Only the requesting employee can cancel this request.");
+    const actor = await getEmployeeInfo(conn, actorId);
+
+    if (!actor) {
+      throw new Error("Employee not found.");
     }
 
     if (
@@ -2499,10 +2803,42 @@ async function cancelRequest(orgId, requestId, actorId, io = null) {
       throw new Error("This request can no longer be cancelled.");
     }
 
+    const actorRole = normalizedRole(actor.role);
+
+    const isPrivilegedTravelOperator =
+      request.request_type === "TRAVEL_BOOKING" &&
+      ["admin", "ceo", "hr", "humanresources"].includes(actorRole);
+
+    const participantIds =
+      request.request_type === "TRAVEL_BOOKING"
+        ? await getTravelAudience(conn, request)
+        : [String(request.employee_id)];
+
+    const canCancelAsTraveller = participantIds.includes(String(actorId));
+
+    const isCreator =
+      String(request.created_by_employee_id) === String(actorId);
+
+    if (!canCancelAsTraveller && !isCreator && !isPrivilegedTravelOperator) {
+      throw new Error("You are not allowed to cancel this request.");
+    }
+
+    const isBookedTravel =
+      request.request_type === "TRAVEL_BOOKING" &&
+      request.current_status === "BOOKED";
+
+    if (isBookedTravel && confirmConsequences !== true) {
+      throw new Error(
+        "This travel request has a booked ticket. Confirm that you understand the cancellation consequences before proceeding.",
+      );
+    }
+
     await conn.execute(queries.UPDATE_REQUEST_TO_CANCELLED, [requestId]);
 
     await conn.execute(queries.CANCEL_THREAD, [
-      `Request ${request.request_code} cancelled by employee.`,
+      isBookedTravel
+        ? `Booked travel request ${request.request_code} was cancelled in the HRMS. External ticket cancellation must be coordinated.`
+        : `Request ${request.request_code} cancelled.`,
       actorId,
       request.thread_id,
     ]);
@@ -2513,25 +2849,401 @@ async function cancelRequest(orgId, requestId, actorId, io = null) {
       "REQUEST_CANCELLED",
       "COMPLETED",
       actorId,
-      "Employee",
-      "Request cancelled by employee.",
+      actor.role || "Employee",
+      isBookedTravel
+        ? "Travel request cancelled after acknowledgement of booked-ticket consequences."
+        : "Request cancelled.",
+      {
+        cancelledBy: actorId,
+        wasBooked: isBookedTravel,
+        confirmConsequences: Boolean(confirmConsequences),
+        sharedTravellerIds: participantIds,
+      },
     );
 
-    await addServiceNotification(conn, {
-      userId: request.current_assignee_id,
-      requestId,
-      type: "NOTIFICATION",
-      title: "Request Cancelled",
-      message: `${request.request_code} was cancelled by the employee.`,
-    });
+    // Notify the main employee, creator, and all internal
+    // co-travellers. This updates the personal request lists.
+    const allRecipients = new Set([
+      ...participantIds,
+      String(request.current_assignee_id || ""),
+    ]);
+
+    for (const userId of allRecipients) {
+      if (!userId) continue;
+
+      await addServiceNotification(conn, {
+        userId,
+        requestId,
+        type: "NOTIFICATION",
+        title: "Travel Request Cancelled",
+        message: isBookedTravel
+          ? `${request.request_code} has been cancelled in the HRMS. Please coordinate any ticket cancellation or refund with HR/Admin.`
+          : `${request.request_code} has been cancelled.`,
+      });
+    }
+
+    // A booked ticket may still exist with the vendor.
+    if (isBookedTravel) {
+      await notifyTravelOperators(
+        conn,
+        orgId,
+        request,
+        "Booked Travel Cancellation Requires Action",
+        `${request.request_code} was cancelled in the HRMS. Coordinate the actual ticket cancellation and any applicable refund or charges with the provider.`,
+      );
+    }
 
     await conn.commit();
 
-    if (io && request.current_assignee_id) {
-      io.to(`user_${request.current_assignee_id}`).emit(
-        "employeeRequestUpdated",
-        { requestId },
+    if (io) {
+      for (const userId of allRecipients) {
+        if (!userId) continue;
+
+        io.to(`user_${userId}`).emit("employeeRequestUpdated", { requestId });
+      }
+    }
+
+    return getRequestDetail(orgId, requestId, actorId);
+  } catch (error) {
+    await conn.rollback();
+    throw error;
+  } finally {
+    conn.release();
+  }
+}
+
+async function requestTravelDateChange(
+  orgId,
+  requestId,
+  actorId,
+  input = {},
+  io = null,
+) {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  const conn = await tenantPool.getConnection();
+
+  try {
+    await conn.beginTransaction();
+
+    const request = await getRequestForUpdate(conn, orgId, requestId);
+
+    if (!request) {
+      throw new Error("Request not found.");
+    }
+
+    if (request.request_type !== "TRAVEL_BOOKING") {
+      throw new Error("This is not a travel request.");
+    }
+
+    if (request.current_status !== "BOOKED") {
+      throw new Error(
+        "Date changes can only be requested for a booked travel request.",
       );
+    }
+
+    const audience = await getTravelAudience(conn, request);
+
+    if (!audience.includes(String(actorId))) {
+      throw new Error(
+        "Only the requesting employee, creator, or a shared traveller can request a date change.",
+      );
+    }
+
+    const details = parseJsonObject(request.details_json);
+
+    if (details.dateChangeRequest?.status === "PENDING") {
+      throw new Error("A date change is already awaiting HR/Admin approval.");
+    }
+
+    const requestedTravelDate = String(input.travelDate || "").trim();
+
+    const requestedReturnDate = String(
+      Object.prototype.hasOwnProperty.call(input, "returnDate")
+        ? input.returnDate || ""
+        : details.returnDate || "",
+    ).trim();
+
+    const reason = String(input.reason || "").trim();
+
+    if (!isValidIsoDateOnly(requestedTravelDate)) {
+      throw new Error("Enter a valid proposed travel date.");
+    }
+
+    if (requestedReturnDate && !isValidIsoDateOnly(requestedReturnDate)) {
+      throw new Error("Enter a valid proposed return date.");
+    }
+
+    if (requestedReturnDate && requestedReturnDate < requestedTravelDate) {
+      throw new Error(
+        "Return date cannot be earlier than the proposed travel date.",
+      );
+    }
+
+    if (!reason) {
+      throw new Error("Please explain why the travel dates need to change.");
+    }
+
+    if (
+      requestedTravelDate === String(details.travelDate || "") &&
+      requestedReturnDate === String(details.returnDate || "")
+    ) {
+      throw new Error("The proposed dates are the same as the current dates.");
+    }
+
+    let direction = "DATE_CHANGE";
+
+    if (
+      details.travelDate &&
+      requestedTravelDate < String(details.travelDate)
+    ) {
+      direction = "PREPONE";
+    } else if (
+      details.travelDate &&
+      requestedTravelDate > String(details.travelDate)
+    ) {
+      direction = "POSTPONE";
+    }
+
+    const dateChangeRequest = {
+      status: "PENDING",
+      direction,
+      previousTravelDate: details.travelDate || "",
+      previousReturnDate: details.returnDate || "",
+      requestedTravelDate,
+      requestedReturnDate,
+      reason,
+      requestedBy: actorId,
+      requestedAt: new Date().toISOString(),
+    };
+
+    const nextDetails = {
+      ...details,
+      dateChangeRequest,
+    };
+
+    await conn.execute(queries.UPDATE_REQUEST_DETAILS_JSON, [
+      JSON.stringify(nextDetails),
+      requestId,
+    ]);
+
+    await addEvent(
+      conn,
+      requestId,
+      "TRAVEL_DATE_CHANGE_REQUESTED",
+      "EMPLOYEE_CONFIRMATION",
+      actorId,
+      (await getEmployeeInfo(conn, actorId))?.role || "Employee",
+      `Travel date change requested: ${direction}.`,
+      dateChangeRequest,
+    );
+
+    await notifyTravelOperators(
+      conn,
+      orgId,
+      request,
+      "Travel Date Change Requires Review",
+      `${request.request_code} has a pending ${direction.toLowerCase()} request. Proposed dates: ${requestedTravelDate}${requestedReturnDate ? ` to ${requestedReturnDate}` : ""}.`,
+    );
+
+    // The main employee and every internal co-traveller
+    // can see the pending date-change status.
+    await notifyTravelAudience(
+      conn,
+      request,
+      "Travel Date Change Submitted",
+      `A date change has been requested for ${request.request_code}. HR/Admin review is pending.`,
+      null,
+    );
+
+    await conn.commit();
+
+    if (io) {
+      const recipients = await getTravelAudience(conn, request);
+
+      for (const userId of recipients) {
+        io.to(`user_${userId}`).emit("employeeRequestUpdated", { requestId });
+      }
+    }
+
+    return getRequestDetail(orgId, requestId, actorId);
+  } catch (error) {
+    await conn.rollback();
+    throw error;
+  } finally {
+    conn.release();
+  }
+}
+
+async function resolveTravelDateChange(
+  orgId,
+  requestId,
+  actorId,
+  input = {},
+  attachment = null,
+  io = null,
+) {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  const conn = await tenantPool.getConnection();
+
+  try {
+    await conn.beginTransaction();
+
+    const request = await getRequestForUpdate(conn, orgId, requestId);
+
+    if (!request) {
+      throw new Error("Request not found.");
+    }
+
+    if (request.request_type !== "TRAVEL_BOOKING") {
+      throw new Error("This is not a travel request.");
+    }
+
+    if (request.current_status !== "BOOKED") {
+      throw new Error("Only booked travel requests can have dates changed.");
+    }
+
+    const actor = await getEmployeeInfo(conn, actorId);
+
+    const actorRole = normalizedRole(actor?.role);
+
+    if (!["admin", "ceo", "hr", "humanresources"].includes(actorRole)) {
+      throw new Error("Only HR or Admin can resolve a travel date change.");
+    }
+
+    const details = parseJsonObject(request.details_json);
+    const pending = details.dateChangeRequest;
+
+    if (!pending || pending.status !== "PENDING") {
+      throw new Error("There is no pending date-change request to resolve.");
+    }
+
+    const decision = String(input.decision || "")
+      .trim()
+      .toUpperCase();
+
+    if (!["APPROVE", "REJECT"].includes(decision)) {
+      throw new Error("Decision must be APPROVE or REJECT.");
+    }
+
+    const comment = String(input.comment || "").trim();
+
+    let nextDetails = {
+      ...details,
+    };
+
+    if (decision === "APPROVE") {
+      if (!attachment) {
+        throw new Error(
+          "Upload the revised e-ticket before approving the date change.",
+        );
+      }
+
+      if (
+        !isValidIsoDateOnly(pending.requestedTravelDate) ||
+        (pending.requestedReturnDate &&
+          !isValidIsoDateOnly(pending.requestedReturnDate))
+      ) {
+        throw new Error(
+          "The saved proposed dates are invalid. Submit a new date-change request.",
+        );
+      }
+
+      const attachmentId = await saveOrReuseETicketAttachment(
+        conn,
+        requestId,
+        actorId,
+        attachment,
+      );
+
+      nextDetails = {
+        ...nextDetails,
+
+        // Apply the requested dates only after approval.
+        travelDate: pending.requestedTravelDate,
+        returnDate: pending.requestedReturnDate || "",
+
+        // Keep the booking fields consistent with the revised ticket.
+        eTicketAttachmentId: attachmentId,
+        bookedBy: actorId,
+        bookedByName: actor.employee_name,
+        bookedOn: new Date().toISOString(),
+
+        dateChangeRequest: {
+          ...pending,
+          status: "APPROVED",
+          resolvedBy: actorId,
+          resolvedAt: new Date().toISOString(),
+          resolutionComment: comment,
+          revisedETicketAttachmentId: attachmentId,
+        },
+      };
+    } else {
+      nextDetails = {
+        ...nextDetails,
+
+        // Keep the original travel dates and booking unchanged.
+        dateChangeRequest: {
+          ...pending,
+          status: "REJECTED",
+          resolvedBy: actorId,
+          resolvedAt: new Date().toISOString(),
+          resolutionComment: comment,
+        },
+      };
+    }
+
+    await conn.execute(queries.UPDATE_REQUEST_DETAILS_JSON, [
+      JSON.stringify(nextDetails),
+      requestId,
+    ]);
+
+    await addEvent(
+      conn,
+      requestId,
+      decision === "APPROVE"
+        ? "TRAVEL_DATE_CHANGE_APPROVED"
+        : "TRAVEL_DATE_CHANGE_REJECTED",
+      "EMPLOYEE_CONFIRMATION",
+      actorId,
+      actor.role,
+      comment ||
+        (decision === "APPROVE"
+          ? "Travel date change approved and revised e-ticket uploaded."
+          : "Travel date change rejected. Original booking retained."),
+      {
+        decision,
+        previousTravelDate: pending.previousTravelDate,
+        previousReturnDate: pending.previousReturnDate,
+        requestedTravelDate: pending.requestedTravelDate,
+        requestedReturnDate: pending.requestedReturnDate,
+        ...(decision === "APPROVE"
+          ? {
+              revisedETicketAttachmentId: nextDetails.eTicketAttachmentId,
+            }
+          : {}),
+      },
+    );
+
+    await notifyTravelAudience(
+      conn,
+      request,
+      decision === "APPROVE"
+        ? "Travel Dates Updated"
+        : "Travel Date Change Rejected",
+      decision === "APPROVE"
+        ? `The date change for ${request.request_code} was approved. The revised e-ticket is available to the travellers.`
+        : `The date change for ${request.request_code} was rejected. The original booking dates remain in effect.`,
+      null,
+    );
+
+    await conn.commit();
+
+    if (io) {
+      const recipients = await getTravelAudience(conn, request);
+
+      for (const userId of recipients) {
+        io.to(`user_${userId}`).emit("employeeRequestUpdated", { requestId });
+      }
     }
 
     return getRequestDetail(orgId, requestId, actorId);
@@ -2897,4 +3609,6 @@ module.exports = {
   markServiceNotificationRead,
   markAllServiceNotificationsRead,
   getEmployeeServiceOverview,
+  requestTravelDateChange,
+  resolveTravelDateChange,
 };
