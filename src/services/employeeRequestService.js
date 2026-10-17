@@ -2572,20 +2572,25 @@ async function bookTravel(
       },
     );
 
-    await addServiceNotification(conn, {
-      userId: request.employee_id,
-      requestId,
-      type: "NOTIFICATION",
-      title: "Travel Booking Confirmed",
-      message: `Your travel request ${request.request_code} has been booked.`,
-    });
+    // Notify the main employee, the actual creator,
+    // and every internal employee travelling with them.
+    // Do not emit sockets until the transaction commits.
+    await notifyTravelAudience(
+      conn,
+      request,
+      "Travel Booking Confirmed",
+      `Travel tickets for ${request.request_code} have been booked and shared.`,
+      null,
+    );
 
     await conn.commit();
 
     if (io) {
-      io.to(`user_${request.employee_id}`).emit("employeeRequestUpdated", {
-        requestId,
-      });
+      const recipients = await getTravelAudience(conn, request);
+
+      for (const userId of recipients) {
+        io.to(`user_${userId}`).emit("employeeRequestUpdated", { requestId });
+      }
     }
 
     return getRequestDetail(orgId, requestId, actorId);
@@ -2953,7 +2958,9 @@ async function requestTravelDateChange(
     const requestedTravelDate = String(input.travelDate || "").trim();
 
     const requestedReturnDate = String(
-      input.returnDate || details.returnDate || "",
+      Object.prototype.hasOwnProperty.call(input, "returnDate")
+        ? input.returnDate || ""
+        : details.returnDate || "",
     ).trim();
 
     const reason = String(input.reason || "").trim();
