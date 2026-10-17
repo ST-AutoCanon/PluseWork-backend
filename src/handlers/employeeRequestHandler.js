@@ -59,24 +59,27 @@ exports.upload = upload;
 exports.createRequest = async (req, res) => {
   try {
     const orgId = resolveOrgId(req);
-    const employeeId = resolveEmployeeId(req);
+    const actorEmployeeId = resolveEmployeeId(req);
 
     const { requestType, title, details } = req.body;
 
     if (!orgId) {
       return res.status(400).json({
+        success: false,
         message: "orgId is required",
       });
     }
 
-    if (!employeeId) {
+    if (!actorEmployeeId) {
       return res.status(400).json({
+        success: false,
         message: "employeeId is required",
       });
     }
 
     if (!requestType || !title) {
       return res.status(400).json({
+        success: false,
         message: "requestType and title are required",
       });
     }
@@ -87,27 +90,42 @@ exports.createRequest = async (req, res) => {
       try {
         parsedDetails = JSON.parse(details);
       } catch {
-        parsedDetails = {};
+        return res.status(400).json({
+          success: false,
+          message: "Invalid request details JSON.",
+        });
       }
     }
 
+    const isTravel = String(requestType).toUpperCase() === "TRAVEL_BOOKING";
+
+    const targetEmployeeId = isTravel
+      ? String(req.body.forEmployeeId || actorEmployeeId)
+      : actorEmployeeId;
+
     const result = await EmployeeRequestService.createRequest({
       orgId,
-      employeeId,
+
+      // The actual employee the travel request is for.
+      employeeId: targetEmployeeId,
+
+      // The authenticated user who submitted the request.
+      createdByEmployeeId: actorEmployeeId,
+
       requestType,
       title,
       details: parsedDetails || {},
       attachment: req.file || null,
     });
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       data: result,
     });
   } catch (error) {
     console.error("[EmployeeRequest] createRequest:", error);
 
-    res.status(500).json({
+    return res.status(400).json({
       success: false,
       message: error.message || "Failed to create request",
     });
@@ -226,15 +244,37 @@ exports.getSalaryAdvanceContext = async (req, res) => {
 
 exports.getTravelContext = async (req, res) => {
   try {
-    const context = await EmployeeRequestService.getTravelContext(
-      resolveOrgId(req),
-      resolveEmployeeId(req),
+    const orgId = resolveOrgId(req);
+    const actorEmployeeId = resolveEmployeeId(req);
+
+    const targetEmployeeId = String(
+      req.query.forEmployeeId || actorEmployeeId || "",
     );
 
-    res.json({ success: true, data: context });
+    if (!actorEmployeeId || !targetEmployeeId) {
+      return res.status(400).json({
+        success: false,
+        message: "Employee ID is required.",
+      });
+    }
+
+    const context = await EmployeeRequestService.getTravelContext(
+      orgId,
+      targetEmployeeId,
+      actorEmployeeId,
+    );
+
+    return res.json({
+      success: true,
+      data: context,
+    });
   } catch (error) {
     console.error("[EmployeeRequest] getTravelContext:", error);
-    res.status(400).json({ success: false, message: error.message });
+
+    return res.status(403).json({
+      success: false,
+      message: error.message || "Unable to load travel context.",
+    });
   }
 };
 
@@ -434,12 +474,70 @@ exports.cancel = async (req, res) => {
       resolveOrgId(req),
       req.params.requestId,
       resolveEmployeeId(req),
+      req.body?.confirmConsequences === true,
       req.app.get("io"),
     );
-    res.json({ success: true, data: result });
+
+    return res.json({
+      success: true,
+      data: result,
+    });
   } catch (error) {
     console.error("[EmployeeRequest] cancel:", error);
-    res.status(400).json({ success: false, message: error.message });
+
+    return res.status(400).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+exports.requestTravelDateChange = async (req, res) => {
+  try {
+    const result = await EmployeeRequestService.requestTravelDateChange(
+      resolveOrgId(req),
+      req.params.requestId,
+      resolveEmployeeId(req),
+      req.body || {},
+      req.app.get("io"),
+    );
+
+    return res.json({
+      success: true,
+      data: result,
+    });
+  } catch (error) {
+    console.error("[EmployeeRequest] requestTravelDateChange:", error);
+
+    return res.status(400).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+exports.resolveTravelDateChange = async (req, res) => {
+  try {
+    const result = await EmployeeRequestService.resolveTravelDateChange(
+      resolveOrgId(req),
+      req.params.requestId,
+      resolveEmployeeId(req),
+      req.body || {},
+      req.file || null,
+      req.app.get("io"),
+    );
+
+    return res.json({
+      success: true,
+      data: result,
+    });
+  } catch (error) {
+    console.error("[EmployeeRequest] resolveTravelDateChange:", error);
+
+    return res.status(400).json({
+      success: false,
+      message: error.message,
+    });
   }
 };
 

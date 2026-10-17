@@ -235,35 +235,27 @@ module.exports = {
   `,
 
   CREATE_EMPLOYEE_REQUEST: `
-    INSERT INTO employee_requests
-    (
-      request_code,
-      org_id,
-      employee_id,
-      request_type,
-      title,
-      thread_id,
-      current_status,
-      current_stage,
-      current_assignee_id,
-      current_assignee_role,
-      details_json
-    )
-    VALUES
-    (
-      'TEMP',
-      ?,
-      ?,
-      ?,
-      ?,
-      ?,
-      ?,
-      ?,
-      ?,
-      ?,
-      ?
-    )
-  `,
+  INSERT INTO employee_requests
+  (
+    request_code,
+    org_id,
+    employee_id,
+    created_by_employee_id,
+    request_type,
+    title,
+    thread_id,
+    current_status,
+    current_stage,
+    current_assignee_id,
+    current_assignee_role,
+    details_json
+  )
+  VALUES
+  (
+    'TEMP',
+    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+  )
+`,
 
   UPDATE_REQUEST_CODE: `
     UPDATE employee_requests
@@ -272,25 +264,33 @@ module.exports = {
   `,
 
   GET_REQUESTS_FOR_EMPLOYEE: `
-    SELECT
-      r.*,
+  SELECT
+    r.*,
+    CONCAT(
+      COALESCE(e.first_name, ''),
+      ' ',
+      COALESCE(e.last_name, '')
+    ) AS employee_name
 
-      CONCAT(
-        COALESCE(e.first_name, ''),
-        ' ',
-        COALESCE(e.last_name, '')
-      ) AS employee_name
+  FROM employee_requests r
 
-    FROM employee_requests r
+  JOIN employees e
+    ON e.employee_id = r.employee_id
 
-    JOIN employees e
-      ON e.employee_id = r.employee_id
+  WHERE r.org_id = ?
+    AND (
+      r.employee_id = ?
+      OR r.created_by_employee_id = ?
+      OR EXISTS (
+        SELECT 1
+        FROM employee_request_travelers t
+        WHERE t.request_id = r.id
+          AND t.employee_id = ?
+      )
+    )
 
-    WHERE r.org_id = ?
-      AND r.employee_id = ?
-
-    ORDER BY r.updated_at DESC
-  `,
+  ORDER BY r.updated_at DESC
+`,
 
   GET_PENDING_REQUESTS: `
     SELECT
@@ -838,5 +838,67 @@ module.exports = {
   UPDATE employee_requests
   SET details_json = ?
   WHERE id = ?
+`,
+
+  ADD_REQUEST_TRAVELER: `
+  INSERT IGNORE INTO employee_request_travelers
+  (
+    request_id,
+    employee_id,
+    added_by_employee_id
+  )
+  VALUES (?, ?, ?)
+`,
+
+  GET_TRAVEL_PARTICIPANTS: `
+  SELECT
+    t.employee_id,
+    t.added_by_employee_id,
+    CONCAT(
+      COALESCE(e.first_name, ''),
+      ' ',
+      COALESCE(e.last_name, '')
+    ) AS employee_name
+
+  FROM employee_request_travelers t
+
+  LEFT JOIN employees e
+    ON e.employee_id = t.employee_id
+
+  WHERE t.request_id = ?
+
+  ORDER BY t.id ASC
+`,
+
+  GET_ACTIVE_TRAVEL_OPERATORS: `
+  SELECT DISTINCT
+    ep.employee_id
+
+  FROM employee_professional ep
+
+  JOIN employees e
+    ON e.employee_id = ep.employee_id
+
+  WHERE e.org_id = ?
+    AND e.status = 'Active'
+    AND LOWER(
+      REPLACE(
+        REPLACE(
+          REPLACE(ep.role, ' ', ''),
+          '-',
+          ''
+        ),
+        '_',
+        ''
+      )
+    ) IN (
+      'admin',
+      'ceo',
+      'hr',
+      'humanresources',
+      'traveldesk',
+      'finance',
+      'financeteam'
+    )
 `,
 };
