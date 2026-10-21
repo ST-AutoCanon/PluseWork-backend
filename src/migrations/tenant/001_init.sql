@@ -266,6 +266,7 @@ CREATE TABLE IF NOT EXISTS chat_rooms (
 );
 
 
+
 CREATE TABLE `punch_policies` (
   id bigint unsigned NOT NULL AUTO_INCREMENT,
   org_id bigint unsigned NOT NULL,
@@ -276,6 +277,10 @@ CREATE TABLE `punch_policies` (
   deduction_basis enum('percentage','amount') COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'percentage',
   deduction_type enum('half_day','full_day') COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'half_day',
   deduction_value decimal(10,2) NOT NULL DEFAULT '0.00',
+  half_day_deduction_basis enum('percentage','amount') COLLATE utf8mb4_general_ci DEFAULT NULL,
+  half_day_deduction_value decimal(10,2) DEFAULT NULL,
+  full_day_deduction_basis enum('percentage','amount') COLLATE utf8mb4_general_ci DEFAULT NULL,
+  full_day_deduction_value decimal(10,2) DEFAULT NULL,
   min_duration int DEFAULT '15',
   limit_weekly int NOT NULL DEFAULT '2',
   limit_monthly int NOT NULL DEFAULT '4',
@@ -299,6 +304,7 @@ effective_from date NOT NULL,
   updated_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   deleted_at timestamp NULL DEFAULT NULL,
   ;
+
 
 CREATE TABLE `punch_policy_assignments` (
   id bigint unsigned NOT NULL AUTO_INCREMENT,
