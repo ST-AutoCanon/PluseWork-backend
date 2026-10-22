@@ -1,5 +1,3 @@
-
-
 const GET_TODAYS_BIRTHDAYS_AND_ANNIVERSARIES = `
   SELECT
     e.employee_id,
@@ -52,17 +50,21 @@ const GET_TODAYS_BIRTHDAYS_AND_ANNIVERSARIES = `
     ON ep.employee_id = e.employee_id
 
   WHERE
+    e.status = 'Active'
+    AND
     (
-      e.dob IS NOT NULL
-      AND MONTH(e.dob) = MONTH(CURDATE())
-      AND DAY(e.dob) = DAY(CURDATE())
-    )
-    OR
-    (
-      ep.joining_date IS NOT NULL
-      AND MONTH(ep.joining_date) = MONTH(CURDATE())
-      AND DAY(ep.joining_date) = DAY(CURDATE())
-      AND YEAR(ep.joining_date) < YEAR(CURDATE())
+      (
+        e.dob IS NOT NULL
+        AND MONTH(e.dob) = MONTH(CURDATE())
+        AND DAY(e.dob) = DAY(CURDATE())
+      )
+      OR
+      (
+        ep.joining_date IS NOT NULL
+        AND MONTH(ep.joining_date) = MONTH(CURDATE())
+        AND DAY(ep.joining_date) = DAY(CURDATE())
+        AND YEAR(ep.joining_date) < YEAR(CURDATE())
+      )
     )
 
   ORDER BY
@@ -74,3 +76,4 @@ const GET_TODAYS_BIRTHDAYS_AND_ANNIVERSARIES = `
 module.exports = {
   GET_TODAYS_BIRTHDAYS_AND_ANNIVERSARIES,
 };
+

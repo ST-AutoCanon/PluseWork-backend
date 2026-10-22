@@ -111,6 +111,8 @@ const formsRoutes = require("./routes/forms.routes");
 const officeLocationRoutes = require("./routes/officeLocationRoutes");
 const officeEmployeeRoutes = require("./routes/officeEmployeeRoutes");
 const policiesRoutes = require("./routes/policiesRoutes");
+const commonLoginRoutes = require("./routes/commonLogin");
+
 const employeePoliciesRoutes = require("./routes/employeePoliciesRoutes");
 app.use(express.json());
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -535,6 +537,8 @@ app.use((req, res, next) => {
     app.use("/", loginRoutes);
     app.use("/", meRoute);
     app.use("/", leaveRoutes);
+    app.use("/api/common-login", commonLoginRoutes);
+
     app.use("/api/leave-policies", leavePolicy);
 
     app.use("/", leavePolicy);

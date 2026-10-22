@@ -275,4 +275,20 @@ WHERE sma.role = ? AND sma.org_id = ?`,
   FROM auto_login_links
   ORDER BY created_at DESC;
 `,
+  GET_COMMON_LOGIN_BY_EMAIL: `
+    SELECT
+      id,
+      org_id,
+      employee_id,
+      name,
+      email,
+      password_hash AS password,
+      is_active,
+      location,
+      pincode
+    FROM common_login
+    WHERE email = ?
+      AND org_id = ?
+    LIMIT 1;
+  `,
 };

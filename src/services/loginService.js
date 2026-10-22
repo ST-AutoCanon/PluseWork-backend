@@ -291,6 +291,48 @@ class LoginService {
 
     return result;
   }
+    static async fetchCommonLoginByEmail(email, orgId) {
+    if (!email || !orgId) return null;
+
+    try {
+      const tenantPool = await getTenantPoolForOrgId(orgId);
+      const [rows] = await tenantPool.query(queries.GET_COMMON_LOGIN_BY_EMAIL, [
+        email,
+        orgId,
+      ]);
+
+      if (!rows || rows.length === 0) return null;
+
+      const row = rows[0];
+      const isActive =
+        row.is_active === 1 ||
+        row.is_active === true ||
+        row.is_active === "1";
+
+      return {
+        id: row.id,
+        employee_id: row.employee_id || `COMMON_${row.id}`,
+        Org_id: row.org_id || orgId,
+        name: row.name || "Common Login",
+        email: row.email,
+        password: row.password, // mapped from password_hash in the query
+        location: row.location || null,
+        pincode: row.pincode || null,
+        status: isActive ? "Active" : "Inactive",
+        role: "common", // marker only – not a real employee role
+        role_id: null,
+        gender: null,
+        department: null,
+        department_id: null,
+        joining_date: null,
+        isCommonLogin: true,
+      };
+    } catch (err) {
+      // Table missing / tenant issue → treat as "no common login user"
+      console.error("[LoginService] common login lookup failed:", err);
+      return null;
+    }
+  }
 
   static async fetchAutoLoginLinkByToken(token) {
     const tokenHash = LoginService.hashAutoLoginToken(token);
