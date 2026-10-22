@@ -835,7 +835,8 @@ function collectEvents(
 }
 
 function getDeduction(policy, { count, deductionEvents }, annualCtc) {
-  if (!deductionEvents.length) return { count, amount: 0 };
+  const eligibleCount = deductionEvents.length;
+  if (!eligibleCount) return { count, eligibleCount, amount: 0 };
   const dailySalary = Math.max(0, Number(annualCtc || 0) / 12 / 30);
   const amount = deductionEvents.reduce((total, event) => {
     const deductionBasis = String(
@@ -848,7 +849,7 @@ function getDeduction(policy, { count, deductionEvents }, annualCtc) {
       ? total + deductionValue
       : total + dailySalary * event.dayFraction * (deductionValue / 100);
   }, 0);
-  return { count, amount };
+  return { count, eligibleCount, amount };
 }
 
 async function calculateSalaryAttendanceDeductions({
@@ -923,9 +924,9 @@ async function calculateSalaryAttendanceDeductions({
       department_name: employeeAttendance[0]?.department_name,
     };
     const result = {
-      lateLogin: { count: 0, amount: 0 },
-      missPunchOut: { count: 0, amount: 0 },
-      lessLoginHours: { count: 0, amount: 0 },
+      lateLogin: { count: 0, eligibleCount: 0, amount: 0 },
+      missPunchOut: { count: 0, eligibleCount: 0, amount: 0 },
+      lessLoginHours: { count: 0, eligibleCount: 0, amount: 0 },
       period: { startDate, endDate },
     };
     const typeKeys = {
