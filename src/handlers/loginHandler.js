@@ -1,3 +1,804 @@
+// const bcrypt = require("bcrypt");
+// const crypto = require("crypto");
+// const LoginService = require("../services/loginService");
+// const ErrorHandler = require("../utils/errorHandler");
+// const { redisClient } = require("../lib/sessionStore");
+// const dotenv = require("dotenv");
+// const moment = require("moment");
+// dotenv.config();
+
+// class LoginHandler {
+//   static async login(req, res) {
+//     try {
+//       const { email, password, orgId, loginAsSuperAdmin } = req.body;
+
+//       const traceId = req.authTraceId || null;
+
+//       console.info("[AUTH-DIAG][LOGIN][START]", {
+//         traceId,
+//         emailProvided: Boolean(email),
+//         passwordProvided: Boolean(password),
+//         orgIdProvided: Boolean(orgId),
+//         loginAsSuperAdmin: Boolean(loginAsSuperAdmin),
+//         sessionObjectAvailable: Boolean(req.session),
+//       });
+
+//       if (!email || !password) {
+//         return res
+//           .status(400)
+//           .json(
+//             ErrorHandler.generateErrorResponse(
+//               400,
+//               "email and password required",
+//             ),
+//           );
+//       }
+
+//       if (!loginAsSuperAdmin && !orgId) {
+//         return res
+//           .status(400)
+//           .json(
+//             ErrorHandler.generateErrorResponse(
+//               400,
+//               "Either orgId (tenant login) or loginAsSuperAdmin=true is required.",
+//             ),
+//           );
+//       }
+
+//       let user;
+//       try {
+//         user = await LoginService.fetchUserByEmail(email, {
+//           orgId: orgId || null,
+//           superAdmin: !!loginAsSuperAdmin,
+//         });
+//         console.info("[AUTH-DIAG][LOGIN][USER-LOOKUP]", {
+//           traceId,
+//           userFound: Boolean(user),
+//           lookupMode: loginAsSuperAdmin ? "super-admin" : "tenant",
+//         });
+//       } catch (svcErr) {
+//         if (svcErr && svcErr.code === "ORG_REQUIRED") {
+//           return res
+//             .status(400)
+//             .json(ErrorHandler.generateErrorResponse(400, svcErr.message));
+//         }
+//         if (svcErr && svcErr.code === "TENANT_SCHEMA") {
+//           console.error(
+//             "Tenant schema error:",
+//             svcErr.original || svcErr.message,
+//           );
+//           return res
+//             .status(503)
+//             .json(
+//               ErrorHandler.generateErrorResponse(
+//                 503,
+//                 "Tenant is not provisioned or unavailable. Please contact administrator.",
+//               ),
+//             );
+//         }
+//         if (svcErr && svcErr.code === "TENANT_LOOKUP_FAILED") {
+//           console.error(
+//             "Tenant lookup failed:",
+//             svcErr.original || svcErr.message,
+//           );
+//           return res
+//             .status(500)
+//             .json(
+//               ErrorHandler.generateErrorResponse(
+//                 500,
+//                 "Failed to perform tenant lookup. Please try again later.",
+//               ),
+//             );
+//         }
+//         console.error(
+//           "Login service error:",
+//           svcErr && (svcErr.stack || svcErr),
+//         );
+//         return res
+//           .status(500)
+//           .json(
+//             ErrorHandler.generateErrorResponse(500, "Internal server error"),
+//           );
+//       }
+
+//       if (!user) {
+//         return res
+//           .status(401)
+//           .json(ErrorHandler.generateErrorResponse(401, "Invalid credentials"));
+//       }
+
+//       if (user.status === "Inactive") {
+//         console.warn("[AUTH-DIAG][LOGIN][ACCOUNT-INACTIVE]", {
+//           traceId,
+//         });
+//         return res
+//           .status(403)
+//           .json(
+//             ErrorHandler.generateErrorResponse(
+//               403,
+//               "Account is Inactive. Please contact your administrator.",
+//             ),
+//           );
+//       }
+
+//       const isPasswordValid = await bcrypt.compare(password, user.password);
+//       console.info("[AUTH-DIAG][LOGIN][PASSWORD-CHECK]", {
+//         traceId,
+//         passwordMatched: isPasswordValid,
+//       });
+//       if (!isPasswordValid) {
+//         console.warn("[AUTH-DIAG][LOGIN][USER-NOT-FOUND]", {
+//           traceId,
+//         });
+//         return res
+//           .status(401)
+//           .json(ErrorHandler.generateErrorResponse(401, "Invalid credentials"));
+//       }
+
+//       let org = null;
+
+//       try {
+//         org = await LoginService.fetchOrganizationById(user.Org_id);
+
+//         if (org && org.end_date) {
+//           const today = moment().startOf("day");
+//           const orgEnd = moment(org.end_date).endOf("day");
+
+//           if (orgEnd.isBefore(today, "day")) {
+//             return res
+//               .status(403)
+//               .json(
+//                 ErrorHandler.generateErrorResponse(
+//                   403,
+//                   "Your subscription ended. To renew, please contact Administrator.",
+//                 ),
+//               );
+//           }
+//         }
+//       } catch (orgErr) {
+//         console.error("Org expiry check failed:", orgErr);
+//       }
+
+//       req.session.lastActive = Date.now();
+//       req.session.userRole = user.role;
+
+//       req.session.user = {
+//         id: user.employee_id,
+//         role: user.role,
+//         role_id: user.role_id || null,
+//         orgId: user.Org_id,
+//         orgPrefix: org?.employee_prefix || null,
+//         name: user.name,
+//         gender: user.gender,
+//         photo_url: user.photo_url || null,
+//         photoUrl: user.photoUrl ?? user.photo_url ?? null,
+//         email: user.email || null,
+//         employeeId: user.employee_id || null,
+//         department_id: user.department_id || null,
+//         department: user.department || null,
+//         dashboard: {
+//           department: user.department || null,
+//         },
+//       };
+
+//       if (redisClient && typeof redisClient.sadd === "function") {
+//         redisClient
+//           .sadd(`user_sessions:${user.employee_id}`, req.sessionID)
+//           .catch((err) => {
+//             console.error("Redis error storing session:", err);
+//           });
+
+//         redisClient
+//           .publish(
+//             "auth:changes",
+//             JSON.stringify({
+//               type: "login",
+//               userId: user.employee_id,
+//               role: user.role,
+//             }),
+//           )
+//           .catch((err) => console.error("Redis publish error:", err));
+//       }
+
+//       console.info("[AUTH-DIAG][LOGIN][SESSION-PREPARED]", {
+//         traceId,
+//         sessionObjectAvailable: Boolean(req.session),
+//         sessionIDAvailable: Boolean(req.sessionID),
+//         sessionUserPresent: Boolean(req.session?.user),
+//         sessionHasEmployeeId: Boolean(
+//           req.session?.user?.employeeId || req.session?.user?.id,
+//         ),
+//         sessionHasOrgId: Boolean(
+//           req.session?.user?.orgId || req.session?.user?.org_id,
+//         ),
+//       });
+
+//       req.session.save((err) => {
+//         if (err) {
+//           console.error("[AUTH-DIAG][LOGIN][SESSION-SAVE-FAILED]", {
+//             traceId,
+//             error: err.message || "Unknown session-save error",
+//           });
+
+//           return res.status(500).json({
+//             status: "error",
+//             code: 500,
+//             message: "Unable to create login session. Please try again.",
+//           });
+//         }
+
+//         console.info("[AUTH-DIAG][LOGIN][SESSION-SAVE-SUCCESS]", {
+//           traceId,
+//           sessionUserPresent: Boolean(req.session?.user),
+//           sessionHasEmployeeId: Boolean(
+//             req.session?.user?.employeeId || req.session?.user?.id,
+//           ),
+//           sessionHasOrgId: Boolean(
+//             req.session?.user?.orgId || req.session?.user?.org_id,
+//           ),
+//         });
+
+//         return res.status(200).json({
+//           // Keep your existing successful login response here.
+//           status: "success",
+//           code: 200,
+//           message: {
+//             role: user.role,
+//             role_id: user.role_id,
+//             name: user.name,
+//             org_id: user.Org_id,
+//             org_prefix: org?.employee_prefix || null,
+//             gender: user.gender,
+//             photo_url: user.photo_url || null,
+//             photoUrl: user.photoUrl ?? user.photo_url ?? null,
+//             employeeId: user.employee_id,
+//             department_id: user.department_id || null,
+//             department: user.department || null,
+//             joining_date: user.joining_date || null,
+//           },
+//         });
+//       });
+//     } catch (err) {
+//       console.error("Login error:", err);
+//       return res
+//         .status(500)
+//         .json(ErrorHandler.generateErrorResponse(500, "Internal server error"));
+//     }
+//   }
+
+//   static async getOrgIdNameList(req, res) {
+//     try {
+//       const orgs = await LoginService.fetchOrgIdNameList();
+//       return res
+//         .status(200)
+//         .json({ status: "success", code: 200, message: orgs });
+//     } catch (err) {
+//       console.error("Error fetching org list:", err);
+//       return res
+//         .status(500)
+//         .json(ErrorHandler.generateErrorResponse(500, "Internal server error"));
+//     }
+//   }
+
+//   static async logout(req, res) {
+//     try {
+//       const uid = req.session?.user?.id;
+
+//       req.session.destroy(async (err) => {
+//         if (err) {
+//           console.error("Session destroy error:", err);
+//           return res.status(500).json({
+//             status: "error",
+//             code: 500,
+//             message: "Failed to logout cleanly",
+//           });
+//         }
+
+//         try {
+//           if (uid && redisClient && typeof redisClient.srem === "function") {
+//             await redisClient.srem(`user_sessions:${uid}`, req.sessionID);
+//             await redisClient.publish(
+//               "auth:changes",
+//               JSON.stringify({ type: "logout", userId: uid }),
+//             );
+//           }
+//         } catch (cleanupErr) {
+//           console.error("Redis cleanup error on logout:", cleanupErr);
+//         }
+
+//         res.clearCookie("sid", {
+//           httpOnly: true,
+//           sameSite: "lax",
+//           secure: process.env.NODE_ENV === "production",
+//         });
+
+//         return res
+//           .status(200)
+//           .json({ status: "success", code: 200, message: "Logged out" });
+//       });
+//     } catch (err) {
+//       console.error("Logout error:", err);
+//       return res.status(500).json({
+//         status: "error",
+//         code: 500,
+//         message: "Internal server error",
+//       });
+//     }
+//   }
+
+//   static async getSidebar(req, res) {
+//     try {
+//       const role = req.session?.user?.role;
+//       const orgId = req.session?.user?.orgId;
+
+//       if (!role || !orgId) {
+//         return res
+//           .status(401)
+//           .json(ErrorHandler.generateErrorResponse(401, "Unauthorized"));
+//       }
+
+//       const cacheKey = `sidebar:${role}:${orgId}`;
+//       try {
+//         if (redisClient && typeof redisClient.get === "function") {
+//           const cached = await redisClient.get(cacheKey);
+//           if (cached) {
+//             return res.status(200).json({
+//               status: "success",
+//               code: 200,
+//               message: JSON.parse(cached),
+//               cached: true,
+//             });
+//           }
+//         }
+//       } catch (cacheErr) {
+//         console.warn("Sidebar cache read failed:", cacheErr);
+//       }
+
+//       const sidebarMenu =
+//         (await LoginService.fetchSidebarMenu(role, orgId)) || [];
+
+//       try {
+//         if (redisClient && typeof redisClient.set === "function") {
+//           await redisClient.set(
+//             cacheKey,
+//             JSON.stringify(sidebarMenu),
+//             "EX",
+//             300,
+//           );
+//         }
+//       } catch (cacheErr) {
+//         console.warn("Sidebar cache write failed:", cacheErr);
+//       }
+
+//       return res.status(200).json({
+//         status: "success",
+//         code: 200,
+//         message: sidebarMenu,
+//       });
+//     } catch (err) {
+//       console.error("getSidebar error:", err);
+//       return res
+//         .status(500)
+//         .json(ErrorHandler.generateErrorResponse(500, "Internal server error"));
+//     }
+//   }
+
+//   static async getAttendanceStatusCount(req, res) {
+//     try {
+//       const orgId = req.session?.user?.orgId;
+//       if (!orgId) {
+//         return res
+//           .status(401)
+//           .json(ErrorHandler.generateErrorResponse(401, "Unauthorized"));
+//       }
+
+//       const attendanceData = await LoginService.getAttendanceStatusCount(orgId);
+//       return res.status(200).json({
+//         status: "success",
+//         code: 200,
+//         message: attendanceData,
+//       });
+//     } catch (err) {
+//       console.error(err);
+//       return res
+//         .status(500)
+//         .json(ErrorHandler.generateErrorResponse(500, "Internal server error"));
+//     }
+//   }
+
+//   static async getEmployeeLoginDataCount(req, res) {
+//     try {
+//       const orgId = req.session?.user?.orgId;
+//       if (!orgId)
+//         return res
+//           .status(401)
+//           .json(ErrorHandler.generateErrorResponse(401, "Unauthorized"));
+
+//       const loginDataCount =
+//         await LoginService.fetchEmployeeLoginDataCount(orgId);
+
+//       if (!loginDataCount || loginDataCount.length === 0) {
+//         return res.status(200).json({
+//           status: "success",
+//           code: 200,
+//           data: { labels: [], daily: [], weekly: [], monthly: [] },
+//         });
+//       }
+
+//       const aggregatedData = {};
+
+//       loginDataCount.forEach((item) => {
+//         const label = item.punchin_label || "";
+//         if (!aggregatedData[label]) {
+//           aggregatedData[label] = {
+//             daily_count: 0,
+//             weekly_count: 0,
+//             monthly_count: 0,
+//           };
+//         }
+//         aggregatedData[label].daily_count += parseInt(item.daily_count || 0);
+//         aggregatedData[label].weekly_count += parseInt(item.weekly_count || 0);
+//         aggregatedData[label].monthly_count += parseInt(
+//           item.monthly_count || 0,
+//         );
+//       });
+
+//       const labels = Object.keys(aggregatedData);
+//       const daily = labels.map((label) => aggregatedData[label].daily_count);
+//       const weekly = labels.map((label) => aggregatedData[label].weekly_count);
+//       const monthly = labels.map(
+//         (label) => aggregatedData[label].monthly_count,
+//       );
+
+//       return res.status(200).json({
+//         status: "success",
+//         code: 200,
+//         data: { labels, daily, weekly, monthly },
+//       });
+//     } catch (err) {
+//       console.error(err);
+//       return res
+//         .status(500)
+//         .json(ErrorHandler.generateErrorResponse(500, "Internal server error"));
+//     }
+//   }
+
+//   static async getSalaryRanges(req, res) {
+//     try {
+//       const orgId = req.session?.user?.orgId;
+//       if (!orgId)
+//         return res
+//           .status(401)
+//           .json(ErrorHandler.generateErrorResponse(401, "Unauthorized"));
+
+//       const salaryRanges = await LoginService.fetchSalaryRanges(orgId);
+
+//       return res.status(200).json({
+//         status: "success",
+//         code: 200,
+//         message: salaryRanges,
+//       });
+//     } catch (err) {
+//       console.error(err);
+//       return res
+//         .status(500)
+//         .json(ErrorHandler.generateErrorResponse(500, "Internal server error"));
+//     }
+//   }
+
+//   static async getEmployeeCountByDepartment(req, res) {
+//     try {
+//       const orgId = req.session?.user?.orgId;
+//       if (!orgId)
+//         return res
+//           .status(401)
+//           .json(ErrorHandler.generateErrorResponse(401, "Unauthorized"));
+
+//       const categories = await LoginService.getEmployeeCountByDepartment(orgId);
+
+//       if (!categories || categories.length === 0) {
+//         return res.status(200).json({
+//           totalEmployees: 0,
+//           categories: [],
+//         });
+//       }
+
+//       const totalEmployees = categories.reduce(
+//         (sum, item) => sum + (item.count || 0),
+//         0,
+//       );
+
+//       return res.status(200).json({
+//         totalEmployees,
+//         categories,
+//       });
+//     } catch (err) {
+//       console.error(err);
+//       return res
+//         .status(500)
+//         .json(ErrorHandler.generateErrorResponse(500, "Internal server error"));
+//     }
+//   }
+
+//   static async getEmployeePayrollData(req, res) {
+//     try {
+//       const { employeeId } = req.params;
+
+//       const payrollData = await LoginService.getEmployeePayrollData(employeeId);
+
+//       if (!payrollData) {
+//         return res.status(200).json({
+//           status: "success",
+//           code: 200,
+//           message: {
+//             total_previous_month_credit: 0,
+//             total_previous_month_expenses: 0,
+//             total_previous_month_salary: 0,
+//           },
+//         });
+//       }
+
+//       return res.status(200).json({
+//         status: "success",
+//         code: 200,
+//         message: payrollData,
+//       });
+//     } catch (err) {
+//       console.error("Error fetching employee payroll data:", err);
+//       return res
+//         .status(500)
+//         .json(ErrorHandler.generateErrorResponse(500, "Internal server error"));
+//     }
+//   }
+
+//   static async createAutoLoginLink(req, res) {
+//     try {
+//       const {
+//         orgId,
+//         email,
+//         deviceName = null,
+//         expiresInDays = 365,
+//         maxUses = 999999,
+//         createdBy = null,
+//       } = req.body || {};
+
+//       if (!orgId || !email) {
+//         return res
+//           .status(400)
+//           .json(
+//             ErrorHandler.generateErrorResponse(
+//               400,
+//               "orgId and email are required",
+//             ),
+//           );
+//       }
+
+//       const token = crypto.randomBytes(32).toString("hex");
+//       const expiresAt = new Date(
+//         Date.now() + Number(expiresInDays || 365) * 24 * 60 * 60 * 1000,
+//       );
+
+//       await LoginService.createAutoLoginLink({
+//         token,
+//         orgId,
+//         email,
+//         deviceName,
+//         expiresAt,
+//         maxUses: Number(maxUses) || 999999,
+//         createdBy,
+//       });
+
+//       return res.status(201).json({
+//         status: "success",
+//         code: 201,
+//         message: {
+//           token,
+//           autoLoginUrl: `${process.env.FRONTEND_URL}/auto-login/${token}`,
+//           orgId,
+//           email,
+//           deviceName,
+//           expiresAt,
+//         },
+//       });
+//     } catch (err) {
+//       console.error("createAutoLoginLink error:", err);
+//       return res
+//         .status(500)
+//         .json(ErrorHandler.generateErrorResponse(500, "Internal server error"));
+//     }
+//   }
+
+//   static async autoLogin(req, res) {
+//     try {
+//       const { token } = req.params;
+
+//       if (!token) {
+//         return res
+//           .status(400)
+//           .json(ErrorHandler.generateErrorResponse(400, "Token is required"));
+//       }
+
+//       const link = await LoginService.fetchAutoLoginLinkByToken(token);
+
+//       if (!link) {
+//         return res
+//           .status(401)
+//           .json(ErrorHandler.generateErrorResponse(401, "Invalid token"));
+//       }
+
+//       if (!link.is_active) {
+//         return res
+//           .status(403)
+//           .json(ErrorHandler.generateErrorResponse(403, "Link is disabled"));
+//       }
+
+//       const now = new Date();
+//       const expiry = new Date(link.expires_at);
+
+//       if (Number.isNaN(expiry.getTime()) || expiry < now) {
+//         return res
+//           .status(403)
+//           .json(ErrorHandler.generateErrorResponse(403, "Link expired"));
+//       }
+
+//       if (link.current_uses >= link.max_uses) {
+//         return res
+//           .status(403)
+//           .json(
+//             ErrorHandler.generateErrorResponse(403, "Link usage limit reached"),
+//           );
+//       }
+
+//       const user = await LoginService.fetchUserByEmail(link.email, {
+//         orgId: link.org_id,
+//         superAdmin: false,
+//       });
+
+//       if (!user) {
+//         return res
+//           .status(401)
+//           .json(ErrorHandler.generateErrorResponse(401, "User not found"));
+//       }
+
+//       if (user.status === "Inactive") {
+//         return res
+//           .status(403)
+//           .json(
+//             ErrorHandler.generateErrorResponse(
+//               403,
+//               "Account is Inactive. Please contact your administrator.",
+//             ),
+//           );
+//       }
+
+//       const org = await LoginService.fetchOrganizationById(user.Org_id);
+//       if (org && org.end_date) {
+//         const today = moment().startOf("day");
+//         const orgEnd = moment(org.end_date).endOf("day");
+//         if (orgEnd.isBefore(today, "day")) {
+//           return res
+//             .status(403)
+//             .json(
+//               ErrorHandler.generateErrorResponse(
+//                 403,
+//                 "Your subscription ended. To renew, please contact Administrator.",
+//               ),
+//             );
+//         }
+//       }
+
+//       req.session.lastActive = Date.now();
+//       req.session.userRole = user.role;
+//       req.session.user = {
+//         id: user.employee_id,
+//         role: user.role,
+//         role_id: user.role_id || null,
+//         orgId: user.Org_id,
+//         name: user.name,
+//         gender: user.gender,
+//         photo_url: user.photo_url || null,
+//         photoUrl: user.photoUrl ?? user.photo_url ?? null,
+//         email: user.email || null,
+//         employeeId: user.employee_id || null,
+//         department_id: user.department_id || null,
+//         department: user.department || null,
+//         dashboard: {
+//           department: user.department || null,
+//         },
+//       };
+
+//       if (redisClient && typeof redisClient.sadd === "function") {
+//         redisClient
+//           .sadd(`user_sessions:${user.employee_id}`, req.sessionID)
+//           .catch((err) => {
+//             console.error("Redis error storing session:", err);
+//           });
+
+//         redisClient
+//           .publish(
+//             "auth:changes",
+//             JSON.stringify({
+//               type: "login",
+//               userId: user.employee_id,
+//               role: user.role,
+//             }),
+//           )
+//           .catch((err) => console.error("Redis publish error:", err));
+//       }
+
+//       await LoginService.markAutoLoginLinkUsed(link.id);
+
+//       req.session.save((err) => {
+//         if (err) console.error("Session save error:", err);
+
+//         return res.status(200).json({
+//           status: "success",
+//           code: 200,
+//           message: {
+//             role: user.role,
+//             role_id: user.role_id,
+//             name: user.name,
+//             org_id: user.Org_id,
+//             gender: user.gender,
+//             photo_url: user.photo_url || null,
+//             photoUrl: user.photoUrl ?? user.photo_url ?? null,
+//             employeeId: user.employee_id,
+//             department_id: user.department_id || null,
+//             department: user.department || null,
+//           },
+//         });
+//       });
+//     } catch (err) {
+//       console.error("autoLogin error:", err);
+//       return res
+//         .status(500)
+//         .json(ErrorHandler.generateErrorResponse(500, "Internal server error"));
+//     }
+//   }
+
+//   static async listAutoLoginLinks(req, res) {
+//     try {
+//       const links = await LoginService.listAutoLoginLinks();
+//       return res.status(200).json({
+//         status: "success",
+//         code: 200,
+//         message: links,
+//       });
+//     } catch (err) {
+//       console.error("listAutoLoginLinks error:", err);
+//       return res
+//         .status(500)
+//         .json(ErrorHandler.generateErrorResponse(500, "Internal server error"));
+//     }
+//   }
+
+//   static async disableAutoLoginLink(req, res) {
+//     try {
+//       const { id } = req.params;
+//       if (!id) {
+//         return res
+//           .status(400)
+//           .json(ErrorHandler.generateErrorResponse(400, "id is required"));
+//       }
+
+//       await LoginService.disableAutoLoginLink(id);
+
+//       return res.status(200).json({
+//         status: "success",
+//         code: 200,
+//         message: "Auto login link disabled",
+//       });
+//     } catch (err) {
+//       console.error("disableAutoLoginLink error:", err);
+//       return res
+//         .status(500)
+//         .json(ErrorHandler.generateErrorResponse(500, "Internal server error"));
+//     }
+//   }
+// }
+
+// module.exports = LoginHandler;
+
 const bcrypt = require("bcrypt");
 const crypto = require("crypto");
 const LoginService = require("../services/loginService");
@@ -46,6 +847,8 @@ class LoginHandler {
       }
 
       let user;
+      let isCommonLogin = false;
+
       try {
         user = await LoginService.fetchUserByEmail(email, {
           orgId: orgId || null,
@@ -101,6 +904,19 @@ class LoginHandler {
           );
       }
 
+      // Fallback: try common_login table (tenant only)
+      if (!user && !loginAsSuperAdmin && orgId) {
+        user = await LoginService.fetchCommonLoginByEmail(email, orgId);
+        if (user) {
+          isCommonLogin = true;
+          console.info("[AUTH-DIAG][LOGIN][COMMON-LOGIN-LOOKUP]", {
+            traceId,
+            userFound: true,
+            commonLoginId: user.id,
+          });
+        }
+      }
+
       if (!user) {
         return res
           .status(401)
@@ -110,6 +926,7 @@ class LoginHandler {
       if (user.status === "Inactive") {
         console.warn("[AUTH-DIAG][LOGIN][ACCOUNT-INACTIVE]", {
           traceId,
+          isCommonLogin,
         });
         return res
           .status(403)
@@ -125,10 +942,12 @@ class LoginHandler {
       console.info("[AUTH-DIAG][LOGIN][PASSWORD-CHECK]", {
         traceId,
         passwordMatched: isPasswordValid,
+        isCommonLogin,
       });
       if (!isPasswordValid) {
-        console.warn("[AUTH-DIAG][LOGIN][USER-NOT-FOUND]", {
+        console.warn("[AUTH-DIAG][LOGIN][PASSWORD-MISMATCH]", {
           traceId,
+          isCommonLogin,
         });
         return res
           .status(401)
@@ -169,13 +988,16 @@ class LoginHandler {
         orgId: user.Org_id,
         orgPrefix: org?.employee_prefix || null,
         name: user.name,
-        gender: user.gender,
+        gender: user.gender || null,
         photo_url: user.photo_url || null,
         photoUrl: user.photoUrl ?? user.photo_url ?? null,
         email: user.email || null,
         employeeId: user.employee_id || null,
         department_id: user.department_id || null,
         department: user.department || null,
+        isCommonLogin: !!isCommonLogin,
+        location: user.location || null,
+        pincode: user.pincode || null,
         dashboard: {
           department: user.department || null,
         },
@@ -195,6 +1017,7 @@ class LoginHandler {
               type: "login",
               userId: user.employee_id,
               role: user.role,
+              isCommonLogin: !!isCommonLogin,
             }),
           )
           .catch((err) => console.error("Redis publish error:", err));
@@ -202,6 +1025,7 @@ class LoginHandler {
 
       console.info("[AUTH-DIAG][LOGIN][SESSION-PREPARED]", {
         traceId,
+        isCommonLogin,
         sessionObjectAvailable: Boolean(req.session),
         sessionIDAvailable: Boolean(req.sessionID),
         sessionUserPresent: Boolean(req.session?.user),
@@ -229,6 +1053,7 @@ class LoginHandler {
 
         console.info("[AUTH-DIAG][LOGIN][SESSION-SAVE-SUCCESS]", {
           traceId,
+          isCommonLogin,
           sessionUserPresent: Boolean(req.session?.user),
           sessionHasEmployeeId: Boolean(
             req.session?.user?.employeeId || req.session?.user?.id,
@@ -239,7 +1064,6 @@ class LoginHandler {
         });
 
         return res.status(200).json({
-          // Keep your existing successful login response here.
           status: "success",
           code: 200,
           message: {
@@ -248,13 +1072,16 @@ class LoginHandler {
             name: user.name,
             org_id: user.Org_id,
             org_prefix: org?.employee_prefix || null,
-            gender: user.gender,
+            gender: user.gender || null,
             photo_url: user.photo_url || null,
             photoUrl: user.photoUrl ?? user.photo_url ?? null,
             employeeId: user.employee_id,
             department_id: user.department_id || null,
             department: user.department || null,
             joining_date: user.joining_date || null,
+            isCommonLogin: !!isCommonLogin,
+            location: user.location || null,
+            pincode: user.pincode || null,
           },
         });
       });

@@ -32,7 +32,7 @@ router.get("/me", async (req, res) => {
 
   try {
     // STEP 2: Verify the authenticated session.
-    if (!req.session || !req.session.user) {
+    if (!req.session || (!req.session.user && !req.session.commonUser)) {
       if (AUTH_DIAG_ENABLED) {
         console.warn("[AUTH-DIAG][ME][UNAUTHENTICATED]", {
           traceId,
@@ -53,7 +53,20 @@ router.get("/me", async (req, res) => {
       });
     }
 
-    const sessUser = req.session.user;
+    const sessUser = req.session.user || {
+      id: req.session.commonUser.employeeId || `COMMON_${req.session.commonUser.id}`,
+      employeeId:
+        req.session.commonUser.employeeId ||
+        `COMMON_${req.session.commonUser.id}`,
+      role: "common",
+      name: req.session.commonUser.name,
+      orgId: req.session.commonUser.orgId,
+      email: req.session.commonUser.email,
+      location: req.session.commonUser.location ?? null,
+      pincode: req.session.commonUser.pincode ?? null,
+      isCommonLogin: true,
+      loginType: req.session.commonUser.loginType,
+    };
 
     if (AUTH_DIAG_ENABLED) {
       console.info("[AUTH-DIAG][ME][SESSION-VALID]", {
@@ -150,6 +163,9 @@ router.get("/me", async (req, res) => {
       department,
       joining_date: joiningDate,
       joiningDate,
+      location: sessUser.location ?? null,
+      pincode: sessUser.pincode ?? null,
+      isCommonLogin: Boolean(sessUser.isCommonLogin),
       dashboard: {
         ...(sessUser.dashboard ?? {}),
         department,
