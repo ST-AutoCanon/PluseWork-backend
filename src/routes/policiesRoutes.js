@@ -70,8 +70,39 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
-  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB
+  limits: { fileSize: 250 * 1024 * 1024 },
 });
+
+const createPolicyUploadMiddleware = (maxCount) => {
+  const parseFiles = upload.fields([
+    { name: "document", maxCount },
+    { name: "ppt", maxCount },
+    { name: "video", maxCount },
+    { name: "image", maxCount },
+  ]);
+
+  return (req, res, next) => {
+    parseFiles(req, res, (error) => {
+      if (!error) return next();
+
+      if (error instanceof multer.MulterError) {
+        const isFileTooLarge = error.code === "LIMIT_FILE_SIZE";
+        return res.status(isFileTooLarge ? 413 : 400).json({
+          success: false,
+          message: isFileTooLarge
+            ? "File is too large. The maximum policy file size is 250 MB."
+            : error.message,
+        });
+      }
+
+      console.error("Policy upload middleware error:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Unable to process the uploaded file.",
+      });
+    });
+  };
+};
 
 // ====================== UPLOAD HANDLER (Inline) ======================
 const uploadPolicyFilesHandler = async (req, res) => {
@@ -113,12 +144,7 @@ router.post(
     console.log("Policy ID:", req.params.policyId);
     next();
   },
-  upload.fields([
-    { name: "document", maxCount: 20 },
-    { name: "ppt", maxCount: 20 },
-    { name: "video", maxCount: 20 },
-    { name: "image", maxCount: 20 },
-  ]),
+  createPolicyUploadMiddleware(20),
   (req, res, next) => {
     console.log("========== AFTER MULTER ==========");
     console.log("Files Received:", req.files ? Object.keys(req.files) : "No files");
@@ -140,12 +166,7 @@ router.put(
     console.log("Replace file route hit for policyId:", req.params.policyId, "fileId:", req.params.fileId);
     next();
   },
-  upload.fields([
-    { name: "document", maxCount: 1 },
-    { name: "ppt", maxCount: 1 },
-    { name: "video", maxCount: 1 },
-    { name: "image", maxCount: 1 },
-  ]),
+  createPolicyUploadMiddleware(1),
   replacePolicyFileHandler
 );
 
