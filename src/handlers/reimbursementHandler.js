@@ -921,15 +921,14 @@ exports.updatePaymentStatus = async (req, res) => {
 
     if (!id) return res.status(400).json({ error: "id required" });
 
-    if (
-      !["pending", "paid", "rejected"].includes(
-        String(payment_status).toLowerCase(),
-      )
-    ) {
+    const statusNorm = String(payment_status || "")
+      .toLowerCase()
+      .trim();
+    if (!["pending", "paid", "rejected"].includes(statusNorm)) {
       return res.status(400).json({ error: "Invalid payment status." });
     }
 
-    if (String(user_role).toLowerCase() === "employee") {
+    if (String(user_role || "").toLowerCase() === "employee") {
       return res.status(403).json({ error: "Not authorized." });
     }
 
@@ -948,11 +947,46 @@ exports.updatePaymentStatus = async (req, res) => {
       });
     }
 
-    const paid_date =
-      String(payment_status).toLowerCase() === "paid" ? new Date() : null;
+    // Use client-provided date; only fall back to today if none was sent
+    const rawDate =
+      req.body.paid_date ||
+      req.body.payment_date ||
+      req.body.paidDate ||
+      req.body.paymentDate ||
+      null;
+
+    let paid_date = null;
+    if (statusNorm === "paid") {
+      if (rawDate) {
+        // Accept YYYY-MM-DD or full ISO
+        const s = String(rawDate).trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+          // noon UTC avoids off-by-one day in some timezones
+          paid_date = new Date(`${s}T12:00:00.000Z`);
+        } else {
+          paid_date = new Date(s);
+        }
+        if (isNaN(paid_date.getTime())) {
+          return res.status(400).json({ error: "Invalid paid_date." });
+        }
+      } else {
+        paid_date = new Date(); // fallback only when client sent no date
+      }
+    } else if (statusNorm === "rejected" && rawDate) {
+      // optional reference date for reject
+      const s = String(rawDate).trim();
+      paid_date = /^\d{4}-\d{2}-\d{2}$/.test(s)
+        ? new Date(`${s}T12:00:00.000Z`)
+        : new Date(s);
+      if (isNaN(paid_date.getTime())) paid_date = null;
+    } else {
+      // pending (or reject without date) → clear paid_date
+      paid_date = null;
+    }
+
     const updated = await reimbursementService.updatePaymentStatus(
       id,
-      String(payment_status).toLowerCase(),
+      statusNorm,
       paid_date,
       orgId,
     );
@@ -963,7 +997,6 @@ exports.updatePaymentStatus = async (req, res) => {
     res.status(500).json({ error: "Error updating payment status" });
   }
 };
-
 exports.getAllReimbursements = async (req, res) => {
   try {
     const orgId = resolveOrgIdFromReq(req);
