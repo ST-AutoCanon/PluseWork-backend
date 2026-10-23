@@ -498,24 +498,25 @@ const PUNCH_POLICY_QUERIES = {
   `,
 
   FIND_EMPLOYEE_OTHER_POLICY: `
-    SELECT
-      a.reference_id AS employee_id,
-      a.reference_name AS employee_name,
-      p.id AS policy_id,
-      p.policy_name
-    FROM punch_policy_assignments a
-    INNER JOIN punch_policies p
-      ON p.id = a.policy_id
-     AND p.org_id = a.org_id
-     AND p.deleted_at IS NULL
-     AND p.policy_status = 'active'
-    WHERE a.org_id = ?
-      AND a.assignment_type = 'employee'
-      AND a.reference_id = ?
-      AND (? IS NULL OR a.policy_id != ?)
-    LIMIT 1
-  `,
-
+  SELECT
+    a.reference_id AS employee_id,
+    a.reference_name AS employee_name,
+    p.id AS policy_id,
+    p.policy_name,
+    p.policy_type
+  FROM punch_policy_assignments a
+  INNER JOIN punch_policies p
+    ON p.id = a.policy_id
+   AND p.org_id = a.org_id
+   AND p.deleted_at IS NULL
+   AND p.policy_status = 'active'
+  WHERE a.org_id = ?
+    AND a.assignment_type = 'employee'
+    AND a.reference_id = ?
+    AND p.policy_type = ?
+    AND (? IS NULL OR a.policy_id != ?)
+  LIMIT 1
+`,
   GET_EXCLUSIONS_BY_POLICY: `
     SELECT
       id,

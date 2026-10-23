@@ -1442,9 +1442,13 @@ function validatePayload(payload) {
 async function assertEmployeesNotOnOtherPolicy({
   orgId,
   employees,
+  policyType,
   excludePolicyId = null,
 }) {
   if (!Array.isArray(employees) || employees.length === 0) return null;
+
+  const normalizedType = normalizePolicyType(policyType);
+  if (!normalizedType) return null;
 
   for (const emp of employees) {
     const empId = String(emp.id || emp.employee_id || emp).trim();
@@ -1453,19 +1457,26 @@ async function assertEmployeesNotOnOtherPolicy({
     const [rows] = await queryTenant(
       orgId,
       PUNCH_POLICY_QUERIES.FIND_EMPLOYEE_OTHER_POLICY,
-      [orgId, empId, excludePolicyId, excludePolicyId],
+      [orgId, empId, normalizedType, excludePolicyId, excludePolicyId],
     );
 
     if (rows && rows.length > 0) {
       const r = rows[0];
+      const typeLabel =
+        normalizedType === "late_login"
+          ? "Late Login"
+          : normalizedType === "miss_punch_out"
+            ? "Miss Punch Out"
+            : "Less Login Hours";
       return {
         success: false,
         status: 409,
-        message: `${r.employee_name || empId} is already assigned to policy “${r.policy_name}”. An employee can only be in one policy.`,
+        message: `${r.employee_name || empId} is already assigned to another ${typeLabel} policy “${r.policy_name}”. An employee can only be in one policy of the same type.`,
         data: {
           employeeId: r.employee_id,
           policyId: String(r.policy_id),
           policyName: r.policy_name,
+          policyType: r.policy_type || normalizedType,
         },
       };
     }
@@ -1701,6 +1712,7 @@ async function createPolicy({ orgId, employeeId, payload }) {
     const conflict = await assertEmployeesNotOnOtherPolicy({
       orgId,
       employees: d.selectedEmployees,
+      policyType: d.policyType,
       excludePolicyId: null,
     });
     if (conflict) return conflict;
@@ -1821,6 +1833,7 @@ async function updatePolicy({ orgId, employeeId, id, payload }) {
     const conflict = await assertEmployeesNotOnOtherPolicy({
       orgId,
       employees: d.selectedEmployees,
+      policyType: d.policyType,
       excludePolicyId: id,
     });
     if (conflict) return conflict;
