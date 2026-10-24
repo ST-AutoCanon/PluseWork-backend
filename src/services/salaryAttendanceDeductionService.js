@@ -491,7 +491,6 @@ function getPayrollPeriod(month, year, cutoffDate) {
   const previousCutoff = new Date(
     Date.UTC(yearNumber, monthNumber - 2, Math.min(cutoff, startMonthLastDate)),
   );
-  previousCutoff.setUTCDate(previousCutoff.getUTCDate() + 1);
 
   return {
     startDate: formatDate(previousCutoff),
@@ -725,6 +724,16 @@ function collectEvents(
         events.push({
           date,
           dayFraction: policy.deduction_type === "full_day" ? 1 : 0.5,
+          deductionType:
+            policy.deduction_type === "full_day" ? "full_day" : "half_day",
+          deductionBasis:
+            (policy.deduction_type === "full_day"
+              ? policy.full_day_deduction_basis
+              : policy.half_day_deduction_basis) ?? policy.deduction_basis,
+          deductionValue:
+            (policy.deduction_type === "full_day"
+              ? policy.full_day_deduction_value
+              : policy.half_day_deduction_value) ?? policy.deduction_value,
           isInPayrollPeriod,
         });
       }
@@ -746,6 +755,16 @@ function collectEvents(
         events.push({
           date,
           dayFraction: policy.deduction_type === "full_day" ? 1 : 0.5,
+          deductionType:
+            policy.deduction_type === "full_day" ? "full_day" : "half_day",
+          deductionBasis:
+            (policy.deduction_type === "full_day"
+              ? policy.full_day_deduction_basis
+              : policy.half_day_deduction_basis) ?? policy.deduction_basis,
+          deductionValue:
+            (policy.deduction_type === "full_day"
+              ? policy.full_day_deduction_value
+              : policy.half_day_deduction_value) ?? policy.deduction_value,
           isInPayrollPeriod,
         });
       }
@@ -778,6 +797,7 @@ function collectEvents(
         events.push({
           date,
           dayFraction: useFullDayDeduction ? 1 : 0.5,
+          deductionType: useFullDayDeduction ? "full_day" : "half_day",
           deductionBasis: useFullDayDeduction
             ? (lessPolicy.full_day_deduction_basis ??
               lessPolicy.deduction_basis)
@@ -834,10 +854,35 @@ function collectEvents(
   return { count: periodEvents.length, deductionEvents: periodEvents };
 }
 
-function getDeduction(policy, { count, deductionEvents }, annualCtc) {
+function calculateAttendanceDeductionAmount({
+  dailySalary,
+  deductionType,
+  deductionBasis,
+  deductionValue,
+  dayFraction,
+}) {
+  const fraction =
+    deductionType === "half_day"
+      ? 0.5
+      : deductionType === "full_day"
+        ? 1
+        : Number(dayFraction || 0);
+  const value = Number(deductionValue || 0);
+
+  return String(deductionBasis).toLowerCase() === "amount"
+    ? value
+    : dailySalary * fraction * (value / 100);
+}
+
+function getDeduction(policy, { count, deductionEvents }, annualCtc, periodEndDate) {
   const eligibleCount = deductionEvents.length;
-  if (!eligibleCount) return { count, eligibleCount, amount: 0 };
-  const dailySalary = Math.max(0, Number(annualCtc || 0) / 12 / 30);
+  const [year, month] = periodEndDate.split("-").map(Number);
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const dailySalary = Math.max(
+    0,
+    Number(annualCtc || 0) / 12 / daysInMonth,
+  );
+  const breakdownByMethod = new Map();
   const amount = deductionEvents.reduce((total, event) => {
     const deductionBasis = String(
       event.deductionBasis ?? policy.deduction_basis,
@@ -845,11 +890,35 @@ function getDeduction(policy, { count, deductionEvents }, annualCtc) {
     const deductionValue = Number(
       event.deductionValue ?? policy.deduction_value ?? 0,
     );
-    return deductionBasis === "amount"
-      ? total + deductionValue
-      : total + dailySalary * event.dayFraction * (deductionValue / 100);
+    const deductionType =
+      event.deductionType ||
+      (event.dayFraction === 1 ? "full_day" : "half_day");
+    const amountForEvent = calculateAttendanceDeductionAmount({
+      dailySalary,
+      deductionType,
+      deductionBasis,
+      deductionValue,
+      dayFraction: event.dayFraction,
+    });
+    const methodKey = `${deductionType}:${deductionBasis}:${deductionValue}`;
+    const method = breakdownByMethod.get(methodKey) || {
+      deductionType,
+      basis: deductionBasis,
+      value: deductionValue,
+      count: 0,
+      amount: 0,
+    };
+    method.count += 1;
+    method.amount += amountForEvent;
+    breakdownByMethod.set(methodKey, method);
+    return total + amountForEvent;
   }, 0);
-  return { count, eligibleCount, amount };
+  return {
+    count,
+    eligibleCount,
+    amount,
+    breakdown: Array.from(breakdownByMethod.values()),
+  };
 }
 
 async function calculateSalaryAttendanceDeductions({
@@ -906,6 +975,25 @@ async function calculateSalaryAttendanceDeductions({
         { annualCtc: Number(employee.annualCtc || employee.annual_ctc || 0) },
       ]),
   );
+  const employeeIds = Array.from(employeeInputs.keys());
+  let approvedLeaveRows = [];
+  if (employeeIds.length) {
+    const placeholders = employeeIds.map(() => "?").join(", ");
+    const [rows] = await pool.execute(
+      queries.GET_APPROVED_LEAVE_SUMMARY.replace(
+        "/* employee placeholders */",
+        placeholders,
+      ),
+      [orgId, endDate, startDate, ...employeeIds],
+    );
+    approvedLeaveRows = rows || [];
+  }
+  const approvedLeavesByEmployee = new Map(
+    approvedLeaveRows.map((row) => [
+      String(row.employee_id),
+      Number(row.approved_leave_count || 0),
+    ]),
+  );
   const attendanceByEmployee = new Map();
   for (const row of attendanceRows || []) {
     const employeeId = String(row.employee_id);
@@ -928,6 +1016,7 @@ async function calculateSalaryAttendanceDeductions({
       missPunchOut: { count: 0, eligibleCount: 0, amount: 0 },
       lessLoginHours: { count: 0, eligibleCount: 0, amount: 0 },
       period: { startDate, endDate },
+      approvedLeaveCount: approvedLeavesByEmployee.get(employeeId) || 0,
     };
     const typeKeys = {
       late_login: "lateLogin",
@@ -956,6 +1045,7 @@ async function calculateSalaryAttendanceDeductions({
         policy,
         events,
         employeeInput.annualCtc,
+        endDate,
       );
     }
     data[employeeId] = result;
@@ -964,4 +1054,8 @@ async function calculateSalaryAttendanceDeductions({
   return data;
 }
 
-module.exports = { calculateSalaryAttendanceDeductions, getPayrollPeriod };
+module.exports = {
+  calculateSalaryAttendanceDeductions,
+  calculateAttendanceDeductionAmount,
+  getPayrollPeriod,
+};
