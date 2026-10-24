@@ -154,4 +154,17 @@ module.exports = {
     WHERE org_id = ?
       AND status = 'Approved'
   `,
+
+  GET_APPROVED_LEAVE_SUMMARY: `
+    SELECT
+      employee_id,
+      COUNT(*) AS approved_leave_count
+    FROM leavequeries
+    WHERE org_id = ?
+      AND status = 'Approved'
+      AND start_date <= ?
+      AND end_date >= ?
+      AND employee_id IN (/* employee placeholders */)
+    GROUP BY employee_id
+  `,
 };
