@@ -408,7 +408,7 @@ CREATE TABLE IF NOT EXISTS leave_regularisation_requests (
   id int NOT NULL AUTO_INCREMENT,
   org_id int NOT NULL,
   employee_id varchar(20) COLLATE utf8mb4_general_ci NOT NULL,
-  regularisation_type enum('missed_punch_out','missed_punch_in','late_login','missed_apply_leave') COLLATE utf8mb4_general_ci NOT NULL,
+  regularisation_type enum('missed_punch_out','missed_punch_in','late_login','missed_apply_leave','deficit_in_punch_hours') COLLATE utf8mb4_general_ci NOT NULL,
   selected_dates json NOT NULL,
   primary_date date NOT NULL,
   comment text COLLATE utf8mb4_general_ci NOT NULL,

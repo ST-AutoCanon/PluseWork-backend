@@ -7,6 +7,8 @@ try {
 
 const LEAVE_REGULARISATION_QUERIES = require("../constants/leaveRegularisationQueries");
 const attendanceService = require("./attendanceService");
+const orgWorkHoursService = require("./orgWorkHours.service");
+const regularisationSchemaPromises = new WeakMap();
 
 function isValidDateString(dateStr) {
   return typeof dateStr === "string" && /^\d{4}-\d{2}-\d{2}$/.test(dateStr);
@@ -237,6 +239,62 @@ async function queryTenant(orgId, sql, params = []) {
   return pool.execute(sql, params);
 }
 
+async function ensureDeficitRegularisationType(orgId) {
+  const pool = await getTenantPool(orgId);
+  if (regularisationSchemaPromises.has(pool)) {
+    return regularisationSchemaPromises.get(pool);
+  }
+
+  const migration = (async () => {
+    const [rows] = await pool.execute(
+      `
+        SELECT COLUMN_TYPE
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'leave_regularisation_requests'
+          AND COLUMN_NAME = 'regularisation_type'
+        LIMIT 1
+      `,
+    );
+    const columnType = rows?.[0]?.COLUMN_TYPE;
+
+    if (!columnType) {
+      throw new Error(
+        "leave_regularisation_requests.regularisation_type column was not found.",
+      );
+    }
+
+    if (!/^enum\(/i.test(columnType)) return;
+
+    const allowedTypes = Array.from(
+      columnType.matchAll(/'((?:''|[^'])*)'/g),
+      (match) => match[1].replace(/''/g, "'"),
+    );
+    if (!allowedTypes.length) {
+      throw new Error(
+        "Could not read allowed regularisation types from the tenant schema.",
+      );
+    }
+
+    if (allowedTypes.includes("deficit_in_punch_hours")) return;
+
+    allowedTypes.push("deficit_in_punch_hours");
+    const enumValues = allowedTypes
+      .map((value) => `'${value.replace(/'/g, "''")}'`)
+      .join(",");
+
+    await pool.query(`
+      ALTER TABLE leave_regularisation_requests
+      MODIFY COLUMN regularisation_type
+        ENUM(${enumValues}) COLLATE utf8mb4_general_ci NOT NULL
+    `);
+  })();
+
+  regularisationSchemaPromises.set(pool, migration);
+  migration.catch(() => regularisationSchemaPromises.delete(pool));
+  return migration;
+}
+
 async function hasColumn(orgId, tableName, columnName) {
   if (!orgId || !tableName || !columnName) return false;
 
@@ -366,8 +424,19 @@ async function getEligibleDates({
 
   const bufferMinutes = config?.buffer_minutes ?? config?.bufferMinutes ?? 10;
   const punchInStart = config?.punch_in_start ?? config?.punchInStart ?? null;
-  const requiredDailyMinutes =
+  let requiredDailyMinutes =
     config?.required_daily_minutes ?? config?.requiredDailyMinutes ?? 480;
+  if (reason === "deficit_in_punch_hours") {
+    const workHoursConfig = await orgWorkHoursService.getWorkHours(orgId);
+    const configuredWorkHours = Number(workHoursConfig?.work_hours ?? 8);
+    const workHours =
+      Number.isFinite(configuredWorkHours) &&
+      configuredWorkHours >= 1 &&
+      configuredWorkHours <= 24
+        ? configuredWorkHours
+        : 8;
+    requiredDailyMinutes = workHours * 60;
+  }
   const allowedLateStreaks =
     config?.allowed_late_streaks ?? config?.allowedLateStreaks ?? 2;
   const streakPeriod =
@@ -429,6 +498,7 @@ async function getEligibleDates({
       toDate,
       eligibleDates,
       totalEligible: eligibleDates.length,
+      ...(reason === "deficit_in_punch_hours" ? { requiredDailyMinutes } : {}),
     },
   };
 }
@@ -485,7 +555,7 @@ function evaluateDateForReason(
   }
 
   if (reason === "deficit_in_punch_hours") {
-    const required = Number(config?.requiredDailyMinutes || 480);
+    const required = Number(config?.requiredDailyMinutes ?? 480);
     let worked = 0;
     for (const r of rows) {
       if (r.punchin_time && r.punchout_time) {
@@ -527,6 +597,22 @@ async function submitRegularisation({
       status: 400,
       message: "Invalid regularisation type.",
     };
+  }
+
+  if (reason === "deficit_in_punch_hours") {
+    try {
+      await ensureDeficitRegularisationType(orgId);
+    } catch (err) {
+      console.error(
+        "[submitRegularisation] failed to update regularisation type schema:",
+        err,
+      );
+      return {
+        success: false,
+        status: 500,
+        message: "Failed to prepare the regularisation request schema.",
+      };
+    }
   }
 
   if (cleanDates.length === 0) {
