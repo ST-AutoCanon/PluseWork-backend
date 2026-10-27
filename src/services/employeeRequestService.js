@@ -451,9 +451,7 @@ async function getTravelContext(
 
     const actorRole = normalizedRole(actor.role);
 
-    const canRaiseForOthers = ["admin", "hr", "humanresources"].includes(
-      actorRole,
-    );
+    const canRaiseForOthers = ["admin", "hr", "support"].includes(actorRole);
 
     if (
       String(requestedByEmployeeId) !== String(employeeId) &&
@@ -719,7 +717,7 @@ async function createRequest({
     if (
       isRaisingForAnotherEmployee &&
       (normalizedRequestType !== "TRAVEL_BOOKING" ||
-        !["admin", "hr", "humanresources"].includes(creatorRole))
+        !["admin", "hr", "support"].includes(creatorRole))
     ) {
       throw new Error(
         "Only HR or Admin can raise travel requests for another employee.",
@@ -857,7 +855,9 @@ async function createRequest({
     }
 
     const isAdminApprover =
-      String(approver.role || "").toLowerCase() === "admin";
+      String(approver.role || "").toLowerCase() === "admin" ||
+      String(approver.role || "").toLowerCase() === "ceo" ||
+      String(approver.role || "").toLowerCase() === "support";
 
     const currentStatus = isAdminApprover
       ? "PENDING_ADMIN_ACTION"
@@ -1057,7 +1057,7 @@ async function getTravelOperations(orgId, employeeId) {
       "admin",
       "ceo",
       "hr",
-      "humanresources",
+      "support",
       "traveldesk",
       "finance",
       "financeteam",
@@ -1147,7 +1147,7 @@ async function getRequestDetail(orgId, requestId, actorId) {
       "admin",
       "ceo",
       "hr",
-      "humanresources",
+      "support",
       "traveldesk",
       "finance",
       "financeteam",
@@ -2078,7 +2078,10 @@ async function getAssetCandidates(orgId, requestId, actorId) {
       },
     );
 
-    const actorIsAdmin = normalizedRole(actor?.role) === "admin";
+    const actorIsAdmin =
+      normalizedRole(actor?.role) === "admin" ||
+      normalizedRole(actor?.role) === "ceo" ||
+      normalizedRole(actor?.role) === "support";
 
     const actorIsAssigned =
       String(request.current_assignee_id) === String(actorId);
@@ -2482,7 +2485,7 @@ async function bookTravel(
       "admin",
       "ceo",
       "hr",
-      "humanresources",
+      "support",
       "traveldesk",
       "finance",
       "financeteam",
@@ -2494,12 +2497,9 @@ async function bookTravel(
       );
     }
 
-    const canOverrideAssignment = [
-      "admin",
-      "ceo",
-      "hr",
-      "humanresources",
-    ].includes(actorRole);
+    const canOverrideAssignment = ["admin", "ceo", "hr", "support"].includes(
+      actorRole,
+    );
 
     if (
       !canOverrideAssignment &&
@@ -2638,18 +2638,15 @@ async function saveTravelBookingDraft(
       "admin",
       "ceo",
       "hr",
-      "humanresources",
+      "support",
       "traveldesk",
       "finance",
       "financeteam",
     ].includes(actorRole);
 
-    const canOverrideAssignment = [
-      "admin",
-      "ceo",
-      "hr",
-      "humanresources",
-    ].includes(actorRole);
+    const canOverrideAssignment = ["admin", "ceo", "hr", "support"].includes(
+      actorRole,
+    );
 
     if (
       !canSaveDraft ||
@@ -2807,7 +2804,7 @@ async function cancelRequest(
 
     const isPrivilegedTravelOperator =
       request.request_type === "TRAVEL_BOOKING" &&
-      ["admin", "ceo", "hr", "humanresources"].includes(actorRole);
+      ["admin", "ceo", "hr", "support"].includes(actorRole);
 
     const participantIds =
       request.request_type === "TRAVEL_BOOKING"
@@ -3106,7 +3103,7 @@ async function resolveTravelDateChange(
 
     const actorRole = normalizedRole(actor?.role);
 
-    if (!["admin", "ceo", "hr", "humanresources"].includes(actorRole)) {
+    if (!["admin", "ceo", "hr", "support"].includes(actorRole)) {
       throw new Error("Only HR or Admin can resolve a travel date change.");
     }
 
