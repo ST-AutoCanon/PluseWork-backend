@@ -720,6 +720,9 @@ LEFT JOIN (
     (? = 'HR'  
        AND p.\`rank\` IN (3, 4, 5, 6, 7, 8))
     OR
+    (? = 'Support'  
+       AND p.\`rank\` IN (3, 4, 5, 6, 7, 8))
+    OR
     (? = 'General'
        AND p.\`rank\` >= 9)
   GROUP BY

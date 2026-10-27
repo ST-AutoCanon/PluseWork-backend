@@ -1160,7 +1160,7 @@ exports.getPositions = async (role) => {
   if (!role) return [];
 
   try {
-    const params = [role, role, role, role, role, role];
+    const params = [role, role, role, role, role, role, role];
     const [rows] = await db.execute(
       queries.GET_POSITIONS_BY_ROLE_AND_DEPT,
       params,
