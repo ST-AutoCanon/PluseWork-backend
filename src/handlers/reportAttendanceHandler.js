@@ -446,9 +446,7 @@ async function downloadAttendanceReport(req, res) {
     const userRole = user && (user.role || user.user_role);
     const lowerRole = userRole ? String(userRole).toLowerCase() : "";
     const isAdmin =
-      lowerRole === "admin" ||
-      lowerRole === "hr" ||
-      lowerRole === "human resources";
+      lowerRole === "admin" || lowerRole === "hr" || lowerRole === "support";
 
     if (!departmentIdQuery && requesterEmpId && !isAdmin) {
       const derived = await (async (id) => {

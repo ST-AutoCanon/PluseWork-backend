@@ -284,7 +284,7 @@ async function downloadReimbursementsReport(req, res) {
             u.isAdmin ||
             lowerRole === "admin" ||
             lowerRole === "hr" ||
-            lowerRole === "human resources")
+            lowerRole === "support")
         ) || false;
       if (!isAdmin) {
         const derived = await lookupDeptForEmployee(requesterEmpId);
@@ -314,7 +314,7 @@ async function downloadReimbursementsReport(req, res) {
             u.isAdmin ||
             lowerRole === "admin" ||
             lowerRole === "hr" ||
-            lowerRole === "human resources")
+            lowerRole === "support")
         ) || false;
       const isManagerRole = !!(
         u &&

@@ -498,7 +498,7 @@ async function downloadEmployeesReport(req, res) {
           u.isAdmin ||
           userRole === "admin" ||
           userRole === "hr" ||
-          userRole === "human resources" ||
+          userRole === "support" ||
           (Array.isArray(u.roles) && u.roles.includes("admin"))
         );
       }
