@@ -25,7 +25,7 @@ function getRequestRole(req) {
 
 function isAdminOrHr(req) {
   const role = getRequestRole(req);
-  return role === "admin" || role === "hr" || role === "human resources";
+  return role === "admin" || role === "hr" || role === "support";
 }
 
 async function getEmployeeDepartment(employeeId) {

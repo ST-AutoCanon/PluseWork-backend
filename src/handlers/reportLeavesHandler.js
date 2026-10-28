@@ -386,7 +386,7 @@ async function downloadLeavesReport(req, res) {
           u.isAdmin ||
           lowerRole === "admin" ||
           lowerRole === "hr" ||
-          lowerRole === "human resources" ||
+          lowerRole === "support" ||
           (Array.isArray(u.roles) && u.roles.includes("admin"))
         );
       }

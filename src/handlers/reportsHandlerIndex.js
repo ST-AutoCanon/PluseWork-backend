@@ -161,9 +161,7 @@ function wrapHandlerWithDerivedDept(originalHandler) {
       const userRole = user && (user.role || user.user_role);
       const lowerRole = userRole ? String(userRole).toLowerCase() : "";
       const isAdmin =
-        lowerRole === "admin" ||
-        lowerRole === "hr" ||
-        lowerRole === "human resources";
+        lowerRole === "admin" || lowerRole === "hr" || lowerRole === "support";
 
       console.debug(
         "[wrapHandlerWithDerivedDept] userRole:",
