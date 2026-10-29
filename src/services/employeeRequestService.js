@@ -45,6 +45,7 @@ function normalizedRole(role) {
 function travelBandForRole(role) {
   return [
     "admin",
+    "ceo",
     "director",
     "manager",
     "hr",
