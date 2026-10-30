@@ -523,7 +523,13 @@ const sendRecruitmentLetterHandler = async (req, res) => {
       });
     }
 
-    const data = await sendRecruitmentLetterService(id, letterId, orgId);
+    const data = await sendRecruitmentLetterService(
+      id,
+      letterId,
+      orgId,
+      req.body,
+      req.file,
+    );
 
     return res.status(200).json({
       message: "Recruitment letter sent successfully",
