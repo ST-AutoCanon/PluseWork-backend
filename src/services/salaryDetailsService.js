@@ -58,6 +58,12 @@ const ensureColumns = async (orgId, tableName) => {
 
       if (col === "employee_id") {
         columnType = "VARCHAR(50) UNIQUE NOT NULL";
+      } else if (col === "approved_leave_count") {
+        columnType = "INT DEFAULT 0";
+      } else if (col === "lop_days") {
+        columnType = "INT DEFAULT 0";
+      } else if (["late_login_count", "miss_punch_out_count", "less_login_hours_count"].includes(col)) {
+        columnType = "VARCHAR(255) DEFAULT NULL";
       } else if (col === "status") {
         columnType = "VARCHAR(20) DEFAULT 'Pending'";
       } else if (MONETARY_COLUMNS.includes(col)) {

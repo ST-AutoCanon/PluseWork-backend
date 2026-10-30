@@ -34,23 +34,65 @@ const COLUMN_MAPPING = {
   "Employee PF":           "employee_pf",
   "Employer PF":           "employer_pf",
 
-  "ESIC":                  "esic_employee",        // Mapped to esic_employee
-  // "ESIC Employer":      "esic_employer",       // Add if you have separate column in Excel later
+  "ESIC":                  "esic_employee",
+  "ESIC Employee":         "esic_employee",
+  "ESIC Employer":         "esic_employer",
 
   "Gratuity":              "gratuity",
   "Professional Tax":      "professional_tax",
   "TDS":                   "tds",
 
-  "Insurance":             "insurance_employee",   // Mapped to insurance_employee
+  "Insurance":             "insurance_employee",
+  "Insurance Employee":    "insurance_employee",
+  "Insurance Employer":    "insurance_employer",
+  "Final CTC":             "final_ctc",
+  "Base Net Salary":       "base_net_salary",
 
   "LOP Days":              "lop_days",
+  "Approved Leave Count (LOP Days)": "approved_leave_count",
   "LOP Deduction":         "lop_deduction",
+  "Late Login Eligible Count (Total Violations)": "late_login_count",
+  "Late Login Amount":     "late_login_deduction",
+  "Miss Punch Out Eligible Count (Total Violations)": "miss_punch_out_count",
+  "Miss Punch Out Amount": "miss_punch_out_deduction",
+  "Less Login Hours Eligible Count (Total Violations)": "less_login_hours_count",
+  "Less Login Hours Amount": "less_login_hours_deduction",
   "Gross Salary":          "gross_salary",
   "Net Salary":            "net_salary",
+  "Net Salary After Attendance Deductions": "net_salary_after_attendance_deduction",
 };
 
 function normalizeHeader(header) {
   return (header || '').toString().trim();
+}
+
+function toSafeColumnName(header) {
+  let name = String(header || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 64);
+  if (!name || /^\d/.test(name)) name = `column_${name || 'value'}`;
+  if (name === 'id') name = 'custom_id';
+  return name;
+}
+
+async function ensureUploadColumns(connection, tableName, headers, jsonData) {
+  const [existingRows] = await connection.query(`SHOW COLUMNS FROM ${tableName}`);
+  const existing = new Set(existingRows.map((row) => row.Field));
+
+  for (const header of headers) {
+    const normHeader = normalizeHeader(header);
+    const dbCol = COLUMN_MAPPING[normHeader] || toSafeColumnName(normHeader);
+    if (existing.has(dbCol)) continue;
+
+    const values = jsonData.map((row) => row[header]).filter((value) => value !== null && value !== undefined && String(value).trim() !== '');
+    const numeric = values.length > 0 && values.every((value) => /^[-+]?\d+(\.\d+)?$/.test(String(value).trim().replace(/,/g, '')));
+    const columnType = numeric ? 'DECIMAL(15,2) DEFAULT NULL' : 'TEXT NULL';
+    await connection.query(`ALTER TABLE ${tableName} ADD COLUMN \`${dbCol}\` ${columnType}`);
+    existing.add(dbCol);
+  }
 }
 
 async function uploadSalaryData(req, res) {
@@ -110,6 +152,15 @@ async function uploadSalaryData(req, res) {
           final_ctc DECIMAL(15,2) DEFAULT 0.00,
           lop_days INT DEFAULT 0,
           lop_deduction DECIMAL(12,2) DEFAULT 0.00,
+          approved_leave_count INT DEFAULT 0,
+          late_login_count VARCHAR(255) DEFAULT NULL,
+          late_login_deduction DECIMAL(15,2) DEFAULT 0.00,
+          miss_punch_out_count VARCHAR(255) DEFAULT NULL,
+          miss_punch_out_deduction DECIMAL(15,2) DEFAULT 0.00,
+          less_login_hours_count VARCHAR(255) DEFAULT NULL,
+          less_login_hours_deduction DECIMAL(15,2) DEFAULT 0.00,
+          base_net_salary DECIMAL(15,2) DEFAULT 0.00,
+          net_salary_after_attendance_deduction DECIMAL(15,2) DEFAULT 0.00,
           gross_salary DECIMAL(15,2) DEFAULT 0.00,
           net_salary DECIMAL(15,2) DEFAULT 0.00,
           payslip_generated INT NOT NULL DEFAULT 0,
@@ -143,6 +194,8 @@ async function uploadSalaryData(req, res) {
       return res.status(400).json({ error: "No data rows found in the file" });
     }
 
+    await ensureUploadColumns(connection, tableName, headers, jsonData);
+
     const values = [];
     const errors = [];
 
@@ -152,16 +205,17 @@ async function uploadSalaryData(req, res) {
 
       Object.keys(row).forEach(excelHeader => {
         const normHeader = normalizeHeader(excelHeader);
-        const dbCol = COLUMN_MAPPING[normHeader];
+        const dbCol = COLUMN_MAPPING[normHeader] || toSafeColumnName(normHeader);
 
         if (dbCol) {
           let val = row[excelHeader];
           if (typeof val === 'string') val = val.trim() || null;
 
-          if (dbCol === 'lop_days') {
+          if (dbCol === 'lop_days' || dbCol === 'approved_leave_count') {
             val = val ? parseInt(val, 10) || 0 : 0;
-          } else if (dbCol !== 'employee_id' && dbCol !== 'full_name') {
-            val = val ? parseFloat(val) || 0 : 0;
+          } else if (COLUMN_MAPPING[normHeader] && !['employee_id', 'full_name', 'late_login_count', 'miss_punch_out_count', 'less_login_hours_count'].includes(dbCol)) {
+            const numericVal = typeof val === 'string' ? val.replace(/,/g, '').match(/^[-+]?\d+(\.\d+)?/)?.[0] : val;
+            val = numericVal !== null && numericVal !== undefined && numericVal !== '' ? parseFloat(numericVal) || 0 : val;
           }
 
           mappedRow[dbCol] = val;
