@@ -169,7 +169,20 @@ async function sendWithRetries(payload, retries = MAX_RETRIES) {
     } catch (err) {
       lastErr = err;
 
-      if (attempt > retries) break;
+      const errorCode = err?.response?.body?.code || err?.body?.code;
+      const status = Number(
+        err?.status || err?.response?.status || err?.response?.statusCode,
+      );
+      const isPermanentClientError =
+        status >= 400 && status < 500 && status !== 429;
+
+      if (
+        errorCode === "MESSAGE_SIZE_EXCEEDED" ||
+        isPermanentClientError ||
+        attempt > retries
+      ) {
+        break;
+      }
 
       const wait = RETRY_BASE_MS * Math.pow(2, attempt - 1);
       console.warn(

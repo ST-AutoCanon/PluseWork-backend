@@ -60,6 +60,7 @@ const ALLOWED_ONBOARDING_DOCUMENTS = [
   "SALARY_SLIPS",
   "OTHER",
 ];
+const MAX_RECRUITMENT_LETTER_ATTACHMENT_BYTES = 14_000_000;
 
 async function getPublicOnboardingFormService(orgId, rawToken) {
   const pool = await getTenantPoolForOrgId(orgId);
@@ -675,6 +676,8 @@ async function sendRecruitmentLetterService(
   candidateId,
   recruitmentLetterId,
   orgId,
+  emailPayload = {},
+  compressedAttachment = null,
 ) {
   const pool = await getTenantPoolForOrgId(orgId);
 
@@ -691,6 +694,10 @@ async function sendRecruitmentLetterService(
     err.code = "NOT_FOUND";
     throw err;
   }
+
+  const documentType = String(document.document_type || "")
+    .trim()
+    .toUpperCase();
 
   const [candidateRows] = await pool.query(GET_RECRUITMENT_CANDIDATE_BY_ID, [
     candidateId,
@@ -710,14 +717,14 @@ async function sendRecruitmentLetterService(
   }
 
   if (
-    document.document_type === "OFFER_LETTER" &&
+    documentType === "OFFER_LETTER" &&
     candidate.offer_decision === "Accepted"
   ) {
     throw new Error("The candidate has already accepted the offer.");
   }
 
   if (
-    document.document_type === "OFFER_LETTER" &&
+    documentType === "OFFER_LETTER" &&
     candidate.status === "Rejected"
   ) {
     throw new Error("Rejected candidates cannot receive an offer letter.");
@@ -743,26 +750,70 @@ async function sendRecruitmentLetterService(
     attachmentName,
   );
 
-  const attachmentBuffer = await fs.readFile(attachmentPath);
+  let attachmentBuffer;
+  if (compressedAttachment?.buffer) {
+    attachmentBuffer = compressedAttachment.buffer;
+    if (
+      compressedAttachment.mimetype !== "application/pdf" ||
+      attachmentBuffer.subarray(0, 5).toString() !== "%PDF-"
+    ) {
+      throw new Error("The compressed email attachment is not a valid PDF.");
+    }
+  } else {
+    let attachmentStats;
+    try {
+      attachmentStats = await fs.stat(attachmentPath);
+    } catch (error) {
+      if (error.code === "ENOENT") {
+        throw new Error(
+          "The letter PDF is missing. Edit and save the letter again to regenerate it.",
+        );
+      }
+      throw error;
+    }
+
+    if (attachmentStats.size > MAX_RECRUITMENT_LETTER_ATTACHMENT_BYTES) {
+      const err = new Error(
+        "The letter PDF exceeds the 14 MB email attachment limit. Compress the PDF before sending.",
+      );
+      err.code = "LETTER_ATTACHMENT_TOO_LARGE";
+      throw err;
+    }
+
+    attachmentBuffer = await fs.readFile(attachmentPath);
+  }
+
+  if (attachmentBuffer.length > MAX_RECRUITMENT_LETTER_ATTACHMENT_BYTES) {
+    throw new Error("The compressed email attachment must be 14 MB or smaller.");
+  }
 
   const organization = await getOrganizationById(orgId);
 
   let subject;
   let htmlBody;
   let textBody;
+  let emailTitle;
+  let emailPreheader;
+  let offerResponseLink = null;
+  let ctaLabel = null;
+  let ctaUrl = null;
 
   let rawOfferToken = null;
   let offerTokenHash = null;
   let offerTokenExpiresAt = null;
 
-  if (document.document_type === "OFFER_LETTER") {
+  if (documentType === "OFFER_LETTER") {
     rawOfferToken = generateOfferResponseToken();
     offerTokenHash = hashOfferResponseToken(rawOfferToken);
     offerTokenExpiresAt = getOfferResponseTokenExpiry();
 
-    const responseLink = buildOfferResponseLink(orgId, rawOfferToken);
+    offerResponseLink = buildOfferResponseLink(orgId, rawOfferToken);
+    ctaLabel = "Review & Respond to Offer";
+    ctaUrl = offerResponseLink;
 
     subject = `${organization?.name || "People & Culture"} | Your Offer Letter | ${candidate.name}`;
+    emailTitle = "Your Offer Letter";
+    emailPreheader = "Your offer letter is attached and ready for review.";
 
     textBody = `Dear ${candidate.name || "Candidate"},
 
@@ -775,16 +826,10 @@ If you have questions about the offer, please contact our HR team.
 Warm regards,
 People & Culture Team
 ${organization?.name || "People & Culture"}`;
-
-    htmlBody = buildEmailHtml(textBody, {
-      organizationName: organization?.name || "People & Culture",
-      title: "Your Offer Letter",
-      preheader: "Your offer letter is attached and ready for review.",
-      ctaLabel: "Review & Respond to Offer",
-      ctaUrl: responseLink,
-    });
   } else {
     subject = `${organization?.name || "People & Culture"} | Your Appointment Letter | ${candidate.name}`;
+    emailTitle = "Your Appointment Letter";
+    emailPreheader = "Your appointment letter is attached for your records.";
 
     textBody = `Dear ${candidate.name || "Candidate"},
 
@@ -797,13 +842,23 @@ If you have questions or need clarification, please contact our HR team.
 Warm regards,
 People & Culture Team
 ${organization?.name || "People & Culture"}`;
-
-    htmlBody = buildEmailHtml(textBody, {
-      organizationName: organization?.name || "People & Culture",
-      title: "Your Appointment Letter",
-      preheader: "Your appointment letter is attached for your records.",
-    });
   }
+
+  subject = String(emailPayload.email_subject || "").trim() || subject;
+  textBody = String(emailPayload.email_body || "").trim() || textBody;
+  htmlBody = buildEmailHtml(textBody, {
+    organizationName: organization?.name || "People & Culture",
+    title: emailTitle,
+    preheader: emailPreheader,
+    ctaLabel,
+    ctaUrl,
+  });
+  const emailTextContent = [
+    textBody,
+    ctaUrl ? `${ctaLabel}: ${ctaUrl}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 
   await sendWithRetries({
     sender: {
@@ -818,11 +873,11 @@ ${organization?.name || "People & Culture"}`;
     ],
     subject,
     htmlContent: htmlBody,
-    textContent: textBody,
+    textContent: emailTextContent,
     attachment: [
       {
         name:
-          document.document_type === "OFFER_LETTER"
+          documentType === "OFFER_LETTER"
             ? "Offer-Letter.pdf"
             : "Appointment-Letter.pdf",
         content: attachmentBuffer.toString("base64"),
@@ -837,13 +892,20 @@ ${organization?.name || "People & Culture"}`;
     orgId,
   ]);
 
-  if (document.document_type === "OFFER_LETTER") {
-    await pool.query(SET_OFFER_ACCEPTANCE_RESPONSE_TOKEN, [
+  let candidateStatus = candidate.status;
+  if (documentType === "OFFER_LETTER") {
+    const [statusUpdate] = await pool.query(SET_OFFER_ACCEPTANCE_RESPONSE_TOKEN, [
       offerTokenHash,
       offerTokenExpiresAt,
       candidateId,
       orgId,
     ]);
+    if (!statusUpdate.affectedRows) {
+      throw new Error(
+        "The offer email was sent, but the candidate could not be moved to Offer Acceptance. Refresh the candidate and verify the status.",
+      );
+    }
+    candidateStatus = "Offer Acceptance";
   }
 
   const [updatedRows] = await pool.query(GET_RECRUITMENT_LETTER_BY_ID, [
@@ -854,6 +916,7 @@ ${organization?.name || "People & Culture"}`;
 
   return {
     letter: updatedRows[0] ? mapRecruitmentLetterRow(updatedRows[0]) : null,
+    candidateStatus,
   };
 }
 
@@ -1722,7 +1785,7 @@ async function sendRecruitmentStatusEmail({
   newStatus,
   previousStatus,
   offerDecision,
-  sendEmail = true,
+  sendEmail = false,
   emailSubject = null,
   emailBody = null,
   offerResponseLink = null,
@@ -1865,7 +1928,7 @@ async function updateRecruitmentService(id, payload, resumeFile, orgId) {
       shouldNotifyStatus &&
       (Object.prototype.hasOwnProperty.call(payload, "send_status_email")
         ? toBool(payload.send_status_email)
-        : true);
+        : false);
 
     let offerResponseLink = null;
     let onboardingFormLink = null;
@@ -1962,6 +2025,7 @@ async function advanceRecruitmentService(id, payload, orgId) {
       newStatus: nextStatus || existing.status || "Applied",
       previousStatus: existing.status || "Applied",
       offerDecision: payload.offer_decision,
+      sendEmail: toBool(payload.send_status_email),
       offerResponseLink,
       onboardingFormLink,
     });

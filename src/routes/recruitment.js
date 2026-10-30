@@ -152,6 +152,21 @@ const onboardingUpload = multer({
   },
 });
 
+const recruitmentLetterUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 14_000_000,
+    files: 1,
+  },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype !== "application/pdf") {
+      return cb(new Error("Attach a compressed PDF file."));
+    }
+
+    cb(null, true);
+  },
+});
+
 router.post("/recruitment", upload.single("resume"), addRecruitmentHandler);
 router.get("/recruitment", getRecruitmentHandler);
 
@@ -181,7 +196,7 @@ router.put(
 
 router.post(
   "/recruitment/:id/letters/:letterId/send",
-  express.json(),
+  recruitmentLetterUpload.single("letter_pdf"),
   sendRecruitmentLetterHandler,
 );
 
