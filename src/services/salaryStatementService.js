@@ -20,26 +20,33 @@ const COLUMN_MAPPING = {
 
   "Name":                  "full_name",
   "Full Name":             "full_name",
+  "Employee Name":         "full_name",
 
   "Annual CTC":            "annual_ctc",
   "Basic Salary":          "basic_salary",
   "HRA":                   "hra",
   "LTA":                   "lta",
   "Other Allowances":      "other_allowances",
+  "Allowance":             "other_allowances",
+  "Special Allowance":     "other_allowances",
   "Incentives":            "incentives",
   "Overtime":              "overtime",
   "Statutory Bonus":       "statutory_bonus",
   "Bonus":                 "bonus",
   "Advance Recovery":      "advance_recovery",
+  "Salary Advance":        "advance_recovery",
   "Employee PF":           "employee_pf",
   "Employer PF":           "employer_pf",
+  "PF":                    "employee_pf",
 
   "ESIC":                  "esic_employee",
   "ESIC Employee":         "esic_employee",
   "ESIC Employer":         "esic_employer",
+  "ESI":                   "esic_employee",
 
   "Gratuity":              "gratuity",
   "Professional Tax":      "professional_tax",
+  "PT":                    "professional_tax",
   "TDS":                   "tds",
 
   "Insurance":             "insurance_employee",
@@ -60,10 +67,85 @@ const COLUMN_MAPPING = {
   "Gross Salary":          "gross_salary",
   "Net Salary":            "net_salary",
   "Net Salary After Attendance Deductions": "net_salary_after_attendance_deduction",
+  "Working Days":          "working_days",
+  "Total Working Days":    "working_days",
+  "Approved Leave Count":  "approved_leave_count",
+  "No of leaves":          "lop_days",
+  "UAN Number":            "uan_number",
+  "UAN No":                "uan_number",
+  "PAN Number":            "pan_number",
+  "ESI Number":            "esi_number",
+  "PF Number":             "pf_number",
+  "Date of Joining":       "date_of_joining",
+  "Joining Date":          "date_of_joining",
+  "Account No":            "account_number",
+  "Gender":                "gender",
+  "Designation":           "designation",
 };
 
 function normalizeHeader(header) {
   return (header || '').toString().trim();
+}
+
+function normalizeHeaderKey(header) {
+  return normalizeHeader(header).toLowerCase().replace(/\s+/g, ' ');
+}
+
+function getMappedColumn(header) {
+  const key = normalizeHeaderKey(header);
+  const entry = Object.entries(COLUMN_MAPPING).find(
+    ([excelHeader]) => normalizeHeaderKey(excelHeader) === key
+  );
+  return entry ? entry[1] : null;
+}
+
+function parseExcelValue(header, dbColumn, value) {
+  if (value === null || value === undefined || String(value).trim() === '') return null;
+
+  if (typeof value === 'string') {
+    value = value.trim();
+  }
+
+  if (['lop_days', 'approved_leave_count', 'working_days'].includes(dbColumn)) {
+    const integerValue = parseInt(String(value).replace(/,/g, '').match(/[-+]?\d+/)?.[0], 10);
+    return Number.isFinite(integerValue) ? integerValue : 0;
+  }
+
+  const textColumns = [
+    'employee_id',
+    'full_name',
+    'date_of_joining',
+    'account_number',
+    'uan_number',
+    'pan_number',
+    'esi_number',
+    'pf_number',
+    'gender',
+    'designation',
+    'late_login_count',
+    'miss_punch_out_count',
+    'less_login_hours_count',
+    'status',
+    'payslip_generation'
+  ];
+  if (!textColumns.includes(dbColumn)) {
+    const mappedColumn = getMappedColumn(header);
+    if (mappedColumn) {
+      const numericText = typeof value === 'string'
+        ? value.replace(/,/g, '').match(/^[-+]?\d+(?:\.\d+)?/)?.[0]
+        : value;
+      if (numericText !== null && numericText !== undefined && numericText !== '') {
+        const numericValue = parseFloat(numericText);
+        if (Number.isFinite(numericValue)) return numericValue;
+      }
+    } else {
+      return typeof value === 'number' || /^[-+]?\d+(?:\.\d+)?$/.test(String(value).replace(/,/g, ''))
+        ? parseFloat(String(value).replace(/,/g, ''))
+        : value;
+    }
+  }
+
+  return String(value).trim();
 }
 
 function toSafeColumnName(header) {
@@ -84,11 +166,14 @@ async function ensureUploadColumns(connection, tableName, headers, jsonData) {
 
   for (const header of headers) {
     const normHeader = normalizeHeader(header);
-    const dbCol = COLUMN_MAPPING[normHeader] || toSafeColumnName(normHeader);
+    const dbCol = getMappedColumn(normHeader) || toSafeColumnName(normHeader);
     if (existing.has(dbCol)) continue;
 
     const values = jsonData.map((row) => row[header]).filter((value) => value !== null && value !== undefined && String(value).trim() !== '');
-    const numeric = values.length > 0 && values.every((value) => /^[-+]?\d+(\.\d+)?$/.test(String(value).trim().replace(/,/g, '')));
+    const numeric = values.length > 0 && values.every((value) => {
+      const text = String(value).trim().replace(/,/g, '');
+      return /^[-+]?\d+(\.\d+)?/.test(text);
+    });
     const columnType = numeric ? 'DECIMAL(15,2) DEFAULT NULL' : 'TEXT NULL';
     await connection.query(`ALTER TABLE ${tableName} ADD COLUMN \`${dbCol}\` ${columnType}`);
     existing.add(dbCol);
@@ -110,8 +195,8 @@ async function uploadSalaryData(req, res) {
     const tenantPool = await getTenantPoolByOrgId(orgId);
     connection = await tenantPool.getConnection();
 
-    const month = (req.body.month || '').toLowerCase().trim();
-    const year = (req.body.year || '').trim();
+    let month = (req.body.month || '').toLowerCase().trim();
+    let year  = (req.body.year || '').trim();
 
     if (!month || !year || !/^[a-z]{3}$/.test(month) || !/^\d{4}$/.test(year)) {
       return res.status(400).json({ error: "Missing or invalid month/year" });
@@ -205,20 +290,10 @@ async function uploadSalaryData(req, res) {
 
       Object.keys(row).forEach(excelHeader => {
         const normHeader = normalizeHeader(excelHeader);
-        const dbCol = COLUMN_MAPPING[normHeader] || toSafeColumnName(normHeader);
+        const dbCol = getMappedColumn(normHeader) || toSafeColumnName(normHeader);
 
         if (dbCol) {
-          let val = row[excelHeader];
-          if (typeof val === 'string') val = val.trim() || null;
-
-          if (dbCol === 'lop_days' || dbCol === 'approved_leave_count') {
-            val = val ? parseInt(val, 10) || 0 : 0;
-          } else if (COLUMN_MAPPING[normHeader] && !['employee_id', 'full_name', 'late_login_count', 'miss_punch_out_count', 'less_login_hours_count'].includes(dbCol)) {
-            const numericVal = typeof val === 'string' ? val.replace(/,/g, '').match(/^[-+]?\d+(\.\d+)?/)?.[0] : val;
-            val = numericVal !== null && numericVal !== undefined && numericVal !== '' ? parseFloat(numericVal) || 0 : val;
-          }
-
-          mappedRow[dbCol] = val;
+          mappedRow[dbCol] = parseExcelValue(normHeader, dbCol, row[excelHeader]);
         }
       });
 
@@ -241,28 +316,46 @@ async function uploadSalaryData(req, res) {
       return res.status(400).json({ error: "No valid rows to insert" });
     }
 
-    // Insert Query
-    const columns = Object.keys(values[0]);
-    const placeholders = columns.map(() => '?').join(', ');
-    const columnList = columns.map(c => `\`${c}\``).join(', ');
+    const columns = [];
+    for (const row of values) {
+      for (const column of Object.keys(row)) {
+        if (!columns.includes(column)) columns.push(column);
+      }
+    }
 
-    const sql = `
-      INSERT INTO ${tableName} (${columnList})
-      VALUES ${values.map(() => `(${placeholders})`).join(', ')}
-      ON DUPLICATE KEY UPDATE
-      ${columns.map(c => `\`${c}\` = VALUES(\`${c}\`)`).join(', ')}
-    `;
+    await connection.beginTransaction();
+    try {
+      for (const row of values) {
+        const rowColumns = columns.filter((column) => Object.prototype.hasOwnProperty.call(row, column));
+        const placeholders = rowColumns.map(() => '?').join(', ');
+        const columnList = rowColumns.map((column) => `\`${column}\``).join(', ');
+        const updateList = rowColumns
+          .filter((column) => column !== 'employee_id')
+          .map((column) => `\`${column}\` = VALUES(\`${column}\`)`)
+          .join(', ');
+        const rowValues = rowColumns.map((column) => row[column] ?? null);
 
-    const flatValues = [];
-    values.forEach(row => {
-      columns.forEach(col => flatValues.push(row[col]));
-    });
+        const sql = `
+          INSERT INTO ${tableName} (${columnList})
+          VALUES (${placeholders})
+          ON DUPLICATE KEY UPDATE
+          ${updateList || '`employee_id` = VALUES(`employee_id`)'}
+        `;
 
-    await connection.query(sql, flatValues);
+        await connection.query(sql, rowValues);
+      }
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    }
 
     return res.status(200).json({
       message: `Successfully processed ${values.length} employee records for ${month.toUpperCase()} ${year}`,
-      count: values.length
+      count: values.length,
+      month,
+      year,
+      tableName: tableName.replace(/`/g, '')
     });
 
   } catch (err) {
