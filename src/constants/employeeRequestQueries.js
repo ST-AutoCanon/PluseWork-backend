@@ -5,6 +5,7 @@ module.exports = {
       e.org_id,
       e.status,
       e.phone_number,
+      TIMESTAMPDIFF(YEAR, e.dob, CURDATE()) AS age,
       p.aadhaar_number,
       CONCAT(
         COALESCE(e.first_name, ''),
@@ -270,7 +271,8 @@ module.exports = {
       COALESCE(e.first_name, ''),
       ' ',
       COALESCE(e.last_name, '')
-    ) AS employee_name
+    ) AS employee_name,
+    TIMESTAMPDIFF(YEAR, e.dob, CURDATE()) AS age
 
   FROM employee_requests r
 
