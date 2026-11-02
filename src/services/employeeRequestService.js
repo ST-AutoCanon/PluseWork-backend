@@ -471,6 +471,7 @@ async function getTravelContext(
       cadreBand: travelBandForRole(targetEmployee.role),
       governmentId: targetEmployee.aadhaar_number || "",
       mobileNumber: targetEmployee.phone_number || "",
+      age: targetEmployee.age ?? null,
     };
   } finally {
     conn.release();
@@ -808,6 +809,33 @@ async function createRequest({
             .map((item) => String(item || "").trim())
             .filter(Boolean)
         : [];
+
+      if (details?.travelerDetails !== undefined) {
+        if (
+          !Array.isArray(details.travelerDetails) ||
+          details.travelerDetails.length !== rawTravelers.length
+        ) {
+          throw new Error("Traveler details do not match the traveler list.");
+        }
+
+        details.travelerDetails.forEach((travelerDetail, index) => {
+          if (
+            String(travelerDetail?.traveler || "").trim() !==
+            rawTravelers[index]
+          ) {
+            throw new Error("Traveler details do not match the traveler list.");
+          }
+
+          if (travelerDetail.employeeId) return;
+
+          const age = Number(travelerDetail.age);
+          if (!Number.isInteger(age) || age < 0 || age > 120) {
+            throw new Error(
+              "Enter a valid age between 0 and 120 for each external traveler.",
+            );
+          }
+        });
+      }
 
       // The main employee does not need a second participant row.
       const candidateIds = [
@@ -1190,6 +1218,17 @@ async function getRequestDetail(orgId, requestId, actorId) {
     } else {
       details = request.details_json;
     }
+  }
+
+  if (
+    request.request_type === "TRAVEL_BOOKING" &&
+    (details.primaryTravelerAge === null ||
+      details.primaryTravelerAge === undefined)
+  ) {
+    details = {
+      ...details,
+      primaryTravelerAge: requester?.age ?? null,
+    };
   }
 
   const publicAttachments = (attachments || []).map((attachment) => ({

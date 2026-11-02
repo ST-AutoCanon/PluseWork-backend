@@ -8,7 +8,8 @@ const getEmployees = async (orgId) => {
   try {
     const tenantPool = await getTenantPoolByOrgId(orgId);
 
-    const [rows] = await tenantPool.query(`
+    const [rows] = await tenantPool.query(
+      `
       SELECT 
         employee_id AS id,           -- alias as 'id' for frontend compatibility
         first_name, 
@@ -16,18 +17,23 @@ const getEmployees = async (orgId) => {
         last_name, 
         email,
         phone_number,
+        TIMESTAMPDIFF(YEAR, dob, CURDATE()) AS age,
         status
       FROM employees 
       WHERE org_id = ? 
         AND status = 'Active'
       ORDER BY first_name, last_name
-    `, [orgId]);
+    `,
+      [orgId],
+    );
 
     console.log(`✅ [SERVICE] Successfully fetched ${rows.length} employees`);
     return rows;
-
   } catch (err) {
-    console.error("❌ [SERVICE] Database error:", err.sqlMessage || err.message);
+    console.error(
+      "❌ [SERVICE] Database error:",
+      err.sqlMessage || err.message,
+    );
     throw err;
   }
 };
@@ -37,7 +43,8 @@ const getFormResponsesWithNames = async (orgId, formId) => {
   try {
     const tenantPool = await getTenantPoolByOrgId(orgId);
 
-    const [rows] = await tenantPool.query(`
+    const [rows] = await tenantPool.query(
+      `
    SELECT 
   r.*,
 
@@ -67,17 +74,18 @@ LEFT JOIN employees s
 
 WHERE r.form_id = ?
 ORDER BY r.submitted_at DESC;
-    `, [formId]);
+    `,
+      [formId],
+    );
 
     console.log(`✅ [SERVICE] Fetched ${rows.length} responses`);
     return rows;
-
   } catch (err) {
     console.error("❌ [SERVICE] getFormResponsesWithNames error:", err.message);
     throw err;
   }
 };
-module.exports = { getEmployees 
-  ,  getFormResponsesWithNames   // ✅ add this
-
+module.exports = {
+  getEmployees,
+  getFormResponsesWithNames, // ✅ add this
 };

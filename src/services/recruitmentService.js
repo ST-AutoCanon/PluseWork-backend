@@ -280,6 +280,12 @@ function escapeEmailHtml(value = "") {
     .replace(/'/g, "&#39;");
 }
 
+function normalizeRecruitmentDocumentType(value) {
+  return String(value || "")
+    .trim()
+    .toUpperCase();
+}
+
 function buildEmailHtml(emailBody = "", options = {}) {
   const {
     organizationName = process.env.PLATFORM_NAME || "People & Culture",
@@ -323,8 +329,10 @@ function buildEmailHtml(emailBody = "", options = {}) {
         <tr>
           <td align="center" style="padding:12px 0 26px;">
             <a
+              role="button"
               href="${escapeEmailHtml(ctaUrl)}"
               target="_blank"
+              rel="noopener noreferrer"
               style="
                 display:inline-block;
                 padding:15px 27px;
@@ -337,6 +345,23 @@ function buildEmailHtml(emailBody = "", options = {}) {
                 border-radius:7px;
               "
             >${escapeEmailHtml(ctaLabel)}</a>
+          </td>
+        </tr>
+        <tr>
+          <td align="center" style="
+            padding:0 24px 24px;
+            color:#475569;
+            font-family:Arial,Helvetica,sans-serif;
+            font-size:12px;
+            line-height:1.6;
+          ">
+            If the button does not work,
+            <a
+              href="${escapeEmailHtml(ctaUrl)}"
+              target="_blank"
+              rel="noopener noreferrer"
+              style="color:#1d4ed8;"
+            >open this secure form</a>.
           </td>
         </tr>
       `
@@ -567,7 +592,9 @@ async function createRecruitmentLetterService(
       throw err;
     }
 
-    const documentType = String(payload.document_type || "").trim();
+    const documentType = normalizeRecruitmentDocumentType(
+      payload.document_type,
+    );
 
     if (!["OFFER_LETTER", "APPOINTMENT_LETTER"].includes(documentType)) {
       const err = new Error("Invalid recruitment document type");
@@ -647,7 +674,13 @@ async function updateRecruitmentLetterService(
     throw new Error("letterhead_id is required");
   }
 
-  const documentType = String(payload.document_type || "").trim();
+  const documentType = normalizeRecruitmentDocumentType(payload.document_type);
+
+  if (!["OFFER_LETTER", "APPOINTMENT_LETTER"].includes(documentType)) {
+    const err = new Error("Invalid recruitment document type");
+    err.code = "INVALID_DOCUMENT_TYPE";
+    throw err;
+  }
 
   const [result] = await pool.query(UPDATE_RECRUITMENT_LETTER, [
     letterheadId,
@@ -695,9 +728,15 @@ async function sendRecruitmentLetterService(
     throw err;
   }
 
-  const documentType = String(document.document_type || "")
-    .trim()
-    .toUpperCase();
+  const documentType = normalizeRecruitmentDocumentType(
+    document.recruitment_document_type || document.document_type,
+  );
+
+  if (!["OFFER_LETTER", "APPOINTMENT_LETTER"].includes(documentType)) {
+    const err = new Error("Invalid recruitment document type");
+    err.code = "INVALID_DOCUMENT_TYPE";
+    throw err;
+  }
 
   const [candidateRows] = await pool.query(GET_RECRUITMENT_CANDIDATE_BY_ID, [
     candidateId,
@@ -723,10 +762,7 @@ async function sendRecruitmentLetterService(
     throw new Error("The candidate has already accepted the offer.");
   }
 
-  if (
-    documentType === "OFFER_LETTER" &&
-    candidate.status === "Rejected"
-  ) {
+  if (documentType === "OFFER_LETTER" && candidate.status === "Rejected") {
     throw new Error("Rejected candidates cannot receive an offer letter.");
   }
 
@@ -784,7 +820,9 @@ async function sendRecruitmentLetterService(
   }
 
   if (attachmentBuffer.length > MAX_RECRUITMENT_LETTER_ATTACHMENT_BYTES) {
-    throw new Error("The compressed email attachment must be 14 MB or smaller.");
+    throw new Error(
+      "The compressed email attachment must be 14 MB or smaller.",
+    );
   }
 
   const organization = await getOrganizationById(orgId);
@@ -853,10 +891,7 @@ ${organization?.name || "People & Culture"}`;
     ctaLabel,
     ctaUrl,
   });
-  const emailTextContent = [
-    textBody,
-    ctaUrl ? `${ctaLabel}: ${ctaUrl}` : "",
-  ]
+  const emailTextContent = [textBody, ctaUrl ? `${ctaLabel}: ${ctaUrl}` : ""]
     .filter(Boolean)
     .join("\n\n");
 
@@ -876,10 +911,9 @@ ${organization?.name || "People & Culture"}`;
     textContent: emailTextContent,
     attachment: [
       {
-        name:
-          documentType === "OFFER_LETTER"
-            ? "Offer-Letter.pdf"
-            : "Appointment-Letter.pdf",
+        name: `${
+          documentType === "OFFER_LETTER" ? "Offer" : "Appointment"
+        }-Letter.pdf`,
         content: attachmentBuffer.toString("base64"),
       },
     ],
@@ -894,12 +928,10 @@ ${organization?.name || "People & Culture"}`;
 
   let candidateStatus = candidate.status;
   if (documentType === "OFFER_LETTER") {
-    const [statusUpdate] = await pool.query(SET_OFFER_ACCEPTANCE_RESPONSE_TOKEN, [
-      offerTokenHash,
-      offerTokenExpiresAt,
-      candidateId,
-      orgId,
-    ]);
+    const [statusUpdate] = await pool.query(
+      SET_OFFER_ACCEPTANCE_RESPONSE_TOKEN,
+      [offerTokenHash, offerTokenExpiresAt, candidateId, orgId],
+    );
     if (!statusUpdate.affectedRows) {
       throw new Error(
         "The offer email was sent, but the candidate could not be moved to Offer Acceptance. Refresh the candidate and verify the status.",
@@ -1807,14 +1839,27 @@ async function sendRecruitmentStatusEmail({
 
   const subject = emailSubject || defaults.subject;
   const body = emailBody || defaults.body;
+  const normalizedStatus = String(newStatus || "")
+    .trim()
+    .toLowerCase();
 
   let ctaLabel = null;
   let ctaUrl = null;
 
-  if (newStatus === "Offer Acceptance" && offerResponseLink) {
+  if (normalizedStatus === "offer acceptance") {
+    if (!offerResponseLink) {
+      throw new Error(
+        "Offer response link is missing; status email was not sent.",
+      );
+    }
     ctaLabel = "Review & Respond to Offer";
     ctaUrl = offerResponseLink;
-  } else if (newStatus === "Onboarding" && onboardingFormLink) {
+  } else if (normalizedStatus === "onboarding") {
+    if (!onboardingFormLink) {
+      throw new Error(
+        "Onboarding form link is missing; status email was not sent.",
+      );
+    }
     ctaLabel = "Submit Onboarding Documents";
     ctaUrl = onboardingFormLink;
   }
@@ -2588,6 +2633,10 @@ module.exports = {
   createRecruitmentLetterService,
   updateRecruitmentLetterService,
   sendRecruitmentLetterService,
+  getPublicOnboardingFormService,
+  submitOnboardingDocumentsService,
+  getRecruitmentOnboardingDocumentsService,
+  getRecruitmentOnboardingDocumentByIdService,
   issueOnboardingDocumentsToken,
   getRecruitmentStatusEmailContent,
   sendRecruitmentStatusEmail,
