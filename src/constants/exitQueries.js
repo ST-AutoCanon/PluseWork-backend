@@ -301,11 +301,18 @@ GET_MY_TEAM_ALL_REQUESTS: `
 GET_ALL_ORG_EXIT_REQUESTS: `
   SELECT 
     eer.*,
-    CONCAT(e.first_name, ' ', e.last_name) AS employee_name
+    CONCAT(e.first_name, ' ', e.last_name) AS employee_name,
+    ep.supervisor_id AS assigned_supervisor_id,
+    NULLIF(TRIM(CONCAT_WS(' ', sup.first_name, sup.last_name)), '') AS supervisor_name
   FROM employee_exit_requests1 eer
   JOIN employees e 
     ON eer.employee_id = e.employee_id 
     AND eer.org_id = e.org_id
+  LEFT JOIN employee_professional ep
+    ON ep.employee_id = eer.employee_id
+  LEFT JOIN employees sup
+    ON sup.employee_id = ep.supervisor_id
+    AND sup.org_id = eer.org_id
   WHERE eer.org_id = ?
   ORDER BY 
     COALESCE(eer.hr_action_at, eer.supervisor_action_at, eer.applied_at) DESC
