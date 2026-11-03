@@ -8,11 +8,14 @@ module.exports = {
     ep.esi_number,
     ep.uan_number,
     ep.pan_number,
+    epro.department_id,
+    d.name AS department_name,
     CONCAT(COALESCE(e.first_name, ''), ' ', COALESCE(e.last_name, '')) AS full_name,
     e.employee_id
   FROM employees e
   LEFT JOIN employee_personal ep ON e.employee_id = ep.employee_id
   LEFT JOIN employee_professional epro ON e.employee_id = epro.employee_id
+  LEFT JOIN departments d ON d.id = epro.department_id
   WHERE e.employee_id = ?
   LIMIT 1
 `,
