@@ -265,8 +265,10 @@ async function uploadSalaryData(req, res) {
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
 
-    const headers = xlsx.utils.sheet_to_json(worksheet, { header: 1, range: 0, defval: '' })[0]
-      .map(normalizeHeader);
+    const headers = xlsx.utils
+      .sheet_to_json(worksheet, { header: 1, range: 0, defval: '' })[0]
+      .map(normalizeHeader)
+      .filter((header) => header !== '');
 
     const jsonData = xlsx.utils.sheet_to_json(worksheet, {
       header: headers,
