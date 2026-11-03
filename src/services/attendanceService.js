@@ -1248,6 +1248,86 @@ const attendanceService = {
     }
   },
 
+  getAssignedLateLoginPolicy: async (orgId, employeeId, effectiveDate) => {
+    try {
+      const tenantPool = await getTenantPoolByOrgId(orgId);
+      const date = effectiveDate || null;
+      const [rows] = await tenantPool.execute(
+        `SELECT
+           p.id,
+           p.applies_to,
+           p.punch_in_time,
+           p.buffer_time,
+           p.punch_out_time,
+           p.shifts
+         FROM punch_policies p
+         LEFT JOIN employees e
+           ON e.employee_id = ?
+          AND CAST(e.org_id AS CHAR) = CAST(p.org_id AS CHAR)
+         LEFT JOIN employee_professional ep
+           ON ep.employee_id = e.employee_id
+          AND CAST(ep.sub_org_id AS CHAR) = CAST(e.org_id AS CHAR)
+         LEFT JOIN departments d
+           ON d.id = ep.department_id
+         WHERE CAST(p.org_id AS CHAR) = CAST(? AS CHAR)
+           AND p.policy_type = 'late_login'
+           AND p.policy_status = 'active'
+           AND p.deleted_at IS NULL
+           AND p.effective_from <= COALESCE(?, CURDATE())
+           AND (
+             p.effective_till IS NULL
+             OR p.effective_till >= COALESCE(?, CURDATE())
+           )
+           AND (
+             p.applies_to = 'all'
+             OR EXISTS (
+               SELECT 1
+               FROM punch_policy_assignments a
+               WHERE a.policy_id = p.id
+                 AND CAST(a.org_id AS CHAR) = CAST(p.org_id AS CHAR)
+                 AND (
+                   (a.assignment_type = 'employee'
+                     AND CAST(a.reference_id AS CHAR) = CAST(? AS CHAR))
+                   OR (
+                     a.assignment_type IN ('department', 'group')
+                     AND (
+                       CAST(a.reference_id AS CHAR) =
+                         CAST(ep.department_id AS CHAR)
+                       OR LOWER(TRIM(a.reference_name)) =
+                         LOWER(TRIM(COALESCE(d.name, '')))
+                       OR LOWER(TRIM(a.reference_id)) =
+                         LOWER(TRIM(COALESCE(d.name, '')))
+                     )
+                   )
+                 )
+             )
+           )
+         ORDER BY
+           CASE
+             WHEN EXISTS (
+               SELECT 1
+               FROM punch_policy_assignments employee_assignment
+               WHERE employee_assignment.policy_id = p.id
+                 AND CAST(employee_assignment.org_id AS CHAR) =
+                   CAST(p.org_id AS CHAR)
+                 AND employee_assignment.assignment_type = 'employee'
+                 AND CAST(employee_assignment.reference_id AS CHAR) =
+                   CAST(? AS CHAR)
+             ) THEN 2
+             WHEN p.applies_to = 'all' THEN 0
+             ELSE 1
+           END DESC,
+           p.id DESC
+         LIMIT 1`,
+        [employeeId, orgId, date, date, employeeId, employeeId],
+      );
+      return rows?.[0] || null;
+    } catch (error) {
+      console.error("Error in getAssignedLateLoginPolicy:", error);
+      throw error;
+    }
+  },
+
   checkAndNotifyAllLateStreaks: async (orgId) => {
     try {
       const tenantPool = await getTenantPoolByOrgId(orgId);
@@ -1863,9 +1943,35 @@ const attendanceService = {
       );
 
       const config = await attendanceService.getLoginHoursConfig(orgId);
-
-      const punchInStart = config?.punch_in_start || null;
-      const bufferMinutes = Number(config?.buffer_minutes || 0);
+      const policy = await attendanceService.getAssignedLateLoginPolicy(
+        orgId,
+        employeeId,
+      );
+      const policyShifts = safeJsonParse(policy?.shifts, []);
+      const policyShift =
+        Array.isArray(policyShifts) && policyShifts.length
+          ? policyShifts[0]
+          : null;
+      const punchInStart =
+        policyShift?.punchInTime ||
+        policyShift?.punch_in_time ||
+        policy?.punch_in_time ||
+        config?.punch_in_start ||
+        null;
+      const bufferMinutes = Number(
+        policy
+          ? (policyShift?.bufferTime ??
+              policyShift?.buffer_time ??
+              policy.buffer_time ??
+              0)
+          : config?.buffer_minutes || 0,
+      );
+      const punchOutStart =
+        policyShift?.punchOutTime ||
+        policyShift?.punch_out_time ||
+        policy?.punch_out_time ||
+        config?.punch_out_start ||
+        null;
       const lateEnabled = String(config?.late_login_enabled ?? "1") !== "0";
       const autoMarkLate = String(config?.auto_mark_late ?? "1") !== "0";
       const escalationMode = String(config?.escalation_mode || "mail_notify");
@@ -1976,6 +2082,9 @@ const attendanceService = {
         stakeholderMailSent,
         summary,
         escalationMode,
+        punchInStart,
+        punchOutStart,
+        policyId: policy?.id || null,
       };
     } catch (error) {
       console.error("Error in recordAndNotifyLateLogin:", error);
