@@ -302,8 +302,8 @@ effective_from date NOT NULL,
   updated_b varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
   created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  deleted_at timestamp NULL DEFAULT NULL,
-  ;
+  deleted_at timestamp NULL DEFAULT NULL
+ ) ;
 
 
 CREATE TABLE `punch_policy_assignments` (
@@ -313,10 +313,9 @@ CREATE TABLE `punch_policy_assignments` (
   assignment_type enum('group','department','employee') CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'group',
   reference_id varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
   reference_name varchar(150) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
-  created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
   
 ) ;
-
 
 CREATE TABLE IF NOT EXISTS download_details (
   id INT AUTO_INCREMENT PRIMARY KEY,

@@ -635,6 +635,7 @@ function selectPolicy(employee, policies, type) {
 
 function buildDailyAttendance(rows, policiesByType) {
   const daily = new Map();
+  const today = formatDate(new Date());
   for (const row of rows) {
     const date = getDateKey(
       row.attendance_date || row.punchin_time || row.punchout_time,
@@ -671,8 +672,11 @@ function buildDailyAttendance(rows, policiesByType) {
       (row) => row.punchout_time && isAutomaticPunchOut(row),
     );
     day.hasCompletePunchData = hasPunchIn && hasManualPunchOut;
+    // An employee can still be on the current shift. Do not create a
+    // miss-punch-out violation for today's open punch-in record.
     day.missedPunchOut =
-      hasAutomaticPunchOut || (hasPunchIn && !hasManualPunchOut);
+      hasAutomaticPunchOut ||
+      (day.date !== today && hasPunchIn && !hasManualPunchOut);
 
     for (const row of day.rows) {
       if (!row.punchin_time || !row.punchout_time || isAutomaticPunchOut(row))
