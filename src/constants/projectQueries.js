@@ -235,6 +235,7 @@ WHERE id = ?;
   GET_ALL_EMPLOYEES: `
   SELECT
     e.employee_id,
+    e.dob,
     pr.role,
     e.phone_number,
     p.photo_url,
