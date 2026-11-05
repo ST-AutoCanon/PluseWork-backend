@@ -361,6 +361,56 @@ class LeaveRegularisationHandler {
     }
   }
 
+  static async deleteRegularisationRequestHandler(req, res) {
+    try {
+      setNoCache(res);
+
+      const orgId = resolveOrgId(req);
+      const employeeId = resolveEmployeeId(req);
+      const { id } = req.params;
+
+      if (!orgId || !employeeId || !id) {
+        return res
+          .status(400)
+          .json(
+            ErrorHandler.generateErrorResponse(
+              400,
+              "Missing org_id, employee_id or request id.",
+            ),
+          );
+      }
+
+      const result =
+        await LeaveRegularisationService.deleteRegularisationRequest({
+          employeeId,
+          orgId,
+          id,
+        });
+
+      return res
+        .status(result.status)
+        .json(
+          result.success
+            ? ErrorHandler.generateSuccessResponse(
+                result.status,
+                result.message,
+                result.data,
+              )
+            : ErrorHandler.generateErrorResponse(result.status, result.message),
+        );
+    } catch (err) {
+      console.error("[deleteRegularisationRequestHandler] error:", err);
+      return res
+        .status(500)
+        .json(
+          ErrorHandler.generateErrorResponse(
+            500,
+            "Failed to delete regularisation request.",
+          ),
+        );
+    }
+  }
+
   static async getRegularisationRequestByIdHandler(req, res) {
     try {
       setNoCache(res);
