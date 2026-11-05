@@ -1106,6 +1106,59 @@ async function getRegularisationRequestById({ employeeId, orgId, id }) {
   };
 }
 
+async function deleteRegularisationRequest({ employeeId, orgId, id }) {
+  if (!employeeId || !orgId || !id) {
+    return {
+      success: false,
+      status: 400,
+      message: "Employee ID, Org ID and request ID are required.",
+    };
+  }
+
+  const [result] = await queryTenant(
+    orgId,
+    `
+      DELETE FROM leave_regularisation_requests
+      WHERE id = ? AND org_id = ? AND employee_id = ? AND status = 'Pending'
+    `,
+    [id, orgId, employeeId],
+  );
+
+  if (!result || result.affectedRows === 0) {
+    const [rows] = await queryTenant(
+      orgId,
+      `
+        SELECT status
+        FROM leave_regularisation_requests
+        WHERE id = ? AND org_id = ? AND employee_id = ?
+        LIMIT 1
+      `,
+      [id, orgId, employeeId],
+    );
+
+    if (!rows?.length) {
+      return {
+        success: false,
+        status: 404,
+        message: "Regularisation request not found.",
+      };
+    }
+
+    return {
+      success: false,
+      status: 403,
+      message: "Only pending regularisation requests can be deleted.",
+    };
+  }
+
+  return {
+    success: true,
+    status: 200,
+    message: "Regularisation request deleted successfully.",
+    data: { id },
+  };
+}
+
 module.exports = {
   getEligibleDates,
   submitRegularisation,
@@ -1113,4 +1166,5 @@ module.exports = {
   getMyRegularisationRequests,
   updateRegularisationRequest,
   getRegularisationRequestById,
+  deleteRegularisationRequest,
 };

@@ -25,6 +25,11 @@ router.put(
   LeaveRegularisationHandler.updateRegularisationRequestHandler,
 );
 
+router.delete(
+  "/:id",
+  LeaveRegularisationHandler.deleteRegularisationRequestHandler,
+);
+
 router.get(
   "/:id",
   LeaveRegularisationHandler.getRegularisationRequestByIdHandler,
