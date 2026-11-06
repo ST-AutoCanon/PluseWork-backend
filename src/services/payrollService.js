@@ -124,6 +124,8 @@ const getApprovedPayrollLeaveCount = async (
   const params = [
     monthStart,
     monthEnd,
+    monthEnd,
+    monthStart,
     employeeId,
     orgId,
     monthEnd,
