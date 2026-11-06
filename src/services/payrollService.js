@@ -111,8 +111,34 @@ const getEmployeeDetails = async (tenantPool, employee_id) => {
   return rows[0] || null;
 };
 
+const getApprovedPayrollLeaveCount = async (
+  tenantPool,
+  orgId,
+  employeeId,
+  month,
+  year
+) => {
+  const monthStart = `${year}-${String(month).padStart(2, "0")}-01`;
+  const lastDay = new Date(year, month, 0).getDate();
+  const monthEnd = `${year}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+  const params = [
+    monthStart,
+    monthEnd,
+    employeeId,
+    orgId,
+    monthEnd,
+    monthStart,
+  ];
+  const [rows] = await tenantPool.execute(
+    payrollQueries.GET_APPROVED_PAYROLL_LEAVE_COUNT,
+    params
+  );
+  return Math.max(0, Number(rows[0]?.approved_leave_count || 0));
+};
+
 module.exports = {
   getSalarySlip,
   getEmployeeBankDetails,
   getEmployeeDetails,
+  getApprovedPayrollLeaveCount,
 };

@@ -82,11 +82,65 @@ const getSalarySlipHandler = async (req, res) => {
       });
     }
 
-    res.status(200).json(salarySlip);
+    const approvedLeaveCount =
+      await payrollService.getApprovedPayrollLeaveCount(
+        tenantPool,
+        orgId,
+        employee_id,
+        Number(month),
+        Number(year)
+      );
+
+    res.status(200).json({
+      ...salarySlip,
+      approved_leave_count: approvedLeaveCount,
+    });
   } catch (error) {
     console.error("Error in getSalarySlipHandler:", error);
     res.status(500).json({
       error: "Internal server error",
+      details: error.message,
+    });
+  }
+};
+
+const getApprovedPayrollLeaveCountHandler = async (req, res) => {
+  try {
+    const { employee_id } = req.params;
+    const month = Number(req.query.month);
+    const year = Number(req.query.year);
+    const orgId =
+      req.headers["x-org-id"] ||
+      req.headers.orgid ||
+      req.headers["org-id"] ||
+      req.headers["orgId"];
+
+    if (!orgId || !employee_id || month < 1 || month > 12 || !year) {
+      return res.status(400).json({
+        error: "orgId, employee_id, month and valid year are required",
+      });
+    }
+
+    const tenantPool = await getTenantPoolByOrgId(orgId);
+    const approvedLeaveCount =
+      await payrollService.getApprovedPayrollLeaveCount(
+        tenantPool,
+        orgId,
+        employee_id,
+        month,
+        year
+      );
+
+    res.status(200).json({
+      employee_id,
+      month,
+      year,
+      approved_leave_count: approvedLeaveCount,
+    });
+  } catch (error) {
+    console.error("Error fetching approved payroll leave count:", error);
+    res.status(500).json({
+      error: "Failed to fetch approved payroll leave count",
       details: error.message,
     });
   }
@@ -138,6 +192,7 @@ const handleGetEmployeeBankDetails = async (req, res) => {
 
 module.exports = {
   getSalarySlipHandler,
+  getApprovedPayrollLeaveCountHandler,
   handleGetEmployeeBankDetails,
   fetchEmployeeDetails,
 };
