@@ -41,7 +41,13 @@ module.exports = {
         AND lq.start_date = lq.end_date
         AND lq.start_date BETWEEN ? AND ?
         THEN 0.5
-      ELSE 1
+      ELSE GREATEST(
+        DATEDIFF(
+          LEAST(lq.end_date, ?),
+          GREATEST(lq.start_date, ?)
+        ) + 1,
+        0
+      )
     END
   ), 0) AS approved_leave_count
   FROM leavequeries lq
