@@ -244,6 +244,9 @@ async function buildMetaFromReqQuery(query = {}) {
       meta.filters.push(`Status: ${meta.status}`);
     }
 
+    const leaveType = coerceToString(query.leave_type ?? query.leaveType, null);
+    if (leaveType) meta.filters.push(`Leave Type: ${leaveType}`);
+
     let empCandidate =
       query.employee_id ?? query.employeeId ?? query.employee ?? null;
     if (typeof empCandidate === "string" && empCandidate.trim() === "")
@@ -363,6 +366,16 @@ async function downloadLeavesReport(req, res) {
       req.query.employee_id ?? req.query.employeeId ?? req.query.employee,
       null,
     );
+    const leaveTypeQuery = coerceToString(
+      req.query.leave_type ?? req.query.leaveType,
+      null,
+    );
+    const reportFields =
+      leaveTypeQuery && Array.isArray(fields)
+        ? Array.from(
+            new Set([...fields, "leave_type", "employee_id", "leave_id"]),
+          )
+        : fields;
     let departmentIdQuery = coerceToString(
       req.query.department_id ?? req.query.departmentId ?? req.query.department,
       null,
@@ -449,7 +462,7 @@ async function downloadLeavesReport(req, res) {
         startDate,
         endDate,
         status,
-        fields,
+        reportFields,
         employeeIdQuery,
         departmentIdQuery,
       );
@@ -473,7 +486,7 @@ async function downloadLeavesReport(req, res) {
               startDate,
               endDate,
               status,
-              fields,
+              reportFields,
               null,
               d,
             );
@@ -496,7 +509,7 @@ async function downloadLeavesReport(req, res) {
             startDate,
             endDate,
             status,
-            fields,
+            reportFields,
           );
           const allArr = Array.isArray(all) ? all : [];
           const empIds = Array.from(
@@ -532,9 +545,28 @@ async function downloadLeavesReport(req, res) {
         startDate,
         endDate,
         status,
-        fields,
+        reportFields,
       );
       rows = Array.isArray(rows) ? rows : [];
+    }
+
+    if (leaveTypeQuery) {
+      const selectedType = reportService.normalizeLeaveTypeKey(leaveTypeQuery);
+      rows = rows.filter(
+        (row) =>
+          reportService.normalizeLeaveTypeKey(row?.leave_type) === selectedType,
+      );
+      if (Array.isArray(fields)) {
+        rows = rows.map((row) =>
+          Object.fromEntries(
+            fields
+              .filter((field) =>
+                Object.prototype.hasOwnProperty.call(row, field),
+              )
+              .map((field) => [field, row[field]]),
+          ),
+        );
+      }
     }
 
     if (isPreviewRequest(req)) {
