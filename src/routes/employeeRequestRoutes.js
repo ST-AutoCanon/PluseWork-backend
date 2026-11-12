@@ -72,18 +72,9 @@ router.post(
 
 router.post("/requests/:requestId/complete", handler.complete);
 
+router.post("/requests/:requestId/feedback", handler.submitTravelFeedback);
+
 router.post("/requests/:requestId/cancel", handler.cancel);
-
-router.post(
-  "/requests/:requestId/date-change",
-  handler.requestTravelDateChange,
-);
-
-router.post(
-  "/requests/:requestId/date-change/resolve",
-  handler.upload.single("e_ticket"),
-  handler.resolveTravelDateChange,
-);
 
 router.post("/requests/:requestId/asset-process", handler.processAsset);
 

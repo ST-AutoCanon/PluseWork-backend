@@ -312,7 +312,7 @@ exports.approve = async (req, res) => {
       orgId,
       req.params.requestId,
       employeeId,
-      req.body?.comment || "",
+      req.body || {},
       req.app.get("io"),
     );
 
@@ -468,6 +468,26 @@ exports.complete = async (req, res) => {
   }
 };
 
+exports.submitTravelFeedback = async (req, res) => {
+  try {
+    const result = await EmployeeRequestService.submitTravelFeedback(
+      resolveOrgId(req),
+      req.params.requestId,
+      resolveEmployeeId(req),
+      req.body || {},
+      req.app.get("io"),
+    );
+
+    return res.json({ success: true, data: result });
+  } catch (error) {
+    console.error("[EmployeeRequest] submitTravelFeedback:", error);
+    return res.status(400).json({
+      success: false,
+      message: error.message || "Unable to submit travel feedback.",
+    });
+  }
+};
+
 exports.cancel = async (req, res) => {
   try {
     const result = await EmployeeRequestService.cancelRequest(
@@ -484,55 +504,6 @@ exports.cancel = async (req, res) => {
     });
   } catch (error) {
     console.error("[EmployeeRequest] cancel:", error);
-
-    return res.status(400).json({
-      success: false,
-      message: error.message,
-    });
-  }
-};
-
-exports.requestTravelDateChange = async (req, res) => {
-  try {
-    const result = await EmployeeRequestService.requestTravelDateChange(
-      resolveOrgId(req),
-      req.params.requestId,
-      resolveEmployeeId(req),
-      req.body || {},
-      req.app.get("io"),
-    );
-
-    return res.json({
-      success: true,
-      data: result,
-    });
-  } catch (error) {
-    console.error("[EmployeeRequest] requestTravelDateChange:", error);
-
-    return res.status(400).json({
-      success: false,
-      message: error.message,
-    });
-  }
-};
-
-exports.resolveTravelDateChange = async (req, res) => {
-  try {
-    const result = await EmployeeRequestService.resolveTravelDateChange(
-      resolveOrgId(req),
-      req.params.requestId,
-      resolveEmployeeId(req),
-      req.body || {},
-      req.file || null,
-      req.app.get("io"),
-    );
-
-    return res.json({
-      success: true,
-      data: result,
-    });
-  } catch (error) {
-    console.error("[EmployeeRequest] resolveTravelDateChange:", error);
 
     return res.status(400).json({
       success: false,

@@ -57,8 +57,47 @@ function travelBandForRole(role) {
 }
 
 function validateTravelDetails(details = {}) {
-  if (!details.baseLocation || !details.travelLocation) {
+  if (
+    !String(details.from || "").trim() ||
+    !String(details.to || "").trim() ||
+    !String(details.baseLocation || "").trim() ||
+    !String(details.travelLocation || "").trim()
+  ) {
     throw new Error("Travel locations are required.");
+  }
+
+  if (typeof details.project !== "string" || !details.project.trim()) {
+    throw new Error("A project is required.");
+  }
+
+  if (details.accommodationRequired) {
+    const destination = String(details.to || "")
+      .trim()
+      .toLowerCase();
+    const accommodationLocation = String(details.accommodationLocation || "")
+      .trim()
+      .toLowerCase();
+
+    if (!destination || !accommodationLocation) {
+      throw new Error(
+        "Travel destination and accommodation location are required.",
+      );
+    }
+
+    if (destination !== accommodationLocation) {
+      throw new Error(
+        "Accommodation location must match the travel destination.",
+      );
+    }
+  }
+
+  for (const [label, value] of [
+    ["Preferred departure time", details.preferredDepartureTime],
+    ["Preferred return time", details.preferredReturnTime],
+  ]) {
+    if (value && !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(String(value).trim())) {
+      throw new Error(`${label} must be a valid time.`);
+    }
   }
 
   const distanceKm = Number(details.distanceKm);
@@ -1266,9 +1305,10 @@ async function approveRequest(
   orgId,
   requestId,
   actorId,
-  comment = "",
+  input = {},
   io = null,
 ) {
+  const comment = String(input?.comment || "");
   const tenantPool = await getTenantPoolForOrgId(orgId);
 
   const conn = await tenantPool.getConnection();
@@ -1308,10 +1348,25 @@ async function approveRequest(
       );
     }
 
-    const details =
+    let details =
       typeof request.details_json === "string"
         ? JSON.parse(request.details_json || "{}")
         : request.details_json || {};
+
+    if (request.request_type === "TRAVEL_BOOKING") {
+      const project = String(input?.project || details.project || "").trim();
+      if (!project) {
+        throw new Error(
+          "Select a project before approving this travel request.",
+        );
+      }
+
+      details = { ...details, project };
+      await conn.execute(queries.UPDATE_REQUEST_DETAILS_JSON, [
+        JSON.stringify(details),
+        requestId,
+      ]);
+    }
 
     // =========================================================
     // FINAL ADMIN APPROVAL
@@ -2809,6 +2864,101 @@ async function completeRequest(
   }
 }
 
+async function submitTravelFeedback(
+  orgId,
+  requestId,
+  actorId,
+  input = {},
+  io = null,
+) {
+  const tenantPool = await getTenantPoolForOrgId(orgId);
+  const conn = await tenantPool.getConnection();
+
+  try {
+    await conn.beginTransaction();
+
+    const request = await getRequestForUpdate(conn, orgId, requestId);
+    if (!request) {
+      throw new Error("Request not found.");
+    }
+
+    if (
+      request.request_type !== "TRAVEL_BOOKING" ||
+      request.current_status !== "COMPLETED"
+    ) {
+      throw new Error(
+        "Feedback is available after a travel request is completed.",
+      );
+    }
+
+    const audience = await getTravelAudience(conn, request);
+    if (!audience.includes(String(actorId))) {
+      throw new Error("Only a traveller can submit feedback for this request.");
+    }
+
+    const rating = Number(input.rating);
+    const comment = String(input.comment || "").trim();
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+      throw new Error("Select a rating from 1 to 5.");
+    }
+    if (!comment) {
+      throw new Error("Feedback is required.");
+    }
+    if (comment.length > 2000) {
+      throw new Error("Feedback cannot exceed 2000 characters.");
+    }
+
+    const details = parseJsonObject(request.details_json);
+    const travelFeedback = Array.isArray(details.travelFeedback)
+      ? details.travelFeedback
+      : [];
+    if (
+      travelFeedback.some((item) => String(item.employeeId) === String(actorId))
+    ) {
+      throw new Error("You have already submitted feedback for this trip.");
+    }
+
+    const feedback = {
+      employeeId: String(actorId),
+      rating,
+      comment,
+      submittedAt: new Date().toISOString(),
+    };
+
+    await conn.execute(queries.UPDATE_REQUEST_DETAILS_JSON, [
+      JSON.stringify({
+        ...details,
+        travelFeedback: [...travelFeedback, feedback],
+      }),
+      requestId,
+    ]);
+
+    await addEvent(
+      conn,
+      requestId,
+      "TRAVEL_FEEDBACK_SUBMITTED",
+      "COMPLETED",
+      actorId,
+      "Employee",
+      "Travel feedback submitted.",
+      { rating },
+    );
+
+    await conn.commit();
+
+    if (io) {
+      io.to(`user_${actorId}`).emit("employeeRequestUpdated", { requestId });
+    }
+
+    return getRequestDetail(orgId, requestId, actorId);
+  } catch (error) {
+    await conn.rollback();
+    throw error;
+  } finally {
+    conn.release();
+  }
+}
+
 async function cancelRequest(
   orgId,
   requestId,
@@ -3633,6 +3783,7 @@ module.exports = {
   rejectRequest,
   bookTravel,
   completeRequest,
+  submitTravelFeedback,
   cancelRequest,
   sendPendingRequestReminders,
   getGuestHouses,
@@ -3646,6 +3797,4 @@ module.exports = {
   markServiceNotificationRead,
   markAllServiceNotificationsRead,
   getEmployeeServiceOverview,
-  requestTravelDateChange,
-  resolveTravelDateChange,
 };
