@@ -86,18 +86,8 @@ async function attachLeaveBalanceSummary(rows, getBalancesForEmployee) {
       const employeeId =
         row && row.employee_id != null ? String(row.employee_id).trim() : null;
       const balances = employeeId ? await getBalances(employeeId) : [];
-      const rowLeaveType = normalizeLeaveTypeKey(row?.leave_type);
-      const filteredBalances = rowLeaveType
-        ? balances.filter(
-            (balance) =>
-              normalizeLeaveTypeKey(balance?.type) === rowLeaveType ||
-              normalizeLeaveTypeKey(balance?.label).replace(/_leave$/, "") ===
-                rowLeaveType,
-          )
-        : balances;
       const copiedRow = { ...row };
-      copiedRow.leave_balance_summary =
-        formatLeaveBalanceSummary(filteredBalances);
+      copiedRow.leave_balance_summary = formatLeaveBalanceSummary(balances);
       return copiedRow;
     }),
   );
@@ -118,7 +108,7 @@ const LABEL_OVERRIDES = {
   employee_id: "Employee ID",
   employee_name: "Employee Name",
   department_name: "Department",
-  leave_balance_summary: "Leave Balance (Credited | Used | Remaining)",
+  leave_balance_summary: "Leave Balance Summary (All Types)",
   claim_type: "Claim Type",
   transport_type: "Transport Type",
   accommodation_fees: "Accommodation Fees",
@@ -2282,4 +2272,5 @@ module.exports = {
   searchEmployees,
   getFieldDisplayNames,
   buildMetaFromReqQuery,
+  normalizeLeaveTypeKey,
 };

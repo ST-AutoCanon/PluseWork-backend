@@ -152,6 +152,7 @@ module.exports = {
   getDepartments: reports.getDepartments,
   searchEmployees: reports.searchEmployees,
   getFieldDisplayNames: reports.getFieldDisplayNames,
+  normalizeLeaveTypeKey: reports.normalizeLeaveTypeKey,
 
   renderExcelBuffer: renders.renderExcelBuffer,
   renderTasksExcelBuffer: renders.renderTasksExcelBuffer,
