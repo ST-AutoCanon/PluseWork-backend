@@ -338,7 +338,12 @@ async function downloadTasksSupervisorReport(req, res) {
     startDate = ensured.startDate;
     endDate = ensured.endDate;
 
-    if (fields && fields.length > MAX_DOWNLOAD_FIELDS_TASKS) {
+    if (
+      !isPreviewRequest(req) &&
+      format === "pdf" &&
+      fields &&
+      fields.length > MAX_DOWNLOAD_FIELDS_TASKS
+    ) {
       return res.status(400).json({
         message: `Too many fields selected for download. Maximum allowed is ${MAX_DOWNLOAD_FIELDS_TASKS}.`,
       });
@@ -650,7 +655,12 @@ async function downloadTasksEmployeeReport(req, res) {
     endDate = ensured.endDate;
 
     const isPreview = isPreviewRequest(req);
-    if (!isPreview && fields && fields.length > MAX_DOWNLOAD_FIELDS_TASKS) {
+    if (
+      !isPreview &&
+      format === "pdf" &&
+      fields &&
+      fields.length > MAX_DOWNLOAD_FIELDS_TASKS
+    ) {
       return res.status(400).json({
         message: `Too many fields selected for download. Maximum allowed is ${MAX_DOWNLOAD_FIELDS_TASKS}.`,
       });
