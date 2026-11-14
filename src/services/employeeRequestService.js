@@ -70,10 +70,6 @@ function validateTravelDetails(details = {}) {
     throw new Error("Travel locations are required.");
   }
 
-  if (typeof details.project !== "string" || !details.project.trim()) {
-    throw new Error("A project is required.");
-  }
-
   if (details.accommodationRequired) {
     const destination = String(details.to || "")
       .trim()
@@ -1359,17 +1355,13 @@ async function approveRequest(
 
     if (request.request_type === "TRAVEL_BOOKING") {
       const project = String(input?.project || details.project || "").trim();
-      if (!project) {
-        throw new Error(
-          "Select a project before approving this travel request.",
-        );
+      if (project) {
+        details = { ...details, project };
+        await conn.execute(queries.UPDATE_REQUEST_DETAILS_JSON, [
+          JSON.stringify(details),
+          requestId,
+        ]);
       }
-
-      details = { ...details, project };
-      await conn.execute(queries.UPDATE_REQUEST_DETAILS_JSON, [
-        JSON.stringify(details),
-        requestId,
-      ]);
     }
 
     // =========================================================
