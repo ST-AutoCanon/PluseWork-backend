@@ -57,11 +57,15 @@ function travelBandForRole(role) {
 }
 
 function validateTravelDetails(details = {}) {
+  const requiresPickupDropPoints = !["Train", "Airbus"].includes(
+    details.transportMode,
+  );
   if (
     !String(details.from || "").trim() ||
     !String(details.to || "").trim() ||
-    !String(details.baseLocation || "").trim() ||
-    !String(details.travelLocation || "").trim()
+    (requiresPickupDropPoints &&
+      (!String(details.baseLocation || "").trim() ||
+        !String(details.travelLocation || "").trim()))
   ) {
     throw new Error("Travel locations are required.");
   }
@@ -2944,10 +2948,20 @@ async function submitTravelFeedback(
       { rating },
     );
 
+    const recipients = await notifyTravelAudience(
+      conn,
+      request,
+      "Trip Feedback Submitted",
+      `A traveller submitted feedback for ${request.request_code}.`,
+      null,
+    );
+
     await conn.commit();
 
     if (io) {
-      io.to(`user_${actorId}`).emit("employeeRequestUpdated", { requestId });
+      for (const userId of recipients) {
+        io.to(`user_${userId}`).emit("employeeRequestUpdated", { requestId });
+      }
     }
 
     return getRequestDetail(orgId, requestId, actorId);
