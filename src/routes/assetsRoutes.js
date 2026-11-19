@@ -5,6 +5,7 @@ const fs = require("fs");
 const {
   addAssetHandler,
   getAssetsHandler,
+  getAssetCategoriesHandler,
   getAssetAssignmentHandler,
   updateReturnDateHandler,
   assignAsset,
@@ -52,6 +53,7 @@ const upload = multer({ storage });
 
 router.post("/assets/add", upload.single("document"), addAssetHandler);
 router.get("/assets/list", getAssetsHandler);
+router.get("/assets/categories", getAssetCategoriesHandler);
 router.post("/assets/assign", assignAsset);
 router.get("/assets/assigned/:assetId", getAssetAssignmentHandler);
 router.put("/assets/return-date", updateReturnDateHandler);

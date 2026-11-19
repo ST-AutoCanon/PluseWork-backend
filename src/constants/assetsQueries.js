@@ -18,6 +18,22 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_DATE);
 
 const GET_ALL_ASSETS = `SELECT * FROM assets WHERE org_id = ?;`;
 
+const GET_ASSET_CATEGORIES = `
+  SELECT
+    c.category_id,
+    c.category_name,
+    s.subcategory_id,
+    s.subcategory_name
+  FROM asset_categories c
+  LEFT JOIN asset_subcategories s
+    ON s.category_id = c.category_id
+    AND s.org_id = c.org_id
+    AND s.status = 'Active'
+  WHERE c.org_id = ?
+    AND c.status = 'Active'
+  ORDER BY c.category_name, s.subcategory_name;
+`;
+
 const GET_LAST_ASSET_ID = `
   SELECT asset_id FROM assets WHERE asset_id LIKE ? ORDER BY asset_id DESC LIMIT 1;
 `;
@@ -76,6 +92,7 @@ module.exports = {
   INSERT_ASSET,
   GET_LAST_ASSET_ID,
   GET_ALL_ASSETS,
+  GET_ASSET_CATEGORIES,
   GET_ASSIGN_DATA,
   UPDATE_RETURN_DATE,
   GET_ASSET_COUNTS,
