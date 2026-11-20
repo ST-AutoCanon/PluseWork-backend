@@ -807,7 +807,15 @@ LEFT JOIN (
   ORDER BY sa.start_date DESC
 `,
   SELECT_ORG: `SELECT no_employees FROM organizations WHERE id = ?`,
-  COUNT_ACTIVE_EMPLOYEES_BY_ORG: `SELECT COUNT(*) AS cnt FROM employees WHERE org_id = ?`,
+  COUNT_ACTIVE_EMPLOYEES_BY_ORG: `
+    SELECT COUNT(*) AS cnt
+    FROM employees e
+    LEFT JOIN employee_professional p ON p.employee_id = e.employee_id
+    WHERE e.org_id = ?
+      AND SUBSTRING_INDEX(e.employee_id, '-', -1) NOT REGEXP '^S[0-9]{5}$'
+      AND COALESCE(LOWER(TRIM(p.role)), '') NOT IN
+        ('admin', 'hr', 'human resources', 'support')
+  `,
   UPDATE_EMPLOYEE_IDS_BY_ORG: `
    UPDATE employees e
 LEFT JOIN employee_personal ep
@@ -826,14 +834,46 @@ LEFT JOIN employee_additional_certs eac
     ON eac.employee_id = e.employee_id
 
 SET
-    e.employee_id   = CONCAT(?, '-', LPAD(e.suffix, 6, '0')),
-    ep.employee_id  = CONCAT(?, '-', LPAD(e.suffix, 6, '0')),
-    ee.employee_id  = CONCAT(?, '-', LPAD(e.suffix, 6, '0')),
-    epr.employee_id = CONCAT(?, '-', LPAD(e.suffix, 6, '0')),
-    ebd.employee_id = CONCAT(?, '-', LPAD(e.suffix, 6, '0')),
-    ex.employee_id  = CONCAT(?, '-', LPAD(e.suffix, 6, '0')),
-    ed.employee_id  = CONCAT(?, '-', LPAD(e.suffix, 6, '0')),
-    eac.employee_id = CONCAT(?, '-', LPAD(e.suffix, 6, '0'))
+    e.employee_id   = CONCAT(?, '-', CASE
+      WHEN SUBSTRING_INDEX(e.employee_id, '-', -1) REGEXP '^S[0-9]{5}$'
+      THEN SUBSTRING_INDEX(e.employee_id, '-', -1)
+      ELSE LPAD(e.suffix, 6, '0')
+    END),
+    ep.employee_id  = CONCAT(?, '-', CASE
+      WHEN SUBSTRING_INDEX(e.employee_id, '-', -1) REGEXP '^S[0-9]{5}$'
+      THEN SUBSTRING_INDEX(e.employee_id, '-', -1)
+      ELSE LPAD(e.suffix, 6, '0')
+    END),
+    ee.employee_id  = CONCAT(?, '-', CASE
+      WHEN SUBSTRING_INDEX(e.employee_id, '-', -1) REGEXP '^S[0-9]{5}$'
+      THEN SUBSTRING_INDEX(e.employee_id, '-', -1)
+      ELSE LPAD(e.suffix, 6, '0')
+    END),
+    epr.employee_id = CONCAT(?, '-', CASE
+      WHEN SUBSTRING_INDEX(e.employee_id, '-', -1) REGEXP '^S[0-9]{5}$'
+      THEN SUBSTRING_INDEX(e.employee_id, '-', -1)
+      ELSE LPAD(e.suffix, 6, '0')
+    END),
+    ebd.employee_id = CONCAT(?, '-', CASE
+      WHEN SUBSTRING_INDEX(e.employee_id, '-', -1) REGEXP '^S[0-9]{5}$'
+      THEN SUBSTRING_INDEX(e.employee_id, '-', -1)
+      ELSE LPAD(e.suffix, 6, '0')
+    END),
+    ex.employee_id  = CONCAT(?, '-', CASE
+      WHEN SUBSTRING_INDEX(e.employee_id, '-', -1) REGEXP '^S[0-9]{5}$'
+      THEN SUBSTRING_INDEX(e.employee_id, '-', -1)
+      ELSE LPAD(e.suffix, 6, '0')
+    END),
+    ed.employee_id  = CONCAT(?, '-', CASE
+      WHEN SUBSTRING_INDEX(e.employee_id, '-', -1) REGEXP '^S[0-9]{5}$'
+      THEN SUBSTRING_INDEX(e.employee_id, '-', -1)
+      ELSE LPAD(e.suffix, 6, '0')
+    END),
+    eac.employee_id = CONCAT(?, '-', CASE
+      WHEN SUBSTRING_INDEX(e.employee_id, '-', -1) REGEXP '^S[0-9]{5}$'
+      THEN SUBSTRING_INDEX(e.employee_id, '-', -1)
+      ELSE LPAD(e.suffix, 6, '0')
+    END)
 
 WHERE e.org_id = ?;
   `,

@@ -100,11 +100,6 @@ function validateTravelDetails(details = {}) {
     }
   }
 
-  const distanceKm = Number(details.distanceKm);
-  if (!Number.isFinite(distanceKm) || distanceKm < 0) {
-    throw new Error("A valid travel distance is required.");
-  }
-
   const allowedModes =
     String(details.cadreBand).toUpperCase() === "LOWER"
       ? ["Bus", "Train"]
@@ -116,10 +111,7 @@ function validateTravelDetails(details = {}) {
     );
   }
 
-  return {
-    ...details,
-    distanceKm,
-  };
+  return details;
 }
 
 function isValidIsoDateOnly(value) {

@@ -85,7 +85,7 @@ CREATE TABLE IF NOT EXISTS employee_professional (
   total_experience_text VARCHAR(50) NULL,
   resume_url VARCHAR(500),
   joining_date DATE,
-  work_location_id INT NULL AFTER sub_org_id,
+  work_location_id INT NULL,
   work_location_detail VARCHAR(255) NULL
 );
 
@@ -268,7 +268,7 @@ CREATE TABLE IF NOT EXISTS chat_rooms (
 
 
 CREATE TABLE `punch_policies` (
-  id bigint unsigned NOT NULL AUTO_INCREMENT,
+  id bigint unsigned NOT NULL AUTO_INCREMENT PRIMARY KEY,
   org_id bigint unsigned NOT NULL,
   policy_name varchar(150) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
   description varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
@@ -307,7 +307,7 @@ effective_from date NOT NULL,
 
 
 CREATE TABLE `punch_policy_assignments` (
-  id bigint unsigned NOT NULL AUTO_INCREMENT,
+  id bigint unsigned NOT NULL AUTO_INCREMENT PRIMARY KEY,
   policy_id bigint unsigned NOT NULL,
   org_id bigint unsigned NOT NULL,
   assignment_type enum('group','department','employee') CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'group',
