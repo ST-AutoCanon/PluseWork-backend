@@ -10,6 +10,7 @@ const {
   GET_ASSIGN_DATA,
   UPDATE_RETURN_DATE,
   GET_ASSET_COUNTS,
+  GET_ASSET_CATEGORIES,
 } = require("../constants/assetsQueries");
 
 const { getTenantPool, sanitizeDbName } = require("../db/tenantPoolManager");
@@ -197,6 +198,36 @@ const getAssets = async (orgId) => {
   }
 };
 
+const getAssetCategories = async (orgId) => {
+  try {
+    const tenantPool = await getTenantPoolForOrgId(orgId);
+    const [rows] = await tenantPool.query(GET_ASSET_CATEGORIES, [orgId]);
+    const categoriesById = new Map();
+
+    for (const row of rows) {
+      if (!categoriesById.has(row.category_id)) {
+        categoriesById.set(row.category_id, {
+          category_id: row.category_id,
+          category_name: row.category_name,
+          subcategories: [],
+        });
+      }
+
+      if (row.subcategory_id !== null) {
+        categoriesById.get(row.category_id).subcategories.push({
+          subcategory_id: row.subcategory_id,
+          subcategory_name: row.subcategory_name,
+        });
+      }
+    }
+
+    return Array.from(categoriesById.values());
+  } catch (error) {
+    console.error("Error fetching asset categories:", error);
+    throw new Error("Failed to retrieve asset categories");
+  }
+};
+
 const updateAssignedTo = async (orgId, assetId, assignedTo) => {
   try {
     const tenantPool = await getTenantPoolForOrgId(orgId);
@@ -336,6 +367,7 @@ module.exports = {
   searchEmployeesByName,
   addAsset,
   getAssets,
+  getAssetCategories,
   updateAssignedTo,
   getAssignmentData,
   updateReturnDate,

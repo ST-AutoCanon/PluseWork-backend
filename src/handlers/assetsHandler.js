@@ -94,6 +94,23 @@ const getAssetsHandler = async (req, res) => {
   }
 };
 
+const getAssetCategoriesHandler = async (req, res) => {
+  const orgId = getOrgIdFromHeaders(req);
+  if (!orgId)
+    return res.status(400).json({ message: "org_id header is required" });
+
+  try {
+    const categories = await assetService.getAssetCategories(orgId);
+    res.status(200).json({ success: true, data: categories });
+  } catch (error) {
+    console.error("Error fetching asset categories:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to retrieve asset categories",
+    });
+  }
+};
+
 const assignAsset = async (req, res) => {
   const orgId = getOrgIdFromHeaders(req);
   if (!orgId)
@@ -269,6 +286,7 @@ module.exports = {
   searchEmployeesHandler,
   addAssetHandler,
   getAssetsHandler,
+  getAssetCategoriesHandler,
   assignAsset,
   getAssetAssignmentHandler,
   updateReturnDateHandler,
