@@ -6,7 +6,12 @@ const path = require("path");
 const fs = require("fs");
 const { sendResetEmail } = require("../utils/brevoMailer");
 const { sendResetEmail: sendResetEmailMailer } = require("../utils/mailer");
+const adminPool = require("../db/adminPool");
 const { getTenantPool, sanitizeDbName } = require("../db/tenantPoolManager");
+const {
+  formatSystemAccountId,
+  isSystemAccountRole,
+} = require("../utils/employeeAccountIdentity");
 
 function selectSendResetEmailFn(orgId) {
   if (String(orgId) === "1") return sendResetEmailMailer;
@@ -21,6 +26,52 @@ async function getTenantPoolForOrgId(orgId) {
   }
   const dbName = sanitizeDbName(`tenant_${orgId}`);
   return getTenantPool(dbName);
+}
+
+async function ensureSystemAccountSequenceTable() {
+  if (!systemAccountSequenceTableReady) {
+    systemAccountSequenceTableReady = adminPool
+      .query(
+        `
+        CREATE TABLE IF NOT EXISTS organization_system_account_sequences (
+          org_id INT UNSIGNED NOT NULL PRIMARY KEY,
+          sequence_value INT UNSIGNED NOT NULL DEFAULT 0,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB
+      `,
+      )
+      .catch((error) => {
+        systemAccountSequenceTableReady = null;
+        throw error;
+      });
+  }
+
+  await systemAccountSequenceTableReady;
+}
+
+async function getNextSystemAccountSequence(orgId) {
+  await ensureSystemAccountSequenceTable();
+
+  const conn = await db.getConnection();
+  try {
+    await conn.execute(
+      `INSERT IGNORE INTO organization_system_account_sequences
+        (org_id, sequence_value) VALUES (?, 0)`,
+      [orgId],
+    );
+    await conn.execute(
+      `UPDATE organization_system_account_sequences
+       SET sequence_value = LAST_INSERT_ID(sequence_value + 1)
+       WHERE org_id = ?`,
+      [orgId],
+    );
+
+    const [rows] = await conn.query("SELECT LAST_INSERT_ID() AS sequence");
+    return Number(rows[0]?.sequence);
+  } finally {
+    conn.release();
+  }
 }
 
 const BASE_UPLOADS = path.join(__dirname, "../../../EmployeeDetails");
@@ -139,6 +190,7 @@ function normalizeOrgId(data) {
 }
 
 const PAD_DIGITS = 6;
+let systemAccountSequenceTableReady;
 
 async function resolveWorkLocation(conn, orgId, workLocationId, detail) {
   if (!workLocationId) {
@@ -198,8 +250,13 @@ async function addFullEmployeeUsingConnection(conn, data, options = {}) {
     if (!org) throw new Error("Organization not found");
 
     orgName = org?.Name || org?.name || null;
+    const isSystemAccount = isSystemAccountRole(data.role);
 
-    if (org.no_employees != null && !options.bypassOrgLimit) {
+    if (
+      !isSystemAccount &&
+      org.no_employees != null &&
+      !options.bypassOrgLimit
+    ) {
       const [countRows] = await conn.execute(
         queries.COUNT_ACTIVE_EMPLOYEES_BY_ORG,
         [resolvedOrg],
@@ -213,18 +270,25 @@ async function addFullEmployeeUsingConnection(conn, data, options = {}) {
       }
     }
 
-    const newCounter = Number(org.employee_counter || 0) + 1;
-    await db.execute(queries.UPDATE_ORG_COUNTER, [newCounter, resolvedOrg]);
-
-    suffix = newCounter;
-    const suffixStr = String(suffix).padStart(PAD_DIGITS, "0");
     const prefix = (org.employee_prefix || "").toUpperCase();
     if (!prefix) {
       throw new Error(
         "Organization employee_prefix missing; cannot generate employee_id",
       );
     }
-    employeeId = `${prefix}-${suffixStr}`;
+
+    if (isSystemAccount) {
+      const systemSequence = await getNextSystemAccountSequence(resolvedOrg);
+      employeeId = formatSystemAccountId(prefix, systemSequence);
+      suffix = null;
+    } else {
+      const newCounter = Number(org.employee_counter || 0) + 1;
+      await db.execute(queries.UPDATE_ORG_COUNTER, [newCounter, resolvedOrg]);
+
+      suffix = newCounter;
+      const suffixStr = String(suffix).padStart(PAD_DIGITS, "0");
+      employeeId = `${prefix}-${suffixStr}`;
+    }
   }
 
   const password = crypto.randomBytes(8).toString("hex");

@@ -220,32 +220,6 @@ const createOrganization = async (orgData, sidebarAccess) => {
     if (admin_email) {
       let tenantConn;
       try {
-        await conn.beginTransaction();
-        const [orgRowsForUpdate] = await conn.execute(
-          empQueries.SELECT_ORG_FOR_UPDATE,
-          [orgId],
-        );
-        const orgRow =
-          orgRowsForUpdate && orgRowsForUpdate[0] ? orgRowsForUpdate[0] : null;
-        if (!orgRow) {
-          throw new Error(
-            "Organization not found in master while reserving employee id",
-          );
-        }
-        const newCounter = Number(orgRow.employee_counter || 0) + 1;
-        await conn.execute(empQueries.UPDATE_ORG_COUNTER, [newCounter, orgId]);
-        await conn.commit();
-
-        const suffix = newCounter;
-        const suffixStr = String(suffix).padStart(6, "0");
-        const prefix = (orgRow.employee_prefix || "").toUpperCase();
-        if (!prefix) {
-          throw new Error(
-            "Organization employee_prefix missing; cannot generate employee_id",
-          );
-        }
-        const employeeId = `${prefix}-${suffixStr}`;
-
         const tenantPool = await getTenantPool(tenantDbName);
         tenantConn = await tenantPool.getConnection();
         await tenantConn.beginTransaction();
@@ -268,10 +242,6 @@ const createOrganization = async (orgData, sidebarAccess) => {
           },
           {
             bypassOrgLimit: true,
-            skipOrgLookup: true,
-            providedEmployeeId: employeeId,
-            providedSuffix: suffix,
-            providedOrgName: Name,
           },
         );
 
