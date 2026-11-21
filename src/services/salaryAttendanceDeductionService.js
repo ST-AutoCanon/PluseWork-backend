@@ -444,6 +444,82 @@ const {
 
 const POLICY_TYPES = ["late_login", "miss_punch_out", "less_login_hours"];
 
+async function getApprovedLopSummaryForPeriod(
+  pool,
+  employeeIds,
+  startDate,
+  endDate
+) {
+  if (!employeeIds.length) return new Map();
+
+  const placeholders = employeeIds.map(() => "?").join(", ");
+  const [rows] = await pool.execute(
+    queries.GET_APPROVED_LOP_LEAVE_SUMMARY.replace(
+      "/* employee placeholders */",
+      placeholders
+    ),
+    [
+      startDate,
+      endDate,
+      ...employeeIds.map((employeeId) => employeeId.trim().toUpperCase()),
+    ]
+  );
+  return new Map(
+    rows.map((row) => [
+      String(row.employee_id).trim().toUpperCase(),
+      {
+        count: Number(row.approved_leave_count || 0),
+        days: Number(row.approved_lop_days || 0),
+      },
+    ])
+  );
+}
+
+async function getApprovedLopSummary({
+  orgId,
+  month,
+  year,
+  employees,
+}) {
+  if (!orgId) throw new Error("orgId is required.");
+  if (!Array.isArray(employees)) throw new Error("employees must be an array.");
+
+  const pool = await getTenantPool(sanitizeDbName(`tenant_${orgId}`));
+  const [periodRows] = await pool.execute(
+    "SELECT cutoff_date FROM salary_calculation_period WHERE org_id = ? ORDER BY id DESC LIMIT 1",
+    [orgId]
+  );
+  const cutoffDate = Number(periodRows[0]?.cutoff_date || 31);
+  const period = getPayrollPeriod(month, year, cutoffDate);
+  const employeeIds = Array.from(
+    new Set(
+      employees
+        .filter((employee) => employee?.employee_id != null)
+        .map((employee) => String(employee.employee_id).trim().toUpperCase())
+        .filter(Boolean)
+    )
+  );
+  const summaries = await getApprovedLopSummaryForPeriod(
+    pool,
+    employeeIds,
+    period.startDate,
+    period.endDate
+  );
+
+  return {
+    period,
+    employees: Object.fromEntries(
+      employeeIds.map((employeeId) => [
+        employeeId,
+        {
+          approvedLeaveCount: summaries.get(employeeId)?.count || 0,
+          approvedLopDays: summaries.get(employeeId)?.days || 0,
+        },
+      ])
+    ),
+  };
+}
+
 function getDateKey(value) {
   if (!value) return null;
   if (typeof value === "string") {
@@ -482,8 +558,9 @@ function getPayrollPeriod(month, year, cutoffDate) {
   const endMonthLastDate = new Date(
     Date.UTC(yearNumber, monthNumber, 0),
   ).getUTCDate();
+  const endMonthCutoff = Math.min(cutoff, endMonthLastDate);
   const endDate = new Date(
-    Date.UTC(yearNumber, monthNumber - 1, Math.min(cutoff, endMonthLastDate)),
+    Date.UTC(yearNumber, monthNumber - 1, endMonthCutoff - 1),
   );
   const startMonthLastDate = new Date(
     Date.UTC(yearNumber, monthNumber - 1, 0),
@@ -975,32 +1052,20 @@ async function calculateSalaryAttendanceDeductions({
     employees
       .filter((employee) => employee && employee.employee_id != null)
       .map((employee) => [
-        String(employee.employee_id),
+        String(employee.employee_id).trim().toUpperCase(),
         { annualCtc: Number(employee.annualCtc || employee.annual_ctc || 0) },
       ]),
   );
   const employeeIds = Array.from(employeeInputs.keys());
-  let approvedLeaveRows = [];
-  if (employeeIds.length) {
-    const placeholders = employeeIds.map(() => "?").join(", ");
-    const [rows] = await pool.execute(
-      queries.GET_APPROVED_LEAVE_SUMMARY.replace(
-        "/* employee placeholders */",
-        placeholders,
-      ),
-      [orgId, endDate, startDate, ...employeeIds],
-    );
-    approvedLeaveRows = rows || [];
-  }
-  const approvedLeavesByEmployee = new Map(
-    approvedLeaveRows.map((row) => [
-      String(row.employee_id),
-      Number(row.approved_leave_count || 0),
-    ]),
+  const approvedLeavesByEmployee = await getApprovedLopSummaryForPeriod(
+    pool,
+    employeeIds,
+    startDate,
+    endDate
   );
   const attendanceByEmployee = new Map();
   for (const row of attendanceRows || []) {
-    const employeeId = String(row.employee_id);
+    const employeeId = String(row.employee_id).trim().toUpperCase();
     if (!employeeInputs.has(employeeId)) continue;
     if (!attendanceByEmployee.has(employeeId))
       attendanceByEmployee.set(employeeId, []);
@@ -1020,7 +1085,8 @@ async function calculateSalaryAttendanceDeductions({
       missPunchOut: { count: 0, eligibleCount: 0, amount: 0 },
       lessLoginHours: { count: 0, eligibleCount: 0, amount: 0 },
       period: { startDate, endDate },
-      approvedLeaveCount: approvedLeavesByEmployee.get(employeeId) || 0,
+      approvedLeaveCount: approvedLeavesByEmployee.get(employeeId)?.count || 0,
+      approvedLopDays: approvedLeavesByEmployee.get(employeeId)?.days || 0,
     };
     const typeKeys = {
       late_login: "lateLogin",
@@ -1062,4 +1128,5 @@ module.exports = {
   calculateSalaryAttendanceDeductions,
   calculateAttendanceDeductionAmount,
   getPayrollPeriod,
+  getApprovedLopSummary,
 };

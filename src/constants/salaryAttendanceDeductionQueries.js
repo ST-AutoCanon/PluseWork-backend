@@ -155,16 +155,19 @@ module.exports = {
       AND status = 'Approved'
   `,
 
-  GET_APPROVED_LEAVE_SUMMARY: `
+  GET_APPROVED_LOP_LEAVE_SUMMARY: `
     SELECT
-      employee_id,
-      COUNT(*) AS approved_leave_count
-    FROM leavequeries
-    WHERE org_id = ?
-      AND status = 'Approved'
-      AND start_date <= ?
-      AND end_date >= ?
-      AND employee_id IN (/* employee placeholders */)
-    GROUP BY employee_id
+      UPPER(TRIM(lop.employee_id)) AS employee_id,
+      COUNT(DISTINCT lop.leave_id) AS approved_leave_count,
+      COALESCE(SUM(lop.lop_days), 0) AS approved_lop_days
+    FROM lop_records lop
+    INNER JOIN leavequeries lq
+      ON lq.id = lop.leave_id
+    WHERE lop.lop_days > 0
+      AND lop.created_at >= ?
+      AND lop.created_at < DATE_ADD(?, INTERVAL 1 DAY)
+      AND UPPER(TRIM(lop.employee_id)) IN (/* employee placeholders */)
+      AND UPPER(TRIM(lq.status)) = 'APPROVED'
+    GROUP BY UPPER(TRIM(lop.employee_id))
   `,
 };
