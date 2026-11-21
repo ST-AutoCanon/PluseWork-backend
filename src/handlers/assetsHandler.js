@@ -9,6 +9,25 @@ const getOrgIdFromHeaders = (req) => {
   );
 };
 
+const parseAccessoryIds = (value) => {
+  if (value === undefined) return undefined;
+  let parsed = value;
+  if (typeof value === "string") {
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      throw new Error("accessory_ids must be a valid JSON array");
+    }
+  }
+  if (
+    !Array.isArray(parsed) ||
+    parsed.some((id) => !Number.isInteger(Number(id)) || Number(id) <= 0)
+  ) {
+    throw new Error("accessory_ids must be an array of positive integer IDs");
+  }
+  return [...new Set(parsed.map(Number))];
+};
+
 const addAssetHandler = async (req, res) => {
   const orgId = getOrgIdFromHeaders(req);
   if (!orgId)
@@ -26,12 +45,15 @@ const addAssetHandler = async (req, res) => {
   }
 
   try {
+    const accessory_ids = parseAccessoryIds(req.body.accessory_ids) || [];
     const {
       asset_name,
       configuration,
       valuation_date,
       category,
       sub_category,
+      category_id,
+      subcategory_id,
     } = req.body;
     let { status } = req.body;
     const document_path = req.file ? `/uploads/${req.file.filename}` : null;
@@ -50,6 +72,9 @@ const addAssetHandler = async (req, res) => {
       assigned_to,
       category,
       sub_category,
+      category_id: Number(category_id),
+      subcategory_id: subcategory_id ? Number(subcategory_id) : null,
+      accessory_ids,
       status,
       document_path,
     };
@@ -70,6 +95,12 @@ const addAssetHandler = async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Error adding asset:", error);
+    if (
+      error.code === "INVALID_ACCESSORIES" ||
+      error.message.startsWith("accessory_ids")
+    ) {
+      return res.status(400).json({ message: error.message });
+    }
     if (error.message === "Organization not found") {
       return res.status(404).json({ message: "Organization not found" });
     }
@@ -111,6 +142,38 @@ const getAssetCategoriesHandler = async (req, res) => {
   }
 };
 
+const getAssetAccessoriesHandler = async (req, res) => {
+  const orgId = getOrgIdFromHeaders(req);
+  if (!orgId)
+    return res.status(400).json({ message: "org_id header is required" });
+
+  const categoryId = Number(req.query.category_id);
+  const subcategoryId = req.query.subcategory_id
+    ? Number(req.query.subcategory_id)
+    : null;
+  if (
+    !Number.isInteger(categoryId) ||
+    categoryId <= 0 ||
+    (subcategoryId !== null &&
+      (!Number.isInteger(subcategoryId) || subcategoryId <= 0))
+  ) {
+    return res.status(400).json({ message: "Valid category_id is required" });
+  }
+
+  try {
+    const accessories = await assetService.getAssetAccessories(
+      orgId,
+      categoryId,
+      subcategoryId,
+      req.query.asset_id || null
+    );
+    return res.status(200).json({ success: true, data: accessories });
+  } catch (error) {
+    console.error("Error fetching asset accessories:", error);
+    return res.status(500).json({ message: "Failed to retrieve accessories" });
+  }
+};
+
 const assignAsset = async (req, res) => {
   const orgId = getOrgIdFromHeaders(req);
   if (!orgId)
@@ -126,6 +189,7 @@ const assignAsset = async (req, res) => {
       comments,
       status,
     } = req.body;
+    const accessoryIds = parseAccessoryIds(req.body.accessory_ids);
     if (!assetId || !assignedTo || !startDate || !status) {
       return res.status(400).json({ message: "Missing required fields" });
     }
@@ -142,7 +206,8 @@ const assignAsset = async (req, res) => {
     const result = await assetService.updateAssignedTo(
       orgId,
       assetId,
-      assignedData
+      assignedData,
+      accessoryIds
     );
 
     if (result === "not_found")
@@ -158,6 +223,12 @@ const assignAsset = async (req, res) => {
     return res.status(200).json({ success: true, message: msg });
   } catch (error) {
     console.error("❌ Error assigning asset:", error);
+    if (
+      error.code === "INVALID_ACCESSORIES" ||
+      error.message.startsWith("accessory_ids")
+    ) {
+      return res.status(400).json({ message: error.message });
+    }
     if (error.message === "Organization not found") {
       return res.status(404).json({ message: "Organization not found" });
     }
@@ -287,6 +358,7 @@ module.exports = {
   addAssetHandler,
   getAssetsHandler,
   getAssetCategoriesHandler,
+  getAssetAccessoriesHandler,
   assignAsset,
   getAssetAssignmentHandler,
   updateReturnDateHandler,
