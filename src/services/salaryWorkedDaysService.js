@@ -219,16 +219,23 @@ async function calculateSalaryWorkedDays({
   for (const row of pendingLeaveRows || []) {
     const employeeId = String(row.employee_id);
     if (!pendingLeaveDatesByEmployee.has(employeeId)) {
-      pendingLeaveDatesByEmployee.set(employeeId, new Set());
+      pendingLeaveDatesByEmployee.set(employeeId, new Map());
     }
     const startDate = toDateKey(row.start_date);
     const leaveEndDate = toDateKey(row.end_date);
     if (!startDate || !leaveEndDate) continue;
+    const halfDay =
+      startDate === leaveEndDate &&
+      String(row.H_F_day || "").toLowerCase().includes("half");
+    const pendingDates = pendingLeaveDatesByEmployee.get(employeeId);
     for (const date of getDatesBetween(
       startDate < period.startDate ? period.startDate : startDate,
       leaveEndDate > endDate ? endDate : leaveEndDate,
     )) {
-      pendingLeaveDatesByEmployee.get(employeeId).add(date);
+      pendingDates.set(
+        date,
+        Math.min(1, (pendingDates.get(date) || 0) + (halfDay ? 0.5 : 1)),
+      );
     }
   }
 
@@ -246,9 +253,10 @@ async function calculateSalaryWorkedDays({
       const attendance = attendanceByEmployee.get(employeeId) || new Map();
       const leaveDates = leaveFractionsByEmployee.get(employeeId) || new Map();
       const pendingLeaveDates =
-        pendingLeaveDatesByEmployee.get(employeeId) || new Set();
+        pendingLeaveDatesByEmployee.get(employeeId) || new Map();
       let workedDays = 0;
       let approvedLeaveDays = 0;
+      let pendingLeaveDays = 0;
       let absentDays = 0;
       const dailyStatus = workingDateKeys.map((date) => {
         const punches = attendance.get(date);
@@ -263,7 +271,9 @@ async function calculateSalaryWorkedDays({
           absentDays += 1 - leaveFraction;
         } else if (pendingLeaveDates.has(date)) {
           status = "Pending Leave";
-          absentDays += 1;
+          const pendingLeaveFraction = pendingLeaveDates.get(date);
+          pendingLeaveDays += pendingLeaveFraction;
+          absentDays += pendingLeaveFraction;
         } else {
           status = "Absent";
           absentDays += 1;
@@ -272,6 +282,7 @@ async function calculateSalaryWorkedDays({
           date,
           status,
           leaveDays: leaveDates.get(date) || 0,
+          pendingLeaveDays: pendingLeaveDates.get(date) || 0,
           punchIn: punches?.firstPunchIn || null,
           punchOut: punches?.lastPunchOut || null,
         };
@@ -282,6 +293,7 @@ async function calculateSalaryWorkedDays({
         totalWorkingDays: workingDateKeys.length,
         workedDays: Number(workedDays.toFixed(2)),
         approvedLeaveDays: Number(approvedLeaveDays.toFixed(2)),
+        pendingLeaveDays: Number(pendingLeaveDays.toFixed(2)),
         absentDays: Number(absentDays.toFixed(2)),
         dailyStatus,
       };
