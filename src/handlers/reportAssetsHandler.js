@@ -320,6 +320,12 @@ async function downloadAssetsReport(req, res) {
     const requestedStatusToken = rawStatus
       ? canonicalizeStatusToken(rawStatus)
       : null;
+    const employeeIds = new Set(
+      String((req.query && req.query.employee_id) || "")
+        .split(",")
+        .map((id) => id.trim().toLowerCase())
+        .filter(Boolean),
+    );
 
     const normalizedRows = rows.map((r) => {
       const row = Object.assign({}, r);
@@ -340,6 +346,16 @@ async function downloadAssetsReport(req, res) {
     });
 
     const filtered = normalizedRows.filter((r) => {
+      if (employeeIds.size > 0) {
+        const assignedEmployeeIds = (r.__asset_assigned_entries || [])
+          .map((entry) => entry && entry.employeeId)
+          .filter(Boolean)
+          .map((id) => String(id).trim().toLowerCase());
+        if (!assignedEmployeeIds.some((id) => employeeIds.has(id))) {
+          return false;
+        }
+      }
+
       if (!requestedStatusToken) return true;
       const req = String(requestedStatusToken).toLowerCase();
       const lifecycle = (r.__asset_lifecycle_status || "").toLowerCase();

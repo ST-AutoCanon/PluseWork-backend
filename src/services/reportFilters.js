@@ -305,8 +305,16 @@ async function applyEmployeeAndDepartmentFilters(
   let filtered = rows;
 
   if (employeeId != null && String(employeeId).trim() !== "") {
-    const empRaw = String(employeeId).trim();
-    const normalizedEmpRaw = normalizeForCompare(empRaw);
+    const employeeIds = (Array.isArray(employeeId) ? employeeId : [employeeId])
+      .flatMap((value) => String(value).split(","))
+      .map((value) => value.trim())
+      .filter(Boolean);
+    const normalizedEmployeeIds = new Set(
+      employeeIds.flatMap((id) => [
+        normalizeForCompare(id),
+        normalizeForCompare(normalizeEmployeeId(id)),
+      ]),
+    );
 
     filtered = filtered.filter((r) => {
       const candidateIds = [];
@@ -317,12 +325,7 @@ async function applyEmployeeAndDepartmentFilters(
       if (r.id != null) candidateIds.push(String(r.id));
 
       for (const id of candidateIds) {
-        if (normalizeForCompare(id) === normalizedEmpRaw) return true;
-        if (
-          normalizeForCompare(id) ===
-          normalizeForCompare(normalizeEmployeeId(empRaw))
-        )
-          return true;
+        if (normalizedEmployeeIds.has(normalizeForCompare(id))) return true;
       }
 
       const candidateNames = [];
@@ -333,11 +336,11 @@ async function applyEmployeeAndDepartmentFilters(
       if (r.email) candidateNames.push(r.email);
 
       for (const n of candidateNames) {
-        if (normalizeForCompare(n) === normalizedEmpRaw) return true;
+        if (normalizedEmployeeIds.has(normalizeForCompare(n))) return true;
       }
 
-      return Object.values(r).some(
-        (v) => normalizeForCompare(v || "") === normalizedEmpRaw,
+      return Object.values(r).some((v) =>
+        normalizedEmployeeIds.has(normalizeForCompare(v || "")),
       );
     });
   }

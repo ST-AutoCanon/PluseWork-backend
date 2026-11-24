@@ -373,10 +373,16 @@ async function downloadReimbursementsReport(req, res) {
         });
       }
       if (employeeId) {
+        const employeeIds = new Set(
+          String(employeeId)
+            .split(",")
+            .map((id) => id.trim())
+            .filter(Boolean),
+        );
         rows = rows.filter((r) => {
           const eid =
             r && (r.employee_id ?? r.employeeId ?? r.emp_id ?? r.empId);
-          return eid != null && String(eid) === String(employeeId);
+          return eid != null && employeeIds.has(String(eid));
         });
       }
 

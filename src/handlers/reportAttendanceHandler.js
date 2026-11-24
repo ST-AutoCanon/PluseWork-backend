@@ -189,7 +189,14 @@ function filterAttendanceRows(rows, employeeId, departmentId) {
   if (!Array.isArray(rows) || rows.length === 0) return [];
   if (!employeeId && !departmentId) return rows;
 
-  const empIdStr = employeeId ? String(employeeId).trim() : null;
+  const empIds = new Set(
+    employeeId
+      ? String(employeeId)
+          .split(",")
+          .map((id) => id.trim().toLowerCase())
+          .filter(Boolean)
+      : [],
+  );
   const deptIdRaw = departmentId ? String(departmentId).trim() : null;
 
   const deptFilterNum =
@@ -218,9 +225,9 @@ function filterAttendanceRows(rows, employeeId, departmentId) {
     if (!rowDeptName && r.department != null)
       rowDeptName = String(r.department).toLowerCase();
 
-    if (empIdStr) {
-      const empIdMatch = rowEmpId === empIdStr;
-      const empNameMatch = rowEmpName === empIdStr.toLowerCase();
+    if (empIds.size > 0) {
+      const empIdMatch = rowEmpId && empIds.has(rowEmpId.toLowerCase());
+      const empNameMatch = rowEmpName && empIds.has(rowEmpName);
       if (!empIdMatch && !empNameMatch) return false;
     }
 

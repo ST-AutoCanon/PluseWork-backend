@@ -247,6 +247,11 @@ async function buildMetaFromReqQuery(query = {}) {
     const leaveType = coerceToString(query.leave_type ?? query.leaveType, null);
     if (leaveType) meta.filters.push(`Leave Type: ${leaveType}`);
 
+    const leaveApplication = coerceToString(query.leave_application, null);
+    if (leaveApplication && leaveApplication.toLowerCase() !== "all") {
+      meta.filters.push(`Leave Application: ${leaveApplication}`);
+    }
+
     let empCandidate =
       query.employee_id ?? query.employeeId ?? query.employee ?? null;
     if (typeof empCandidate === "string" && empCandidate.trim() === "")
@@ -357,10 +362,75 @@ function isExplicitManagerScope(req) {
   return false;
 }
 
+async function getEmployeesForLeaveSummary(
+  employeeId,
+  departmentId,
+  managerEmpId,
+  managedDeptIds,
+) {
+  const conditions = [];
+  const params = [];
+
+  const employeeIds = employeeId
+    ? String(employeeId)
+        .split(",")
+        .map((id) => id.trim())
+        .filter(Boolean)
+    : [];
+  if (employeeIds.length > 0) {
+    conditions.push(
+      `e.employee_id IN (${employeeIds.map(() => "?").join(", ")})`,
+    );
+    params.push(...employeeIds);
+  }
+  if (departmentId) {
+    conditions.push("pr.department_id = ?");
+    params.push(departmentId);
+  } else if (managedDeptIds.length > 0) {
+    conditions.push(
+      `pr.department_id IN (${managedDeptIds.map(() => "?").join(", ")})`,
+    );
+    params.push(...managedDeptIds);
+  } else if (managerEmpId) {
+    conditions.push("pr.supervisor_id = ?");
+    params.push(managerEmpId);
+  }
+
+  const whereClause = conditions.length
+    ? `WHERE ${conditions.join(" AND ")}`
+    : "";
+  return fetchRows(
+    `SELECT DISTINCT
+       e.employee_id,
+       CONCAT(COALESCE(e.first_name, ''), ' ', COALESCE(e.last_name, '')) AS employee_name,
+       COALESCE(d.name, '') AS department_name
+     FROM employees e
+     LEFT JOIN employee_professional pr ON e.employee_id = pr.employee_id
+     LEFT JOIN departments d ON pr.department_id = d.id
+     ${whereClause}
+     ORDER BY employee_name ASC`,
+    params,
+  );
+}
+
 async function downloadLeavesReport(req, res) {
   try {
     const parsed = parseDates(req.query || {});
     let { startDate, endDate, status, format, fields } = parsed;
+    const leaveApplicationRaw = coerceToString(
+      req.query.leave_application,
+      "All",
+    );
+    const leaveApplication = leaveApplicationRaw.toLowerCase();
+    if (
+      !["all", "applied leaves", "not applied leaves"].includes(
+        leaveApplication,
+      )
+    ) {
+      return res
+        .status(400)
+        .json({ message: "Invalid leave application filter" });
+    }
 
     const employeeIdQuery = coerceToString(
       req.query.employee_id ?? req.query.employeeId ?? req.query.employee,
@@ -456,6 +526,7 @@ async function downloadLeavesReport(req, res) {
     endDate = policyRange.endDate;
 
     let rows = [];
+    let managedDeptIds = [];
 
     if (employeeIdQuery || departmentIdQuery) {
       rows = await reportService.getLeaveRows(
@@ -468,7 +539,6 @@ async function downloadLeavesReport(req, res) {
       );
       rows = Array.isArray(rows) ? rows : [];
     } else if (managerEmpId) {
-      let managedDeptIds = [];
       try {
         managedDeptIds = await findDepartmentsManagedBy(managerEmpId);
       } catch (e) {
@@ -567,6 +637,85 @@ async function downloadLeavesReport(req, res) {
           ),
         );
       }
+    }
+
+    const employees = await getEmployeesForLeaveSummary(
+      employeeIdQuery,
+      departmentIdQuery,
+      managerEmpId,
+      managedDeptIds,
+    );
+    const employeeList = Array.isArray(employees) ? employees : [];
+    const eligibleEmployeeIds = new Set(
+      employeeList
+        .map((employee) => String(employee.employee_id || ""))
+        .filter(Boolean),
+    );
+    rows = rows.filter((row) =>
+      eligibleEmployeeIds.has(String(row.employee_id || "")),
+    );
+    const applicationRows = await fetchRows(
+      `SELECT DISTINCT employee_id
+       FROM leavequeries
+       WHERE end_date >= ? AND start_date <= ?`,
+      [startDate, endDate],
+    );
+    const applicantIds = new Set(
+      (Array.isArray(applicationRows) ? applicationRows : [])
+        .map((row) => String(row.employee_id || ""))
+        .filter((id) => eligibleEmployeeIds.has(id)),
+    );
+
+    if (leaveApplication === "applied leaves") {
+      rows = rows.filter((row) =>
+        applicantIds.has(String(row.employee_id || "")),
+      );
+    } else {
+      const noApplicationEmployees = employeeList.filter(
+        (employee) => !applicantIds.has(String(employee.employee_id || "")),
+      );
+      if (leaveApplication === "not applied leaves") rows = [];
+
+      const summaryRows = await Promise.all(
+        noApplicationEmployees.map(async (employee) => {
+          const balances = await LeavePolicyService.getLeaveBalance(
+            employee.employee_id,
+            getOrgId(),
+          );
+          const row = {
+            leave_id: "",
+            employee_id: employee.employee_id,
+            employee_name: employee.employee_name,
+            department_name: employee.department_name,
+            leave_type: "",
+            H_F_day: "",
+            leave_balance_summary:
+              reportService.formatLeaveBalanceSummary(balances),
+            start_date: "",
+            end_date: "",
+            status: "Not Applied",
+            reason: "",
+            comments: "",
+            is_defaulted: "",
+            created_at: "",
+            updated_at: "",
+            compensated_days: "",
+            deducted_days: "",
+            loss_of_pay_days: "",
+            preserved_leave_days: "",
+          };
+          return Array.isArray(fields)
+            ? Object.fromEntries(
+                fields
+                  .filter((field) =>
+                    Object.prototype.hasOwnProperty.call(row, field),
+                  )
+                  .map((field) => [field, row[field]]),
+              )
+            : row;
+        }),
+      );
+      rows = [...rows, ...summaryRows];
     }
 
     if (isPreviewRequest(req)) {

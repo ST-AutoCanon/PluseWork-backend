@@ -2273,4 +2273,5 @@ module.exports = {
   getFieldDisplayNames,
   buildMetaFromReqQuery,
   normalizeLeaveTypeKey,
+  formatLeaveBalanceSummary,
 };
