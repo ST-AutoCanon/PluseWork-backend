@@ -354,7 +354,16 @@ async function downloadTasksSupervisorReport(req, res) {
     }
 
     if (!isAdminOrHr(req) && employeeId && departmentId) {
-      const ok = await verifyEmployeeInDepartment(employeeId, departmentId);
+      const selectedEmployeeIds = String(employeeId)
+        .split(",")
+        .map((id) => id.trim())
+        .filter(Boolean);
+      const checks = await Promise.all(
+        selectedEmployeeIds.map((id) =>
+          verifyEmployeeInDepartment(id, departmentId),
+        ),
+      );
+      const ok = checks.length > 0 && checks.every(Boolean);
       if (!ok) {
         if (isPreviewRequest(req)) {
           return sendPreviewResponse(
@@ -538,9 +547,15 @@ async function downloadTasksSupervisorReport(req, res) {
     }
 
     if (employeeId) {
+      const selectedEmployeeIds = new Set(
+        String(employeeId)
+          .split(",")
+          .map((id) => id.trim())
+          .filter(Boolean),
+      );
       rows = rows.filter((r) => {
         const eid = r && (r.employee_id ?? r.employeeId ?? r.emp_id ?? r.empId);
-        return eid != null && String(eid).trim() === String(employeeId).trim();
+        return eid != null && selectedEmployeeIds.has(String(eid).trim());
       });
     }
 
@@ -672,7 +687,16 @@ async function downloadTasksEmployeeReport(req, res) {
       null;
 
     if (!isAdminOrHr(req) && employeeId && departmentId) {
-      const ok = await verifyEmployeeInDepartment(employeeId, departmentId);
+      const selectedEmployeeIds = String(employeeId)
+        .split(",")
+        .map((id) => id.trim())
+        .filter(Boolean);
+      const checks = await Promise.all(
+        selectedEmployeeIds.map((id) =>
+          verifyEmployeeInDepartment(id, departmentId),
+        ),
+      );
+      const ok = checks.length > 0 && checks.every(Boolean);
       if (!ok) {
         if (isPreview) {
           return sendPreviewResponse(
@@ -823,9 +847,15 @@ async function downloadTasksEmployeeReport(req, res) {
     }
 
     if (employeeId) {
+      const selectedEmployeeIds = new Set(
+        String(employeeId)
+          .split(",")
+          .map((id) => id.trim())
+          .filter(Boolean),
+      );
       rows = rows.filter((r) => {
         const eid = r && (r.employee_id ?? r.employeeId ?? r.emp_id ?? r.empId);
-        return eid != null && String(eid).trim() === String(employeeId).trim();
+        return eid != null && selectedEmployeeIds.has(String(eid).trim());
       });
     }
 
