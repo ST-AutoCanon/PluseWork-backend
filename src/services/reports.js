@@ -32,6 +32,10 @@ function numberOrZero(value) {
   return Number.isFinite(number) ? number : 0;
 }
 
+function formatLeaveBalanceValue(value) {
+  return numberOrZero(value).toFixed(1);
+}
+
 function formatLeaveBalanceSummary(balances = []) {
   if (!Array.isArray(balances) || balances.length === 0) {
     return "No balance available";
@@ -59,9 +63,9 @@ function formatLeaveBalanceSummary(balances = []) {
         other_leave: "Other Leave",
       };
       const label = balance?.label?.trim() || labelByType[type] || type;
-      const credited = numberOrZero(balance.allowance);
-      const used = numberOrZero(balance.used);
-      const remaining = numberOrZero(balance.remaining);
+      const credited = formatLeaveBalanceValue(balance.allowance);
+      const used = formatLeaveBalanceValue(balance.used);
+      const remaining = formatLeaveBalanceValue(balance.remaining);
       return `${label} — Credited ${credited} | Used ${used} | Remaining ${remaining}`;
     })
     .join("; ");
