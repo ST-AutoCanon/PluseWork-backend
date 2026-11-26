@@ -16,6 +16,10 @@ function resolveLeaveReportPolicyRange(
   const requestedStart = selectedRange?.startDate;
   const requestedEnd = selectedRange?.endDate;
   const currentDate = today || new Date().toISOString().slice(0, 10);
+  if (!requestedStart && !requestedEnd) {
+    return { startDate: null, endDate: null };
+  }
+
   const sortedPolicies = [...policies]
     .filter((policy) => policy?.year_start)
     .sort((a, b) => String(b.year_start).localeCompare(String(a.year_start)));
@@ -657,8 +661,9 @@ async function downloadLeavesReport(req, res) {
     const applicationRows = await fetchRows(
       `SELECT DISTINCT employee_id
        FROM leavequeries
-       WHERE end_date >= ? AND start_date <= ?`,
-      [startDate, endDate],
+       WHERE (? IS NULL OR end_date >= ?)
+         AND (? IS NULL OR start_date <= ?)`,
+      [startDate, startDate, endDate, endDate],
     );
     const applicantIds = new Set(
       (Array.isArray(applicationRows) ? applicationRows : [])
