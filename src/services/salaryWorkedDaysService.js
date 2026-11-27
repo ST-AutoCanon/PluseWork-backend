@@ -244,7 +244,8 @@ async function calculateSalaryWorkedDays({
   );
   const saturdayHolidays = getSelectedSaturdayDates(dateKeys, saturdayRows || []);
   const workingDateKeys = dateKeys.filter((date) => {
-    return !holidays.has(date) && !saturdayHolidays.has(date);
+    const dayOfWeek = new Date(`${date}T00:00:00Z`).getUTCDay();
+    return dayOfWeek !== 0 && !holidays.has(date) && !saturdayHolidays.has(date);
   });
 
   return {
