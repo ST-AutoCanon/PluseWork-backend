@@ -18,44 +18,6 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_DATE);
 
 const GET_ALL_ASSETS = `SELECT * FROM assets WHERE org_id = ?;`;
 
-const GET_ASSET_CATEGORIES = `
-  SELECT
-    c.category_id,
-    c.category_name,
-    s.subcategory_id,
-    s.subcategory_name
-  FROM asset_categories c
-  LEFT JOIN asset_subcategories s
-    ON s.category_id = c.category_id
-    AND s.org_id = c.org_id
-    AND s.status = 'Active'
-  WHERE c.org_id = ?
-    AND c.status = 'Active'
-  ORDER BY c.category_name, s.subcategory_name;
-`;
-
-const GET_ASSET_ACCESSORIES = `
-  SELECT
-    accessory.accessory_id,
-    accessory.accessory_name,
-    accessory.status,
-    assigned.quantity,
-    assigned.accessory_id IS NOT NULL AS is_selected
-  FROM asset_accessories accessory
-  LEFT JOIN asset_assigned_accessories assigned
-    ON assigned.accessory_id = accessory.accessory_id
-    AND assigned.org_id = accessory.org_id
-    AND assigned.asset_id = ?
-  WHERE accessory.org_id = ?
-    AND accessory.category_id = ?
-    AND accessory.subcategory_id <=> ?
-    AND (
-      accessory.status = 'Active'
-      OR assigned.accessory_id IS NOT NULL
-    )
-  ORDER BY accessory.accessory_name;
-`;
-
 const GET_LAST_ASSET_ID = `
   SELECT asset_id FROM assets WHERE asset_id LIKE ? ORDER BY asset_id DESC LIMIT 1;
 `;
@@ -114,8 +76,6 @@ module.exports = {
   INSERT_ASSET,
   GET_LAST_ASSET_ID,
   GET_ALL_ASSETS,
-  GET_ASSET_CATEGORIES,
-  GET_ASSET_ACCESSORIES,
   GET_ASSIGN_DATA,
   UPDATE_RETURN_DATE,
   GET_ASSET_COUNTS,

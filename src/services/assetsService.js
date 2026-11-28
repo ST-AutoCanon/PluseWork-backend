@@ -10,8 +10,6 @@ const {
   GET_ASSIGN_DATA,
   UPDATE_RETURN_DATE,
   GET_ASSET_COUNTS,
-  GET_ASSET_CATEGORIES,
-  GET_ASSET_ACCESSORIES,
 } = require("../constants/assetsQueries");
 
 const { getTenantPool, sanitizeDbName } = require("../db/tenantPoolManager");
@@ -30,7 +28,7 @@ const getOrganizationPrefix = async (orgId) => {
   try {
     const [rows] = await db.execute(
       `SELECT Name, subdomain FROM Organizations WHERE id = ? LIMIT 1`,
-      [orgId],
+      [orgId]
     );
 
     if (!rows || rows.length === 0) {
@@ -100,7 +98,7 @@ const getLastAssetCode = async (orgId) => {
       ORDER BY CAST(SUBSTRING_INDEX(asset_code, '-', -1) AS UNSIGNED) DESC
       LIMIT 1
       `,
-      [likePattern, orgId],
+      [likePattern, orgId]
     );
 
     if (!rows || rows.length === 0) {
@@ -117,94 +115,7 @@ const getLastAssetCode = async (orgId) => {
   }
 };
 
-const validateAccessoryIds = async (
-  connection,
-  orgId,
-  categoryId,
-  subcategoryId,
-  accessoryIds,
-  includeInactive = false,
-  categoryName,
-  subcategoryName
-) => {
-  if (accessoryIds.length === 0) return;
-
-  const [categoryRows] = await connection.query(
-    `
-      SELECT c.category_name, s.subcategory_name
-      FROM asset_categories c
-      LEFT JOIN asset_subcategories s
-        ON s.category_id = c.category_id
-        AND s.org_id = c.org_id
-        AND s.subcategory_id = ?
-      WHERE c.org_id = ? AND c.category_id = ?
-      LIMIT 1
-    `,
-    [subcategoryId || null, orgId, categoryId]
-  );
-  const category = categoryRows[0];
-  if (
-    !category ||
-    category.category_name !== categoryName ||
-    (subcategoryId
-      ? category.subcategory_name !== subcategoryName
-      : Boolean(subcategoryName))
-  ) {
-    const error = new Error("Selected accessories do not match this asset");
-    error.code = "INVALID_ACCESSORIES";
-    throw error;
-  }
-
-  const placeholders = accessoryIds.map(() => "?").join(", ");
-  const [rows] = await connection.query(
-    `
-      SELECT accessory_id
-      FROM asset_accessories
-      WHERE org_id = ?
-        AND category_id = ?
-        AND subcategory_id <=> ?
-        ${includeInactive ? "" : "AND status = 'Active'"}
-        AND accessory_id IN (${placeholders})
-    `,
-    [orgId, categoryId, subcategoryId || null, ...accessoryIds]
-  );
-  if (rows.length !== accessoryIds.length) {
-    const error = new Error("One or more selected accessories are invalid");
-    error.code = "INVALID_ACCESSORIES";
-    throw error;
-  }
-};
-
-const replaceAssetAccessories = async (
-  connection,
-  orgId,
-  assetId,
-  accessoryIds
-) => {
-  await connection.query(
-    "DELETE FROM asset_assigned_accessories WHERE org_id = ? AND asset_id = ?",
-    [orgId, assetId]
-  );
-
-  if (accessoryIds.length === 0) return;
-
-  const placeholders = accessoryIds.map(() => "(?, ?, ?, 1)").join(", ");
-  const values = accessoryIds.flatMap((accessoryId) => [
-    orgId,
-    assetId,
-    accessoryId,
-  ]);
-  await connection.query(
-    `INSERT INTO asset_assigned_accessories
-      (org_id, asset_id, accessory_id, quantity)
-     VALUES ${placeholders}`,
-    values
-  );
-};
-
 const addAsset = async (orgId, assetData) => {
-  let connection;
-  let transactionStarted = false;
   try {
     const {
       asset_name,
@@ -215,9 +126,6 @@ const addAsset = async (orgId, assetData) => {
       sub_category,
       status,
       document_path,
-      category_id,
-      subcategory_id,
-      accessory_ids = [],
     } = assetData;
 
     const orgPrefix = await getOrganizationPrefix(orgId);
@@ -258,32 +166,7 @@ const addAsset = async (orgId, assetData) => {
     ];
 
     const tenantPool = await getTenantPoolForOrgId(orgId);
-    connection = await tenantPool.getConnection();
-    await connection.beginTransaction();
-    transactionStarted = true;
-    const [result] = await connection.query(INSERT_ASSET, values);
-
-    if (accessory_ids.length > 0) {
-      await validateAccessoryIds(
-        connection,
-        orgId,
-        category_id,
-        subcategory_id,
-        accessory_ids,
-        false,
-        category,
-        sub_category
-      );
-      await replaceAssetAccessories(
-        connection,
-        orgId,
-        asset_id,
-        accessory_ids
-      );
-    }
-
-    await connection.commit();
-    transactionStarted = false;
+    const [result] = await tenantPool.query(INSERT_ASSET, values);
     return {
       asset_id,
       insertId: result.insertId,
@@ -298,12 +181,8 @@ const addAsset = async (orgId, assetData) => {
       document_path,
     };
   } catch (error) {
-    if (transactionStarted) await connection.rollback();
     console.error("❌ Error inserting asset:", error);
-    if (error.code === "INVALID_ACCESSORIES") throw error;
     throw new Error("Failed to add asset");
-  } finally {
-    if (connection) connection.release();
   }
 };
 
@@ -318,84 +197,15 @@ const getAssets = async (orgId) => {
   }
 };
 
-const getAssetCategories = async (orgId) => {
+const updateAssignedTo = async (orgId, assetId, assignedTo) => {
   try {
     const tenantPool = await getTenantPoolForOrgId(orgId);
-    const [rows] = await tenantPool.query(GET_ASSET_CATEGORIES, [orgId]);
-    const categoriesById = new Map();
 
-    for (const row of rows) {
-      if (!categoriesById.has(row.category_id)) {
-        categoriesById.set(row.category_id, {
-          category_id: row.category_id,
-          category_name: row.category_name,
-          subcategories: [],
-        });
-      }
-
-      if (row.subcategory_id !== null) {
-        categoriesById.get(row.category_id).subcategories.push({
-          subcategory_id: row.subcategory_id,
-          subcategory_name: row.subcategory_name,
-        });
-      }
-    }
-
-    return Array.from(categoriesById.values());
-  } catch (error) {
-    console.error("Error fetching asset categories:", error);
-    throw new Error("Failed to retrieve asset categories");
-  }
-};
-
-const getAssetAccessories = async (
-  orgId,
-  categoryId,
-  subcategoryId,
-  assetId = null
-) => {
-  try {
-    const tenantPool = await getTenantPoolForOrgId(orgId);
-    const [rows] = await tenantPool.query(GET_ASSET_ACCESSORIES, [
-      assetId,
-      orgId,
-      categoryId,
-      subcategoryId,
-    ]);
-    return rows.map((row) => ({
-      ...row,
-      is_selected: Number(row.is_selected) === 1,
-      quantity: row.quantity || 1,
-    }));
-  } catch (error) {
-    console.error("Error fetching asset accessories:", error);
-    throw new Error("Failed to retrieve asset accessories");
-  }
-};
-
-const updateAssignedTo = async (
-  orgId,
-  assetId,
-  assignedTo,
-  accessoryIds
-) => {
-  let connection;
-  let transactionStarted = false;
-  try {
-    const tenantPool = await getTenantPoolForOrgId(orgId);
-    connection = await tenantPool.getConnection();
-    await connection.beginTransaction();
-    transactionStarted = true;
-
-    const [rows] = await connection.query(
+    const [rows] = await tenantPool.query(
       "SELECT assigned_to FROM assets WHERE asset_id = ? AND org_id = ?",
-      [assetId, orgId],
+      [assetId, orgId]
     );
-    if (rows.length === 0) {
-      await connection.rollback();
-      transactionStarted = false;
-      return "not_found";
-    }
+    if (rows.length === 0) return "not_found";
 
     let assignedArray = [];
     if (rows[0].assigned_to) {
@@ -405,7 +215,7 @@ const updateAssignedTo = async (
     const existingIndex = assignedArray.findIndex(
       (entry) =>
         entry.name === assignedTo.name &&
-        entry.employeeId === assignedTo.employeeId,
+        entry.employeeId === assignedTo.employeeId
     );
 
     if (existingIndex !== -1) {
@@ -417,75 +227,23 @@ const updateAssignedTo = async (
         status: assignedTo.status || assignedArray[existingIndex].status,
       };
       const updatedJson = JSON.stringify(assignedArray);
-      await connection.query(
-        "UPDATE assets SET assigned_to = ?, status = CASE WHEN ? = 'Assigned' THEN 'In Use' ELSE status END WHERE asset_id = ? AND org_id = ?",
-        [updatedJson, assignedTo.status, assetId, orgId],
+      await tenantPool.query(
+        "UPDATE assets SET assigned_to = ? WHERE asset_id = ? AND org_id = ?",
+        [updatedJson, assetId, orgId]
       );
+      return "updated";
     } else {
       assignedArray.push(assignedTo);
       const updatedJson = JSON.stringify(assignedArray);
-      await connection.query(
-        "UPDATE assets SET assigned_to = ?, status = CASE WHEN ? = 'Assigned' THEN 'In Use' ELSE status END WHERE asset_id = ? AND org_id = ?",
-        [updatedJson, assignedTo.status, assetId, orgId],
+      await tenantPool.query(
+        "UPDATE assets SET assigned_to = ? WHERE asset_id = ? AND org_id = ?",
+        [updatedJson, assetId, orgId]
       );
+      return "inserted";
     }
-
-    if (accessoryIds !== undefined) {
-      const [assetRows] = await connection.query(
-        "SELECT category, sub_category FROM assets WHERE asset_id = ? AND org_id = ?",
-        [assetId, orgId]
-      );
-      const asset = assetRows[0];
-      const [categoryRows] = await connection.query(
-        `
-          SELECT c.category_id, s.subcategory_id
-          FROM asset_categories c
-          LEFT JOIN asset_subcategories s
-            ON s.category_id = c.category_id
-            AND s.org_id = c.org_id
-            AND s.subcategory_name = ?
-          WHERE c.org_id = ? AND c.category_name = ?
-          LIMIT 1
-        `,
-        [asset.sub_category, orgId, asset.category]
-      );
-      const category = categoryRows[0];
-      if (
-        !category ||
-        (asset.sub_category && !category.subcategory_id)
-      ) {
-        const error = new Error("Asset category is not configured");
-        error.code = "INVALID_ACCESSORIES";
-        throw error;
-      }
-      await validateAccessoryIds(
-        connection,
-        orgId,
-        category.category_id,
-        category.subcategory_id,
-        accessoryIds,
-        true,
-        asset.category,
-        asset.sub_category
-      );
-      await replaceAssetAccessories(
-        connection,
-        orgId,
-        assetId,
-        accessoryIds
-      );
-    }
-
-    await connection.commit();
-    transactionStarted = false;
-    return existingIndex !== -1 ? "updated" : "inserted";
   } catch (error) {
-    if (transactionStarted) await connection.rollback();
     console.error("❌ Database Error:", error);
-    if (error.code === "INVALID_ACCESSORIES") throw error;
     throw new Error("Failed to update asset assignment");
-  } finally {
-    if (connection) connection.release();
   }
 };
 
@@ -578,8 +336,6 @@ module.exports = {
   searchEmployeesByName,
   addAsset,
   getAssets,
-  getAssetCategories,
-  getAssetAccessories,
   updateAssignedTo,
   getAssignmentData,
   updateReturnDate,
